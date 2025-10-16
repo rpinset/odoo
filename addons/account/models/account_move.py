@@ -4664,7 +4664,7 @@ class AccountMove(models.Model):
     @api.model
     def _apply_delta_recurring_entries(self, date, date_origin, period):
         '''Advances date by `period` months, maintaining original day of the month if possible.
-        
+
         This method handles various recurring periods:
         - monthly: 1 month
         - bimonthly: 2 months
@@ -4672,7 +4672,7 @@ class AccountMove(models.Model):
         - four_months: 4 months
         - semi_annually: 6 months
         - yearly: 12 months
-        
+
         :param date: Current date to advance
         :param date_origin: Original date used as reference
         :param period: Period type
