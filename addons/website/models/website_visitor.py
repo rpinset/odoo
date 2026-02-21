@@ -24,6 +24,15 @@ class WebsiteTrack(models.Model):
     page_id = fields.Many2one('website.page', index=True, ondelete='cascade', readonly=True)
     url = fields.Text('Url', index=True)
     visit_datetime = fields.Datetime('Visit Date', default=fields.Datetime.now, required=True, readonly=True)
+    utm_source_id = fields.Many2one(
+        'utm.source', string='UTM Source', ondelete='set null', readonly=True, index='btree_not_null',
+    )
+    utm_medium_id = fields.Many2one(
+        'utm.medium', string='UTM Medium', ondelete='set null', readonly=True, index='btree_not_null',
+    )
+    utm_campaign_id = fields.Many2one(
+        'utm.campaign', string='UTM Campaign', ondelete='set null', readonly=True, index='btree_not_null',
+    )
 
 
 class WebsiteVisitor(models.Model):
@@ -288,6 +297,36 @@ class WebsiteVisitor(models.Model):
 
         return visitor
 
+    def _get_utm_track_values(self):
+        """Get UTM ids for website.track. Only when optional cookies allowed (GDPR consent)."""
+        if not request or request.env.cr.readonly:
+            return {}
+        if not request.env['ir.http']._is_allowed_cookie('optional'):
+            return {}
+        utm_mixin = self.env['utm.mixin']
+        values = {}
+        for url_param, field_name, cookie_name in utm_mixin.tracking_fields():
+            value = request.params.get(url_param) or request.cookies.get(cookie_name)
+            if isinstance(value, str) and value.strip():
+                field = utm_mixin._fields.get(field_name)
+                if field and field.type == 'many2one':
+                    record = utm_mixin._find_or_create_record(field.comodel_name, value.strip())
+                    values[field_name] = record.id
+        return values
+
+    def _update_last_track_utm(self, url=None):
+        """Update the most recent track with UTM from request (GDPR: only when consent given)."""
+        self.ensure_one()
+        utm_values = self._get_utm_track_values()
+        if not utm_values:
+            return
+        domain = [('visitor_id', '=', self.id)]
+        if url:
+            domain.append(('url', '=', url))
+        last_track = self.env['website.track'].sudo().search(domain, limit=1, order='visit_datetime DESC')
+        if last_track:
+            last_track.write(utm_values)
+
     def _handle_webpage_dispatch(self, website_page):
         """ Create a website.visitor if the http request object is a tracked
         website.page or a tracked ir.ui.view.
@@ -301,9 +340,15 @@ class WebsiteVisitor(models.Model):
             website_track_values['page_id'] = website_page.id
 
         self._get_visitor_from_request(force_create=True, force_track_values=website_track_values)
+        visitor = self._get_visitor_from_request(force_create=False)
+        if visitor:
+            visitor._update_last_track_utm(url)
 
     def _add_tracking(self, domain, website_track_values):
         """ Add the track and update the visitor"""
+        utm_values = self._get_utm_track_values()
+        if utm_values:
+            website_track_values = dict(website_track_values, **utm_values)
         domain = Domain.AND([domain, Domain('visitor_id', '=', self.id)])
         last_view = self.env['website.track'].sudo().search(domain, limit=1)
         if not last_view or last_view.visit_datetime < datetime.now() - timedelta(minutes=30):
