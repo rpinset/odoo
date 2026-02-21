@@ -6,6 +6,7 @@
         <field name="arch" type="xml">
             <list string="Mediums" editable="bottom" sample="1">
                 <field name="name" placeholder='e.g. "Email"'/>
+                <field name="visit_count" string="Access Count" readonly="1"/>
                 <field name="active" column_invisible="True"/>
             </list>
         </field>
@@ -19,6 +20,7 @@
                 <sheet>
                     <group>
                         <field name="name"/>
+                        <field name="visit_count"/>
                         <field name="active" widget="boolean_toggle"/>
                     </group>
                 </sheet>

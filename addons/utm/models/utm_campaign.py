@@ -27,6 +27,11 @@ class UtmCampaign(models.Model):
 
     is_auto_campaign = fields.Boolean(default=False, string="Automatically Generated Campaign", help="Allows us to filter relevant Campaigns")
     color = fields.Integer(string='Color Index')
+    visit_count = fields.Integer(
+        string='Access Count',
+        default=0,
+        help='Anonymous count of URL accesses with this UTM campaign (GDPR compliant, no visitor link)',
+    )
 
     _unique_name = models.Constraint(
         'UNIQUE(name)',

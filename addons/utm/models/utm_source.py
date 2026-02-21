@@ -9,6 +9,11 @@ class UtmSource(models.Model):
     _description = 'UTM Source'
 
     name = fields.Char(string='Source Name', required=True)
+    visit_count = fields.Integer(
+        string='Access Count',
+        default=0,
+        help='Anonymous count of URL accesses with this UTM source (GDPR compliant, no visitor link)',
+    )
 
     _unique_name = models.Constraint(
         'UNIQUE(name)',

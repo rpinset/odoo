@@ -6,6 +6,7 @@
         <field name="arch" type="xml">
             <list string="Source" editable="bottom" sample="1">
                 <field name="name" placeholder='e.g. "Christmas Mailing"'/>
+                <field name="visit_count" string="Access Count" readonly="1"/>
             </list>
         </field>
     </record>
@@ -18,6 +19,7 @@
                 <sheet>
                     <group>
                         <field name="name"/>
+                        <field name="visit_count"/>
                     </group>
                 </sheet>
             </form>

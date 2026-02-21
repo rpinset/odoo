@@ -15,6 +15,11 @@ class UtmMedium(models.Model):
 
     name = fields.Char(string='Medium Name', required=True, translate=False)
     active = fields.Boolean(default=True)
+    visit_count = fields.Integer(
+        string='Access Count',
+        default=0,
+        help='Anonymous count of URL accesses with this UTM medium (GDPR compliant, no visitor link)',
+    )
 
     _unique_name = models.Constraint(
         'UNIQUE(name)',
