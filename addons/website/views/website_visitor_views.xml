@@ -10,9 +10,9 @@
                 <field name="page_id"/>
                 <field name="url"/>
                 <field name="visit_datetime"/>
-                <field name="utm_source_id"/>
-                <field name="utm_medium_id"/>
-                <field name="utm_campaign_id"/>
+                <field name="source_id"/>
+                <field name="medium_id"/>
+                <field name="campaign_id"/>
             </list>
         </field>
     </record>
@@ -36,9 +36,9 @@
                 <field name="page_id"/>
                 <field name="url"/>
                 <field name="visit_datetime"/>
-                <field name="utm_source_id"/>
-                <field name="utm_medium_id"/>
-                <field name="utm_campaign_id"/>
+                <field name="source_id"/>
+                <field name="medium_id"/>
+                <field name="campaign_id"/>
                 <filter string="Pages" name="type_page" domain="[('page_id', '!=', False)]"/>
                 <filter string="Urls &amp; Pages" name="type_url" domain="[('url', '!=', False)]"/>
                 <group>

@@ -16,6 +16,7 @@ from odoo.http import request
 
 class WebsiteTrack(models.Model):
     _name = 'website.track'
+    _inherit = ['utm.mixin']
     _description = 'Visited Pages'
     _order = 'visit_datetime DESC'
     _log_access = False
@@ -24,15 +25,9 @@ class WebsiteTrack(models.Model):
     page_id = fields.Many2one('website.page', index=True, ondelete='cascade', readonly=True)
     url = fields.Text('Url', index=True)
     visit_datetime = fields.Datetime('Visit Date', default=fields.Datetime.now, required=True, readonly=True)
-    utm_source_id = fields.Many2one(
-        'utm.source', string='UTM Source', ondelete='set null', readonly=True, index='btree_not_null',
-    )
-    utm_medium_id = fields.Many2one(
-        'utm.medium', string='UTM Medium', ondelete='set null', readonly=True, index='btree_not_null',
-    )
-    utm_campaign_id = fields.Many2one(
-        'utm.campaign', string='UTM Campaign', ondelete='set null', readonly=True, index='btree_not_null',
-    )
+    source_id = fields.Many2one(readonly=True, ondelete='set null')
+    medium_id = fields.Many2one(readonly=True, ondelete='set null')
+    campaign_id = fields.Many2one(readonly=True, ondelete='set null')
 
 
 class WebsiteVisitor(models.Model):
