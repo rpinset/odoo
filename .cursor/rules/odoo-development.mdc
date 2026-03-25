@@ -1,0 +1,426 @@
+---
+description: Odoo Community Edition development — Python, XML, JavaScript/OWL conventions across versions 14–19
+globs:
+alwaysApply: true
+---
+
+# Odoo Community Edition — Development Guide (v14 → v19)
+
+This rule is **always active**. It covers conventions, API differences, and best practices for every Odoo version from 14.0 to 19.1.
+
+---
+
+## 1. Detect the current version
+
+Before writing any code, determine the Odoo version from `odoo/release.py` (`version_info` tuple). Adapt **all** generated code to that version — do not mix patterns from different versions.
+
+| Field | Location |
+|-------|----------|
+| Version tuple | `odoo/release.py → version_info` |
+| Min Python | `MIN_PY_VERSION` |
+| Min PostgreSQL | `MIN_PG_VERSION` |
+
+---
+
+## 2. Version-specific breaking changes
+
+### 2.1 XML Views
+
+| Feature | v14–v16 | v17 | v18–v19 |
+|---------|---------|-----|---------|
+| List tag | `<tree>` | `<tree>` (deprecated) or `<list>` | **`<list>`** only |
+| `attrs` attribute | `attrs="{'invisible': [('field','=',True)]}"` | **Removed** — use `invisible="field == True"` | Same as v17 |
+| `states` attribute | `states="draft,confirm"` | **Removed** — use `invisible="state not in ('draft','confirm')"` | Same as v17 |
+| Column invisible | `<field invisible="1"/>` inside tree | Same | `column_invisible="True"` (separate from row `invisible`) |
+
+```xml
+<!-- v14–v16 -->
+<tree>
+    <field name="amount" attrs="{'invisible': [('state', '!=', 'done')]}"/>
+</tree>
+
+<!-- v17+ -->
+<list>
+    <field name="amount" invisible="state != 'done'"/>
+</list>
+```
+
+### 2.2 Python / ORM
+
+| Feature | v14 | v15 | v16 | v17 | v18–v19 |
+|---------|-----|-----|-----|-----|---------|
+| `company_dependent` fields | `company_dependent=True` | Same | Same | **`Property` field** preferred | Same as v17 |
+| `name_get()` | Override `name_get()` | Same | Same | **Deprecated** — use `_compute_display_name` | Same as v17 |
+| `read_group()` | `read_group()` | Same | Same | Same | **`_read_group()`** (new signature with aggregates) |
+| `fields_get()` filtering | Manual | Same | Same | Same | `attributes` param replaces `allfields` |
+| Date/Datetime field defaults | `fields.Date.today()` | Same | Same | Same | Same |
+| `@api.model_create_multi` | Needed for batch `create` | Same | Same | **Removed** — `create()` always receives a list | Same as v17 |
+| `@api.returns` | Used | Same | Same | **Deprecated** | Removed in v19 |
+| `log_access` fields | `create_uid`, `write_uid`, `create_date`, `write_date` | Same | Same | Same | Default unchanged |
+| Web controllers | `from odoo.http import Controller, route` | Same | Same | Same | Same |
+
+```python
+# v14–v16: name_get
+def name_get(self):
+    return [(rec.id, f'{rec.name} ({rec.code})') for rec in self]
+
+# v17+: _compute_display_name
+def _compute_display_name(self):
+    for rec in self:
+        rec.display_name = f'{rec.name} ({rec.code})'
+```
+
+```python
+# v14–v16: @api.model_create_multi required for batch create
+@api.model_create_multi
+def create(self, vals_list):
+    return super().create(vals_list)
+
+# v17+: create() always receives a list, decorator removed
+def create(self, vals_list):
+    return super().create(vals_list)
+```
+
+### 2.3 JavaScript / Frontend
+
+| Feature | v14 | v15 | v16 | v17–v19 |
+|---------|-----|-----|-----|---------|
+| Widget system | Legacy Widgets (`Widget.extend`) | **OWL 2** introduced alongside legacy | OWL 2 primary, legacy deprecated | **OWL only** — no legacy widgets |
+| Module system | `odoo.define('name', function(require) {...})` | `/** @odoo-module */` + ES6 imports | Same as v15 | Same as v15 |
+| Component registry | N/A | `registry` from `@web/core/registry` | Same | Same |
+| jQuery | Heavy use | Still available | Available but discouraged | Minimal — use OWL reactivity |
+
+```javascript
+// v14 (legacy)
+odoo.define('my_module.MyWidget', function (require) {
+    var Widget = require('web.Widget');
+    var MyWidget = Widget.extend({ /* ... */ });
+    return MyWidget;
+});
+
+// v15+ (OWL)
+/** @odoo-module */
+import { Component, useState } from '@odoo/owl';
+import { registry } from '@web/core/registry';
+
+export class MyComponent extends Component {
+    static template = 'my_module.MyComponent';
+    static props = { recordId: { type: Number } };
+    setup() {
+        this.state = useState({ loading: false });
+    }
+}
+```
+
+---
+
+## 3. Module structure
+
+Canonical layout for an Odoo addon:
+
+```
+my_module/
+├── __init__.py              # imports models, controllers, wizards, etc.
+├── __manifest__.py          # metadata, dependencies, data files
+├── models/
+│   ├── __init__.py
+│   └── my_model.py
+├── views/
+│   └── my_model_views.xml   # form, list, search, actions, menus
+├── security/
+│   ├── ir.model.access.csv  # model-level ACLs
+│   └── security.xml         # groups + record rules (ir.rule)
+├── data/                    # default data loaded on install
+├── demo/                    # demo data (loaded with --demo)
+├── wizard/                  # transient models (wizards)
+├── controllers/             # HTTP controllers
+├── report/                  # QWeb report templates
+├── static/
+│   ├── description/icon.svg
+│   ├── src/                 # JS, SCSS, XML templates
+│   └── tests/tours/         # JS tour tests
+├── tests/
+│   ├── __init__.py
+│   └── test_my_model.py
+└── i18n/                    # .pot + .po translations
+```
+
+### Manifest (`__manifest__.py`)
+
+```python
+{
+    'name': 'My Module',
+    'version': '19.0.1.0.0',
+    'category': 'Category',
+    'summary': 'Short description',
+    'description': 'Longer description',
+    'author': 'RoPi IT Solutions',
+    'contributors': ['Romaric PINSET LEPRETRE'],
+    'website': 'https://ropi-it.fr',
+    'license': 'LGPL-3',
+    'depends': ['base', 'mail'],
+    'data': [
+        'security/ir.model.access.csv',
+        'security/security.xml',
+        'views/my_model_views.xml',
+    ],
+    'demo': [],
+    'installable': True,
+    'application': False,
+    'auto_install': False,
+    'assets': {
+        'web.assets_backend': [
+            'my_module/static/src/**/*',
+        ],
+    },
+}
+```
+
+Version in manifest follows `<odoo_version>.module_version` (e.g. `19.0.1.0.0`). For Odoo core addons, version is shorter (e.g. `'1.2'`).
+
+---
+
+## 4. Python coding standards
+
+### Formatting
+- **Ruff** linter with `ruff.toml` at repo root (config checked in)
+- 4-space indentation, 150-char line limit
+- Single quotes for strings (double when reducing escaping)
+- Two blank lines between top-level definitions
+- One blank line between methods inside a class
+- No trailing whitespace; blank line at end of file
+- Comments in English only
+
+### Import order (enforced by ruff isort)
+```python
+# 1. Future
+from __future__ import annotations
+
+# 2. Standard library
+import logging
+from datetime import datetime
+
+# 3. Third-party
+from dateutil.relativedelta import relativedelta
+
+# 4. Odoo (first-party)
+from odoo import api, fields, models, _
+from odoo.exceptions import UserError, ValidationError
+
+# 5. Local (odoo.addons)
+from odoo.addons.module_name.models.model import SomeClass
+```
+
+### Model class conventions
+```python
+class MyModel(models.Model):
+    _name = 'my.model'
+    _description = 'My Model'
+    _inherit = ['mail.thread', 'mail.activity.mixin']
+    _order = 'sequence, id'
+
+    # --- Fields (grouped: default, relational, computed) ---
+    name = fields.Char(string='Name', required=True, tracking=True)
+    sequence = fields.Integer(default=10)
+    state = fields.Selection([
+        ('draft', 'Draft'),
+        ('confirm', 'Confirmed'),
+        ('done', 'Done'),
+    ], default='draft', tracking=True)
+    partner_id = fields.Many2one('res.partner', string='Partner')
+    line_ids = fields.One2many('my.model.line', 'model_id', string='Lines')
+    total = fields.Float(compute='_compute_total', store=True)
+
+    # --- Compute ---
+    @api.depends('line_ids.amount')
+    def _compute_total(self):
+        for record in self:
+            record.total = sum(record.line_ids.mapped('amount'))
+
+    # --- Constraints ---
+    @api.constrains('name')
+    def _check_name(self):
+        for record in self:
+            if record.name and len(record.name) < 3:
+                raise ValidationError(_('Name must be at least 3 characters.'))
+
+    # --- CRUD ---
+    def create(self, vals_list):
+        return super().create(vals_list)
+
+    def write(self, vals):
+        return super().write(vals)
+
+    # --- Actions ---
+    def action_confirm(self):
+        self.write({'state': 'confirm'})
+```
+
+### ORM best practices
+```python
+# Batch writes — NOT inside a loop
+records.write({'state': 'done'})
+
+# Prefetch for related field access in loops
+records = self.search([]).with_prefetch()
+
+# sudo() with specific user, not global
+record.with_user(specific_user).sudo().action()
+
+# search_count for existence checks
+if self.search_count([('name', '=', name)]):
+    raise UserError(_('Already exists'))
+
+# Use mapped/filtered/sorted over manual loops
+active_partners = records.filtered(lambda r: r.active)
+names = records.mapped('partner_id.name')
+sorted_records = records.sorted('sequence')
+```
+
+---
+
+## 5. XML standards
+
+### Attribute ordering
+1. `id`, `model` (records)
+2. `name`, `string`, `type` (fields)
+3. `invisible`, `readonly`, `required` (states) — direct expressions v17+
+4. `widget`, `options` (UI)
+5. `groups` (security)
+
+### View inheritance
+```xml
+<record id="view_model_form_inherit" model="ir.ui.view">
+    <field name="name">model.form.inherit</field>
+    <field name="model">model.name</field>
+    <field name="inherit_id" ref="module.view_id"/>
+    <field name="arch" type="xml">
+        <xpath expr="//field[@name='field']" position="after">
+            <field name="new_field"/>
+        </xpath>
+    </field>
+</record>
+```
+
+### Security files
+
+**`ir.model.access.csv`:**
+```csv
+id,name,model_id:id,group_id:id,perm_read,perm_write,perm_create,perm_unlink
+access_my_model_user,my.model.user,model_my_model,base.group_user,1,1,1,0
+access_my_model_manager,my.model.manager,model_my_model,my_module.group_manager,1,1,1,1
+```
+
+**`security.xml` (groups + record rules):**
+```xml
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+<data noupdate="0">
+    <record id="group_manager" model="res.groups">
+        <field name="name">Manager</field>
+        <field name="category_id" ref="base.module_category_services"/>
+    </record>
+</data>
+<data noupdate="1">
+    <record id="rule_multi_company" model="ir.rule">
+        <field name="name">Multi-company rule</field>
+        <field name="model_id" ref="model_my_model"/>
+        <field eval="True" name="global"/>
+        <field name="domain_force">['|',('company_id','=',False),('company_id','parent_of',company_ids)]</field>
+    </record>
+</data>
+</odoo>
+```
+
+---
+
+## 6. Testing
+
+### Test base classes (all versions)
+| Class | Use case |
+|-------|----------|
+| `TransactionCase` | Standard ORM tests — rolled back per method via savepoint |
+| `SingleTransactionCase` | Tests that need state across methods (same transaction) |
+| `HttpCase` | Tests requiring HTTP (browser tours, `url_open()`, XML-RPC) |
+
+### Tags
+```python
+from odoo.tests import tagged, TransactionCase
+
+@tagged('post_install', '-at_install')
+class TestMyModel(TransactionCase):
+
+    @classmethod
+    def setUpClass(cls):
+        super().setUpClass()
+        cls.partner = cls.env['res.partner'].create({'name': 'Test'})
+
+    def test_create(self):
+        record = self.env['my.model'].create({'name': 'Test', 'partner_id': self.partner.id})
+        self.assertEqual(record.state, 'draft')
+
+    def test_confirm(self):
+        record = self.env['my.model'].create({'name': 'Test', 'partner_id': self.partner.id})
+        record.action_confirm()
+        self.assertEqual(record.state, 'confirm')
+```
+
+### Running tests
+```bash
+# Specific test class
+python3 odoo-bin --config=odoo-dev.conf --test-tags=/<module>:<TestClass> --stop-after-init --no-http
+
+# Specific test method
+python3 odoo-bin --config=odoo-dev.conf --test-tags=/<module>:<TestClass>.test_method --stop-after-init --no-http
+
+# All tests for a module
+python3 odoo-bin --config=odoo-dev.conf --test-tags=/<module> --stop-after-init --no-http
+
+# Install module + run at_install tests
+python3 odoo-bin --config=odoo-dev.conf -i my_module --test-enable --stop-after-init --no-http
+```
+
+---
+
+## 7. Dev server & environment (Cloud Agent)
+
+```bash
+# Start PostgreSQL (required — does not auto-start)
+sudo pg_ctlcluster 16 main start
+
+# Run Odoo in dev mode with auto-reload
+python3 odoo-bin --config=odoo-dev.conf --dev=reload
+
+# Install/update a module
+python3 odoo-bin --config=odoo-dev.conf -i my_module --stop-after-init
+python3 odoo-bin --config=odoo-dev.conf -u my_module --stop-after-init
+```
+
+- Config: `odoo-dev.conf` (repo root) — `addons_path`, `db_name=odoo_dev`, port 8069
+- Admin credentials: `admin` / `admin`
+- Lint: `ruff check --config ruff.toml <files>`
+- `wkhtmltopdf` not installed — PDF reports unavailable, not blocking for dev
+
+---
+
+## 8. Quick reference — version compatibility matrix
+
+Use this table when generating code. Always check the version first.
+
+| Pattern | v14 | v15 | v16 | v17 | v18 | v19 |
+|---------|:---:|:---:|:---:|:---:|:---:|:---:|
+| `<tree>` tag | ✅ | ✅ | ✅ | ⚠️ deprecated | ❌ use `<list>` | ❌ use `<list>` |
+| `attrs="{...}"` in XML | ✅ | ✅ | ✅ | ❌ removed | ❌ | ❌ |
+| `states="..."` in XML | ✅ | ✅ | ✅ | ❌ removed | ❌ | ❌ |
+| `name_get()` | ✅ | ✅ | ✅ | ⚠️ deprecated | ❌ | ❌ |
+| `_compute_display_name` | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `@api.model_create_multi` | ✅ | ✅ | ✅ | ❌ removed | ❌ | ❌ |
+| `@api.returns` | ✅ | ✅ | ✅ | ⚠️ deprecated | ⚠️ | ❌ removed |
+| Property fields | ❌ | ❌ | ❌ | ✅ | ✅ | ✅ |
+| `read_group()` (old sig) | ✅ | ✅ | ✅ | ✅ | ❌ use `_read_group()` | ❌ |
+| Legacy JS widgets | ✅ | ⚠️ | ⚠️ deprecated | ❌ | ❌ | ❌ |
+| OWL components | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `/** @odoo-module */` | ❌ | ✅ | ✅ | ✅ | ✅ | ✅ |
+| `column_invisible` | ❌ | ❌ | ❌ | ❌ | ✅ | ✅ |
+| Min Python | 3.6 | 3.7 | 3.7 | 3.10 | 3.10 | 3.12 |
+| Min PostgreSQL | 10 | 10 | 12 | 12 | 16 | 16 |
