@@ -7,6 +7,10 @@ _build/
 !.github
 !.mailmap
 !.weblate.json
+!.cursor
+!.cursor/skills
+!.cursor/skills/cloud-agent-starter
+!.cursor/skills/cloud-agent-starter/SKILL.md
 # compiled python files
 *.py[co]
 __pycache__/
