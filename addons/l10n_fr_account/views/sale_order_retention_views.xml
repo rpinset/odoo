@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="view_order_form_inherit_l10n_fr_retention" model="ir.ui.view">
+        <field name="name">sale.order.form.inherit.l10n.fr.retention</field>
+        <field name="model">sale.order</field>
+        <field name="inherit_id" ref="sale.view_order_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//group[@name='sale_info']" position="after">
+                <group name="l10n_fr_retention_guarantee_group" string="Retention Guarantee">
+                    <field name="l10n_fr_has_retention_guarantee"/>
+                    <field name="l10n_fr_retention_clause_note"
+                           invisible="not l10n_fr_has_retention_guarantee"
+                           required="l10n_fr_has_retention_guarantee"
+                           placeholder="Retenue de garantie de 5 % (loi n°71-584 du 16 juillet 1971). Libérable un an après réception des travaux."/>
+                </group>
+            </xpath>
+        </field>
+    </record>
+</odoo>

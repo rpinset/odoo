@@ -176,7 +176,7 @@
                     </ram:IncludedNote>
                     <ram:IncludedNote t-foreach="ExchangedDocument_vals.get('included_note_list')" t-as="included_note">
                         <ram:Content t-out="included_note.get('content')"/>
-                        <ram:SubjectCode t-out="included_note.get('subject_code')"/>
+                        <ram:SubjectCode t-if="included_note.get('subject_code')" t-out="included_note.get('subject_code')"/>
                     </ram:IncludedNote>
                 </rsm:ExchangedDocument>
 
