@@ -48,31 +48,62 @@ export class OfflinePrefetchService {
                 hours,
                 scope,
             });
+            if (!result.manifest?.length && !result.partners?.res_ids?.length) {
+                this.notification.add(
+                    _t("No records matched your criteria. Try increasing the time range or choosing « All »."),
+                    { type: "warning" }
+                );
+                return result;
+            }
+            const actionXmlids = new Set();
+            for (const job of result.manifest) {
+                actionXmlids.add(job.action_xmlid);
+            }
+            if (result.partners?.action_xmlid) {
+                actionXmlids.add(result.partners.action_xmlid);
+            }
+            await this._prefetchActions([...actionXmlids]);
+
             const jobs = [...result.manifest];
             if (result.partners?.res_ids?.length) {
-                jobs.push(result.partners);
+                jobs.push({ ...result.partners, category_id: "partners" });
             }
             let done = 0;
-            const totalSteps = jobs.reduce(
-                (acc, job) => acc + 1 + (job.view_types?.includes("form") ? job.res_ids.length : 0),
-                0
+            const totalSteps = Math.max(
+                1,
+                jobs.reduce(
+                    (acc, job) =>
+                        acc +
+                        (job.res_ids.length && job.view_types?.includes("list") ? 1 : 0) +
+                        (job.view_types?.includes("form") ? job.res_ids.length : 0),
+                    0
+                )
             );
             const bump = (label) => {
                 done += 1;
-                this.state.progress = Math.round((done / totalSteps) * 100);
+                this.state.progress = Math.min(100, Math.round((done / totalSteps) * 100));
                 this.state.progressLabel = label;
             };
             for (const job of jobs) {
                 await this._prefetchJob(job, bump);
             }
             this.notification.add(
-                _t("Offline data is ready. You can work without a connection and refresh the page."),
+                _t(
+                    "Offline data is ready (%(count)s record types). You can work without a connection and refresh the page.",
+                    { count: result.manifest.length }
+                ),
                 { type: "success" }
             );
             return result;
         } finally {
             this.state.collecting = false;
             closeNotification();
+        }
+    }
+
+    async _prefetchActions(actionXmlids) {
+        for (const actionXmlid of actionXmlids) {
+            await this.actionService.loadAction(actionXmlid);
         }
     }
 

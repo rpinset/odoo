@@ -5,9 +5,9 @@
         <Dropdown t-if="this.visible" navigationOptions="{ 'shouldFocusChildInput': false }">
             <button
                 class="o_nav_entry px-2 o_offline_prefetch_systray"
-                data-tooltip="Prepare offline data"
+                t-att-data-tooltip="this.tooltipLabel"
                 t-att-disabled="this.offlinePrefetch.state.collecting">
-                <i class="fa fa-plane me-1" role="img" aria-label="Prepare offline"/>
+                <i class="fa fa-plane me-1" role="img" t-att-aria-label="this.tooltipLabel"/>
                 <t t-if="!this.env.isSmall">Offline</t>
             </button>
             <t t-set-slot="content">
@@ -20,10 +20,10 @@
                             <i class="fa fa-spinner fa-spin me-1"/>
                             <t t-out="this.offlinePrefetch.state.progress"/>%
                         </t>
-                        <t t-else="">Collect data</t>
+                        <t t-else="" t-out="this.collectButtonLabel"/>
                     </button>
                     <div class="mb-2">
-                        <label class="form-label small text-muted">For the next (hours)</label>
+                        <label class="form-label small text-muted" t-out="this.hoursLabel"/>
                         <input
                             type="range"
                             class="form-range"
@@ -42,7 +42,7 @@
                                 value="me"
                                 t-model="this.state.scope"
                                 autocomplete="off"/>
-                            <label class="btn btn-outline-secondary btn-sm" for="offline_prefetch_scope_me">Me</label>
+                            <label class="btn btn-outline-secondary btn-sm" for="offline_prefetch_scope_me" t-out="this.meLabel"/>
                             <input
                                 type="radio"
                                 class="btn-check"
@@ -51,10 +51,10 @@
                                 value="all"
                                 t-model="this.state.scope"
                                 autocomplete="off"/>
-                            <label class="btn btn-outline-secondary btn-sm" for="offline_prefetch_scope_all">All</label>
+                            <label class="btn btn-outline-secondary btn-sm" for="offline_prefetch_scope_all" t-out="this.allLabel"/>
                         </div>
                     </div>
-                    <div class="o_horizontal_separator text-uppercase fw-bolder small mb-1">Modules</div>
+                    <div class="o_horizontal_separator text-uppercase fw-bolder small mb-1" t-out="this.modulesLabel"/>
                     <t t-foreach="this.state.categories" t-as="category" t-key="category.id">
                         <div class="form-check">
                             <input

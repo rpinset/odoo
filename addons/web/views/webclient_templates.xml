@@ -367,6 +367,7 @@
                 <img t-attf-src="data:image/png;base64,{{odoo_icon.to_base64()}}" alt="Odoo logo"/>
                 <h1>You are offline</h1>
                 <p>Check your network connection and come back here. Odoo will load as soon as you're back online.</p>
+                <p>If you prepared offline data using the airplane icon before losing connection, try reloading once your device reconnects.</p>
                 <button onclick="location.reload()">Check again</button>
             </div>
         </t>

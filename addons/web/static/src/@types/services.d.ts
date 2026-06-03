@@ -15,6 +15,7 @@ declare module "services" {
     import { httpService } from "@web/core/network/http_service";
     import { notificationService } from "@web/core/notifications/notification_service";
     import { offlineService } from "@web/core/offline/offline_service";
+    import { offlinePrefetchService } from "@web/core/offline/offline_prefetch_service";
     import { ormService } from "@web/core/orm_service";
     import { overlayService } from "@web/core/overlay/overlay_service";
     import { popoverService } from "@web/core/popover/popover_service";
@@ -56,6 +57,7 @@ declare module "services" {
         name: typeof nameService;
         notification: typeof notificationService;
         offline: typeof offlineService;
+        offline_prefetch: typeof offlinePrefetchService;
         orm: typeof ormService;
         overlay: typeof overlayService;
         popover: typeof popoverService;

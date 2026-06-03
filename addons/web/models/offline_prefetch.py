@@ -33,8 +33,7 @@ class OfflinePrefetch(models.AbstractModel):
         """Search records to prefetch and return a manifest for the web client."""
         hours = max(1, min(16, int(hours)))
         scope = scope if scope in ('me', 'all') else 'me'
-        user = self.env.user
-        user.sudo().write({
+        self.env.user.write({
             'offline_prefetch_hours': hours,
             'offline_prefetch_scope': scope,
             'offline_prefetch_category_keys': category_ids,
@@ -111,7 +110,9 @@ class OfflinePrefetch(models.AbstractModel):
         ]
 
     @api.model
-    def _company_domain(self):
+    def _company_domain(self, model_name):
+        if 'company_id' not in self.env[model_name]._fields:
+            return []
         return [('company_id', 'in', self.env.companies.ids)]
 
     @api.model
@@ -159,7 +160,7 @@ class OfflinePrefetch(models.AbstractModel):
 
     @api.model
     def _build_domain(self, spec, hours, scope):
-        domain = Domain(self._company_domain())
+        domain = Domain(self._company_domain(spec['model']))
         if date_field := spec.get('date_field'):
             domain &= Domain(self._time_domain(date_field, hours))
         extra = spec.get('extra_domain') or []

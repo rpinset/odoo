@@ -1,6 +1,7 @@
 import { Component, onWillStart, useState } from "@odoo/owl";
 import { registry } from "@web/core/registry";
 import { _t } from "@web/core/l10n/translation";
+import { session } from "@web/session";
 import { useService } from "@web/core/utils/hooks";
 import { Dropdown } from "@web/core/dropdown/dropdown";
 import { useLayoutEffect } from "@web/owl2/utils";
@@ -21,15 +22,14 @@ export class OfflinePrefetchSystray extends Component {
             loading: true,
         });
         onWillStart(async () => {
-            const [categories, preferences] = await Promise.all([
-                this.offlinePrefetch.getCategories(),
-                this.offlinePrefetch.getPreferences(),
-            ]);
+            const sessionPrefs = session.offline_prefetch || {};
+            const categories = await this.offlinePrefetch.getCategories();
             this.state.categories = categories;
-            this.state.hours = preferences.hours;
-            this.state.scope = preferences.scope;
-            this.state.categoryIds = preferences.category_ids?.length
-                ? preferences.category_ids
+            this.state.hours = sessionPrefs.hours ?? 2;
+            this.state.scope = sessionPrefs.scope ?? "me";
+            const savedCategories = sessionPrefs.category_ids;
+            this.state.categoryIds = savedCategories?.length
+                ? savedCategories
                 : categories.map((c) => c.id);
             this.state.loading = false;
         });
@@ -41,6 +41,30 @@ export class OfflinePrefetchSystray extends Component {
 
     get visible() {
         return !this.offline.offline && !this.state.loading;
+    }
+
+    get collectButtonLabel() {
+        return _t("Collect data");
+    }
+
+    get hoursLabel() {
+        return _t("For the next (hours)");
+    }
+
+    get meLabel() {
+        return _t("Me");
+    }
+
+    get allLabel() {
+        return _t("All");
+    }
+
+    get modulesLabel() {
+        return _t("Modules");
+    }
+
+    get tooltipLabel() {
+        return _t("Prepare offline data");
     }
 
     onToggleCategory(categoryId, ev) {

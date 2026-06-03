@@ -171,6 +171,11 @@ class IrHttp(models.AbstractModel):
                     },
                 },
                 "show_effect": True,
+                "offline_prefetch": {
+                    "hours": user.offline_prefetch_hours or 2,
+                    "scope": user.offline_prefetch_scope or "me",
+                    "category_ids": user.offline_prefetch_category_keys or [],
+                },
             })
         return session_info
 
