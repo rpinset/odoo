@@ -50,3 +50,7 @@ package.json
 /man/
 /share/
 /src/
+
+# APK analysis artifacts
+*.apk
+apk_analysis/
