@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<templates xml:space="preserve">
+
+    <t t-name="web.OfflinePrefetchSystray">
+        <Dropdown t-if="this.visible" navigationOptions="{ 'shouldFocusChildInput': false }">
+            <button
+                class="o_nav_entry px-2 o_offline_prefetch_systray"
+                data-tooltip="Prepare offline data"
+                t-att-disabled="this.offlinePrefetch.state.collecting">
+                <i class="fa fa-plane me-1" role="img" aria-label="Prepare offline"/>
+                <t t-if="!this.env.isSmall">Offline</t>
+            </button>
+            <t t-set-slot="content">
+                <div class="o_offline_prefetch_systray_content px-3 py-2" style="min-width: 280px;">
+                    <button
+                        class="btn btn-primary w-100 mb-2"
+                        t-on-click="() => this.onCollect()"
+                        t-att-disabled="this.offlinePrefetch.state.collecting or !this.state.categoryIds.length">
+                        <t t-if="this.offlinePrefetch.state.collecting">
+                            <i class="fa fa-spinner fa-spin me-1"/>
+                            <t t-out="this.offlinePrefetch.state.progress"/>%
+                        </t>
+                        <t t-else="">Collect data</t>
+                    </button>
+                    <div class="mb-2">
+                        <label class="form-label small text-muted">For the next (hours)</label>
+                        <input
+                            type="range"
+                            class="form-range"
+                            min="1"
+                            max="16"
+                            t-model.number="this.state.hours"/>
+                        <div class="text-center small" t-out="this.state.hours"/>
+                    </div>
+                    <div class="mb-2">
+                        <div class="btn-group w-100" role="group">
+                            <input
+                                type="radio"
+                                class="btn-check"
+                                name="offline_prefetch_scope"
+                                id="offline_prefetch_scope_me"
+                                value="me"
+                                t-model="this.state.scope"
+                                autocomplete="off"/>
+                            <label class="btn btn-outline-secondary btn-sm" for="offline_prefetch_scope_me">Me</label>
+                            <input
+                                type="radio"
+                                class="btn-check"
+                                name="offline_prefetch_scope"
+                                id="offline_prefetch_scope_all"
+                                value="all"
+                                t-model="this.state.scope"
+                                autocomplete="off"/>
+                            <label class="btn btn-outline-secondary btn-sm" for="offline_prefetch_scope_all">All</label>
+                        </div>
+                    </div>
+                    <div class="o_horizontal_separator text-uppercase fw-bolder small mb-1">Modules</div>
+                    <t t-foreach="this.state.categories" t-as="category" t-key="category.id">
+                        <div class="form-check">
+                            <input
+                                class="form-check-input"
+                                type="checkbox"
+                                t-att-id="'offline_prefetch_' + category.id"
+                                t-att-checked="this.isCategoryChecked(category.id)"
+                                t-on-change="(ev) => this.onToggleCategory(category.id, ev)"/>
+                            <label class="form-check-label" t-att-for="'offline_prefetch_' + category.id">
+                                <t t-out="category.label"/>
+                            </label>
+                        </div>
+                    </t>
+                </div>
+            </t>
+        </Dropdown>
+    </t>
+
+</templates>

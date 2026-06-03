@@ -4,6 +4,7 @@
 const cacheName = "odoo-sw-cache";
 const homepageURL = "/odoo";
 const offLineURL = `${homepageURL}/offline`;
+const sessionInfoCacheKey = "/odoo/__session_info__";
 
 let sessionInfo = null;
 
@@ -40,14 +41,40 @@ const getTextFromResponse = async (response) => {
     return result;
 };
 
+const persistSessionInfo = async (info) => {
+    if (!info) {
+        return;
+    }
+    sessionInfo = info;
+    const cache = await caches.open(cacheName);
+    await cache.put(sessionInfoCacheKey, new Response(info));
+};
+
+const loadPersistedSessionInfo = async () => {
+    if (sessionInfo) {
+        return sessionInfo;
+    }
+    const cache = await caches.open(cacheName);
+    const response = await cache.match(sessionInfoCacheKey);
+    if (!response) {
+        return null;
+    }
+    sessionInfo = await response.text();
+    return sessionInfo;
+};
+
 const storeDataOnCache = async (url, response) => {
     const htmlBody = await getTextFromResponse(response);
-    // store on ram, the session info
-    sessionInfo = extractSessionInfo(htmlBody);
+    // store on ram and in cache, the session info
+    const extracted = extractSessionInfo(htmlBody);
+    await persistSessionInfo(extracted);
     const cache = await caches.open(cacheName);
+    const body = extracted
+        ? htmlBody.replace(extracted, "@@@session_info_secret@@@")
+        : htmlBody;
     return cache.put(
         url.endsWith(offLineURL) ? url : homepageURL,
-        new Response(htmlBody.replace(sessionInfo, "@@@session_info_secret@@@"), {
+        new Response(body, {
             headers: response.headers,
         })
     );
@@ -89,7 +116,8 @@ const navigateOrDisplayOfflinePage = async (request) => {
             requestError instanceof TypeError &&
             fetchErrorMessages.includes(requestError.message)
         ) {
-            if (sessionInfo?.length && !isDebugAssets) {
+            const persistedSessionInfo = await loadPersistedSessionInfo();
+            if (persistedSessionInfo?.length && !isDebugAssets) {
                 const cachedResponse = await readDataOnCache(request.url);
                 if (cachedResponse) {
                     return cachedResponse;
@@ -165,5 +193,6 @@ self.addEventListener("message", (event) => {
     }
     if (event.data === "user_logout") {
         sessionInfo = null;
+        caches.open(cacheName).then((cache) => cache.delete(sessionInfoCacheKey));
     }
 });

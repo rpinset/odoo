@@ -1,6 +1,6 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 
-from odoo import api, models
+from odoo import api, fields, models
 from odoo.fields import Domain
 from odoo.http import request
 
@@ -9,6 +9,21 @@ SKIP_CAPTCHA_LOGIN = object()
 
 class ResUsers(models.Model):
     _inherit = "res.users"
+
+    offline_prefetch_hours = fields.Integer(
+        string="Offline prefetch horizon (hours)",
+        default=2,
+        help="Default number of hours to prefetch data for offline use.",
+    )
+    offline_prefetch_scope = fields.Selection(
+        selection=[('me', "Me"), ('all', "Everyone")],
+        string="Offline prefetch scope",
+        default='me',
+    )
+    offline_prefetch_category_keys = fields.Json(
+        string="Offline prefetch categories",
+        default=list,
+    )
 
     @api.model
     def name_search(self, name='', domain=None, operator='ilike', limit=100):

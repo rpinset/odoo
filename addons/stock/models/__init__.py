@@ -3,6 +3,7 @@
 
 from . import barcode
 from . import digest
+from . import offline_prefetch
 from . import ir_actions_report
 from . import product_strategy
 from . import res_company

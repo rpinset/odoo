@@ -16,6 +16,7 @@ from . import session
 from . import vcard
 from . import view
 from . import webclient
+from . import offline_prefetch
 from . import webmanifest
 
 
