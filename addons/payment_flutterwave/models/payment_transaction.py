@@ -125,12 +125,8 @@ class PaymentTransaction(models.Model):
             "redirect_url": urls.urljoin(base_url, FlutterwaveController._auth_return_url),
         }
 
-        try:
-            response_content = self._send_api_request("POST", "tokenized-charges", json=data)
-        except ValidationError as error:
-            self._set_error(str(error))
-        else:
-            self._process("flutterwave", response_content)
+        response_content = self._send_api_request("POST", "tokenized-charges", json=data)
+        self._record(response_content)
 
     @api.model
     def _extract_reference(self, provider_code, payment_data):
@@ -151,7 +147,7 @@ class PaymentTransaction(models.Model):
         payment_method_type = payment_data.get("payment_type", "")
         if payment_method_type == "card":
             payment_method_type = payment_data.get("card", {}).get("type").lower()
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             payment_method_type, mapping=const.PAYMENT_METHODS_MAPPING
         )
         self.payment_method_id = payment_method or self.payment_method_id

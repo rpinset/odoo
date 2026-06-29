@@ -1,8 +1,7 @@
-import { useState } from "@web/owl2/utils";
 import { registry } from "@web/core/registry";
 import { usePos } from "@point_of_sale/app/hooks/pos_hook";
 import { useService } from "@web/core/utils/hooks";
-import { Component, onWillDestroy } from "@odoo/owl";
+import { Component, onWillDestroy, proxy } from "@odoo/owl";
 import { Orderline } from "@point_of_sale/app/components/orderline/orderline";
 import { OrderDisplay } from "@point_of_sale/app/components/order_display/order_display";
 import { useRouterParamsChecker } from "@point_of_sale/app/hooks/pos_router_hook";
@@ -21,8 +20,8 @@ export class SplitBillScreen extends Component {
     setup() {
         this.pos = usePos();
         this.ui = useService("ui");
-        this.qtyTracker = useState({});
-        this.priceTracker = useState({});
+        this.qtyTracker = proxy({});
+        this.priceTracker = proxy({});
         this.isTransferred = false;
         useRouterParamsChecker();
 
@@ -126,6 +125,15 @@ export class SplitBillScreen extends Component {
             await this.pos.applyDiscount(value, type, originalOrder);
             if (!this.isTransferred) {
                 await this.pos.applyDiscount(value, type, newOrder);
+            }
+        }
+    }
+
+    async handleServiceFeeLines(originalOrder, newOrder) {
+        if (originalOrder.preset_id?.service_fee) {
+            originalOrder.recomputeServiceFees();
+            if (!this.isTransferred) {
+                newOrder.recomputeServiceFees();
             }
         }
     }
@@ -237,6 +245,7 @@ export class SplitBillScreen extends Component {
             line.delete();
         }
         await this.handleDiscountLines(originalOrder, newOrder);
+        await this.handleServiceFeeLines(originalOrder, newOrder);
         await this.pos.syncAllOrders({ orders: [originalOrder, newOrder] });
         await this.pos.onPrepLinesSynced(prepLinePairs);
         originalOrder.customer_count -= 1;

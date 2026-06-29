@@ -2,7 +2,7 @@
 
 {
     'name': 'Project',
-    'version': '1.3',
+    'version': '1.4',
     'website': 'https://www.odoo.com/app/project',
     'category': 'Services/Project',
     'sequence': 45,
@@ -19,8 +19,6 @@
     ],
     'data': [
         'security/project_security.xml',
-        'security/ir.model.access.csv',
-        'security/ir.model.access.xml',
         'data/digest_data.xml',
         'data/portal_entry_data.xml',
         'report/project_task_burndown_chart_report_views.xml',
@@ -57,6 +55,7 @@
         'wizard/project_project_stage_delete_views.xml',
         'wizard/project_template_create_wizard.xml',
         'views/project_menus.xml',
+        'security/ir.access.csv',
     ],
     'demo': [
         'data/mail_template_demo.xml',
@@ -124,7 +123,6 @@
             ('include', 'web.icons_fonts'),
             'web/static/src/webclient/navbar/navbar.scss',
             'web/static/src/scss/animation.scss',
-            'web/static/src/core/color_picker/color_picker.scss',
             'web/static/src/scss/mimetypes.scss',
             'web/static/src/scss/ui.scss',
             'web/static/src/views/fields/translation_dialog.scss',
@@ -138,7 +136,6 @@
             'web/static/src/owl2/owl3_compatibility_layer.js',
             'web/static/src/owl2/utils.js',
             'web/static/lib/owl/odoo_module.js',
-            'web/static/lib/jquery/jquery.js',
             'web/static/lib/popper/popper.js',
             'web/static/lib/bootstrap/js/dist/util/index.js',
             'web/static/lib/bootstrap/js/dist/dom/data.js',
@@ -168,7 +165,6 @@
             'web/static/lib/bootstrap/js/dist/toast.js',
             'web/static/lib/dompurify/DOMpurify.js',
             'web/static/src/libs/bootstrap.js',
-            'web/static/src/legacy/js/libs/jquery.js',
 
             'base/static/src/css/modules.css',
 
@@ -182,6 +178,7 @@
             'web/static/src/views/*.scss',
             'web/static/src/views/fields/**/*',
             'web/static/src/views/form/**/*',
+            'web/static/src/views/card/**/*',
             'web/static/src/views/kanban/**/*',
             'web/static/src/views/list/**/*',
             'web/static/src/views/view_button/**/*',
@@ -215,6 +212,8 @@
             ('include', 'html_editor.assets_editor'),
             'html_editor/static/src/backend/**/*',
             'html_editor/static/src/fields/**/*',
+            'html_editor/static/src/scss/html_editor.common.scss',
+            'html_editor/static/src/scss/base_style.scss',
 
             'mail/static/src/scss/variables/*.scss',
             'mail/static/src/chatter/web/form_renderer.scss',

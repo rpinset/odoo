@@ -1,4 +1,3 @@
-import { _t } from "@web/core/l10n/translation";
 import { clickOnElement } from '@website/js/tours/tour_utils';
 
 export function goToProductPage({
@@ -236,16 +235,10 @@ export function fillAddressForm(
     return steps;
 }
 
-export function goToCart({
-    quantity = 1,
-    position = "bottom",
-    backend = false,
-    expectUnloadPage = true,
-} = {}) {
+export function goToCart({ quantity = 1, backend = false, expectUnloadPage = true } = {}) {
     return {
-        content: _t("Go to cart"),
+        content: "Go to cart",
         trigger: `${backend ? ":iframe" : ""} a sup.my_cart_quantity:text(${quantity})`,
-        tooltipPosition: position,
         run: "click",
         expectUnloadPage,
     };

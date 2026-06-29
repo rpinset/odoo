@@ -12,6 +12,7 @@ from http import HTTPStatus
 from typing import Self
 
 import docutils.core
+from docutils import parsers, readers, writers
 from docutils.writers.html4css1 import Writer as HtmlWriter
 from werkzeug.exceptions import NotFound
 from werkzeug.http import is_resource_modified, parse_cache_control_header
@@ -45,7 +46,7 @@ class DocController(http.Controller):
         res.headers['X-Frame-Options'] = 'deny'
         return res
 
-    @http.route('/doc-bearer/index.json', type='json2', auth='bearer')
+    @http.route('/doc-bearer/index.json', type='json2', auth='bearer', bearer_scope='rpc')
     def doc_bearer_index(self):
         return self.doc_index()
 
@@ -163,7 +164,7 @@ class DocController(http.Controller):
         ]
         return modules, models
 
-    @http.route('/doc-bearer/<model_name>.json', type='json2', auth='bearer', readonly=True)
+    @http.route('/doc-bearer/<model_name>.json', type='json2', auth='bearer', bearer_scope='rpc', readonly=True)
     def doc_bearer_modec(self, model_name):
         return self.doc_model(model_name)
 
@@ -613,8 +614,14 @@ class _DocUtils:
 
     @classmethod
     def _make_settings(cls, writer_name, settings_overrides):
-        pub = docutils.core.Publisher()
-        pub.set_components('standalone', 'restructuredtext', writer_name)
+        parser = parsers.get_parser_class('restructuredtext')()
+        reader = readers.get_reader_class('standalone')(parser)
+        writer = writers.get_writer_class(writer_name)()
+        pub = docutils.core.Publisher(
+            reader=reader,
+            parser=parser,
+            writer=writer,
+        )
         pub.process_programmatic_settings(None, settings_overrides, None)
         return pub.settings
 

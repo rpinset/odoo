@@ -231,11 +231,11 @@ export function presetTimingSlotHourExists(hour) {
 export function selectSlotDays(d) {
     return [
         {
-            trigger: `.modal .d-flex.w-100.flex-wrap.gap-2.mt-2 button:nth-of-type(${d})`,
+            trigger: `.modal .preset_date_buttons:nth-of-type(${d})`,
             run: "click",
         },
         {
-            trigger: `.modal .d-flex.w-100.flex-wrap.gap-2.mt-2 button:nth-of-type(${d}).btn-primary`,
+            trigger: `.modal .preset_date_buttons:nth-of-type(${d}).btn-primary`,
         },
     ];
 }
@@ -382,13 +382,6 @@ if (sessionStorage.getItem("pos_test_frozen_time")) {
     DateTime.now = () => DateTime.fromMillis(millis);
 }
 
-export function selectPresetDateButton(formattedDate) {
-    return {
-        trigger: `.modal-body button:contains("${formattedDate}")`,
-        run: "click",
-    };
-}
-
 export function waitForOrdersSync() {
     return [
         {
@@ -412,6 +405,17 @@ export function flushPendingOrdersSync() {
             async run() {
                 await posmodel.syncAllOrders({ force: true });
             },
+        },
+    ];
+}
+
+export function closePrintingWarning() {
+    return [
+        {
+            content: "acknowledge printing error ( because we don't have printer in the test. )",
+            trigger: `.modal:has(.modal-header:contains(printing failed)) .modal-footer .btn-primary:contains(continue)`,
+            run: "click",
+            timeout: 15000,
         },
     ];
 }

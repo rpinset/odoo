@@ -1,10 +1,8 @@
 import {
-    reactive,
     useComponent,
     useEnv,
     useLayoutEffect,
     useRef,
-    useState,
     useSubEnv,
 } from "@web/owl2/utils";
 import { isElement, isTextNode } from "@html_editor/utils/dom_info";
@@ -13,6 +11,7 @@ import {
     onWillDestroy,
     onWillStart,
     onWillUpdateProps,
+    proxy,
     status,
     toRaw,
     useEffect,
@@ -27,7 +26,8 @@ import { BuilderAction } from "./builder_action";
 // containers instead of the snippet itself.
 export const BLOCKQUOTE_PARENT_HANDLERS = ".s_reviews_wall .row > div";
 export const CARD_PARENT_HANDLERS =
-    ".s_three_columns .row > div, .s_comparisons .row > div, .s_cards_grid .row > div, .s_cards_soft .row > div, .s_product_list .row > div, .s_newsletter_centered .row > div, .s_company_team_spotlight .row > div, .s_comparisons_horizontal .row > div, .s_company_team_grid .row > div, .s_company_team_card .row > div, .s_carousel_cards_item";
+    ".s_three_columns .row > div, .s_comparisons .row > div, .s_cards_grid .row > div, .s_cards_soft .row > div, .s_product_list .row > div, .s_newsletter_centered .row > div, .s_company_team_spotlight .row > div, .s_comparisons_horizontal .row > div, .s_company_team_grid .row > div, .s_company_team_card .row > div, .s_carousel_cards_item, .s_features_cards .row > div";
+export const SPECIAL_CARD_SELECTOR = `div:is(${CARD_PARENT_HANDLERS}) > .s_card`;
 
 /**
  * @typedef {((reload_context: Object, editingElement: HTMLElement) => reload_context)[]} reload_context_processors
@@ -65,7 +65,7 @@ export function useDomState(getState, { checkEditingElement = true } = {}) {
             }
         }
     };
-    const state = useState({});
+    const state = proxy({});
     onWillStart(() => handler());
     useBus(env.editorBus, "DOM_UPDATED", handler);
     return state;
@@ -136,8 +136,9 @@ export function useBuilderComponent() {
     newEnv.getEditingElement = () => editingElements[0];
     const weContext = {};
     for (const key in basicContainerBuilderComponentProps) {
-        if (key in comp.props) {
-            weContext[key] = comp.props[key];
+        const value = comp.props[key];
+        if (value !== undefined) {
+            weContext[key] = value;
         }
     }
     if (Object.keys(weContext).length) {
@@ -231,7 +232,7 @@ export function useSelectableComponent(id, { onItemChange } = {}) {
     const refreshCurrentItemDebounced = useDebounced(refreshCurrentItem, 0, { immediate: true });
     const env = useEnv();
 
-    const state = reactive({
+    const state = proxy({
         currentSelectedItem: null,
     });
 
@@ -404,7 +405,7 @@ export function useSelectableItemComponent(id, { getLabel = () => {} } = {}) {
         };
 
         env.selectableContext.addSelectableItem(selectableItem);
-        state = useState({
+        state = proxy({
             isActive: false,
         });
         useEffect(() => {
@@ -507,7 +508,11 @@ function usePrepareAction(getAllActions) {
             resolve = r;
         });
         onWillStart(async function () {
-            await Promise.all(asyncActions.map((obj) => obj.action.prepare(obj.descr)));
+            await Promise.all(
+                asyncActions.map((obj) =>
+                    obj.action.prepare({ ...obj.descr, editingElement: env.getEditingElement() })
+                )
+            );
             resolve();
         });
         onWillUpdateProps(async ({ actionParam, actionValue }) => {
@@ -520,6 +525,7 @@ function usePrepareAction(getAllActions) {
                     obj.action.prepare({
                         ...obj.descr,
                         actionParam: convertParamToObject(actionParam),
+                        editingElement: env.getEditingElement(),
                         actionValue,
                     })
                 )
@@ -956,7 +962,8 @@ export function useInputBuilderComponent({
 
     const applyOperation = comp.env.editor.shared.history.makePreviewableAsyncOperation(callApply);
     const operationWithReload = useOperationWithReload(callApply, reload);
-    function getState(editingElement) {
+    async function getState(editingElement) {
+        await onReady;
         if (!isConnectedElement(editingElement)) {
             // TODO try to remove it. We need to move hook in BuilderComponent
             return {};

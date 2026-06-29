@@ -1,15 +1,23 @@
-import { useRef } from "@web/owl2/utils";
-import { before, destroy, expect, getFixture, test } from "@odoo/hoot";
 import {
+    animationFrame,
+    before,
+    expect,
+    getFixture,
     manuallyDispatchProgrammaticEvent,
     queryOne,
     queryRect,
     resize,
     scroll,
-} from "@odoo/hoot-dom";
-import { Deferred, animationFrame } from "@odoo/hoot-mock";
+    test,
+} from "@odoo/hoot";
 import { Component, onMounted, xml } from "@odoo/owl";
-import { defineParams, defineStyle, mountWithCleanup } from "@web/../tests/web_test_helpers";
+import {
+    defineParams,
+    defineStyle,
+    destroyApp,
+    mountWithCleanup,
+} from "@web/../tests/web_test_helpers";
+import { useRef } from "@web/owl2/utils";
 
 import { usePosition } from "@web/core/position/position_hook";
 
@@ -83,10 +91,10 @@ test("can add margin", async () => {
                 marginLeft: `${SHEET_MARGINS.left}px`,
             },
         });
-        const comp = await mountWithCleanup(TestComp);
+        await mountWithCleanup(TestComp);
         const popBox = queryOne("#popper").getBoundingClientRect();
         const targetBox = queryOne("#target").getBoundingClientRect();
-        destroy(comp);
+        destroyApp();
         return [popBox, targetBox];
     }
 
@@ -211,7 +219,7 @@ test("has no effect when component is destroyed", async () => {
         },
     });
 
-    const comp = await mountWithCleanup(TestComp);
+    await mountWithCleanup(TestComp);
     // onPositioned called when component mounted
     expect.verifySteps(["onPositioned called"]);
 
@@ -221,7 +229,7 @@ test("has no effect when component is destroyed", async () => {
     expect.verifySteps(["onPositioned called"]);
 
     await scroll(queryOne("#scroll-container"), { y: 100 });
-    destroy(comp);
+    destroyApp();
     await animationFrame();
     // onPositioned not called even if scroll happened right before the component destroys
     expect.verifySteps([]);
@@ -327,10 +335,10 @@ test("is positioned relative to its containing block", async () => {
         }
     );
 
-    let popper = await mountWithCleanup(TestComp);
+    await mountWithCleanup(TestComp);
 
-    const popBox1 = queryOne("#popper").getBoundingClientRect();
-    destroy(popper);
+    const popBox1 = queryRect("#popper");
+    destroyApp();
 
     TestComp = getTestComponent(
         {
@@ -346,9 +354,9 @@ test("is positioned relative to its containing block", async () => {
         }
     );
 
-    popper = await mountWithCleanup(TestComp);
-    const popBox2 = queryOne("#popper").getBoundingClientRect();
-    destroy(popper);
+    await mountWithCleanup(TestComp);
+    const popBox2 = queryRect("#popper");
+    destroyApp();
 
     // best positions are not the same relative to their containing block
     expect(pos1.top).toBe(pos2.top + margin + fixtureBox.top);
@@ -388,11 +396,11 @@ test("iframe: popper is outside, target inside", async () => {
         margin: "25px",
     });
     iframe.srcdoc = `<div id="target" style="background-color: tomato; width: 50px; height: 50px"/>`;
-    const def = new Deferred();
+    const def = Promise.withResolvers();
     iframe.onload = () => def.resolve();
     const container = queryOne("#container");
     container.appendChild(iframe);
-    await def;
+    await def.promise;
 
     const iframeBody = iframe.contentDocument.body;
     Object.assign(iframeBody.style, {
@@ -476,11 +484,11 @@ test("iframe: popper is outside, target and container inside", async () => {
         margin: "100px",
     });
     iframe.srcdoc = `<div id="inner-container"><div id="target" style="background-color: green; width: 50px; height: 500px; top: 50px"/></div>`;
-    const def = new Deferred();
+    const def = Promise.withResolvers();
     iframe.onload = () => def.resolve();
     const container = queryOne("#container");
     container.appendChild(iframe);
-    await def;
+    await def.promise;
 
     const innerContainer = queryOne(":iframe #inner-container");
     Object.assign(innerContainer.style, {
@@ -536,10 +544,10 @@ test("iframe: both popper and target inside", async () => {
         margin: "25px",
     });
     iframe.srcdoc = `<div id="inner-container" />`;
-    const def = new Deferred();
+    const def = Promise.withResolvers();
     iframe.onload = () => def.resolve();
     queryOne("#container").appendChild(iframe);
-    await def;
+    await def.promise;
 
     const iframeBody = iframe.contentDocument.body;
     Object.assign(iframeBody.style, {
@@ -616,13 +624,13 @@ test("iframe: both popper and target inside", async () => {
 test("iframe: default container is the popper owner's document", async () => {
     expect.assertions(1);
     // Prepare an outer iframe, that will hold the popper element
-    let def = new Deferred();
+    let def = Promise.withResolvers();
     const outerIframe = document.createElement("iframe");
     Object.assign(outerIframe.style, { height: "450px", width: "450px" });
     outerIframe.onload = () => def.resolve();
     getFixture().prepend(outerIframe);
     // registerCleanup(() => outerIframe.remove());
-    await def;
+    await def.promise;
     Object.assign(outerIframe.contentDocument.body.style, {
         display: "flex",
         alignItems: "center",
@@ -633,7 +641,7 @@ test("iframe: default container is the popper owner's document", async () => {
         margin: "0",
     });
 
-    def = new Deferred();
+    def = Promise.withResolvers();
     const iframeSheet = outerIframe.contentDocument.createElement("style");
     iframeSheet.onload = () => def.resolve();
     iframeSheet.textContent = `
@@ -644,10 +652,10 @@ test("iframe: default container is the popper owner's document", async () => {
             }
         `;
     outerIframe.contentDocument.head.appendChild(iframeSheet);
-    await def; // wait for the iframe's stylesheet to be loaded
+    await def.promise; // wait for the iframe's stylesheet to be loaded
 
     // Prepare the inner iframe, that will hold the target element
-    def = new Deferred();
+    def = Promise.withResolvers();
     const innerIframe = document.createElement("iframe");
     innerIframe.srcdoc = `<div id="target" />`;
     Object.assign(innerIframe.style, {
@@ -657,7 +665,7 @@ test("iframe: default container is the popper owner's document", async () => {
     });
     innerIframe.onload = () => def.resolve();
     outerIframe.contentDocument.body.appendChild(innerIframe);
-    await def;
+    await def.promise;
     Object.assign(innerIframe.contentDocument.body.style, {
         display: "flex",
         alignItems: "center",

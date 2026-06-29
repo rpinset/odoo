@@ -29,7 +29,6 @@ class ResPartner(models.Model):
             ('peppol_valid', 'Partner is on Peppol'),
         ],
         string='E-Invoicing State',
-        company_dependent=True,
         compute="_compute_pdp_verification_display_state",
     )
 
@@ -48,7 +47,8 @@ class ResPartner(models.Model):
     # COMPUTE METHODS
     # -------------------------------------------------------------------------
 
-    @api.depends('peppol_verification_state', 'peppol_endpoint', 'peppol_eas')
+    @api.depends('peppol_verification_state', 'routing_scheme', 'routing_endpoint')
+    @api.depends_context('company')
     def _compute_pdp_verification_display_state(self):
         for partner in self:
             partner.pdp_verification_display_state = partner._get_pdp_display_verification_state(partner.peppol_verification_state)
@@ -86,12 +86,18 @@ class ResPartner(models.Model):
 
     def _l10n_fr_pdp_get_base_identifier(self):
         self.ensure_one()
-        siret = self.company_registry if self.company_registry and siren_siret_re.match(self.company_registry) else ''
-        siren = siret[:9]
-        if len(siret) == 9:
-            return 'siren', siren
-        elif len(siret) == 14:
-            return 'siret', siret
+        candidates = [
+            self.additional_identifiers['FR_SIRET'] if self.additional_identifiers and siren_siret_re.match(self.additional_identifiers.get('FR_SIRET', '')) else '',
+            self.additional_identifiers['FR_SIREN'] if self.additional_identifiers and siren_siret_re.match(self.additional_identifiers.get('FR_SIREN', '')) else '',
+        ]
+        for identifier in candidates:
+            if not identifier:
+                continue
+            if len(identifier) == 9:
+                return 'siren', identifier
+            elif len(identifier) == 14:
+                return 'siret', identifier
+
         return None, None
 
     def _get_suggested_pdp_identifier(self):
@@ -99,19 +105,6 @@ class ResPartner(models.Model):
         # We suggest the SIREN (even if the SIRET is filled in).
         # "Everyone" will probably have registered the SIREN on annuaire. (Even if they have a SIRET.)
         return self._l10n_fr_pdp_get_siren()
-
-    def _get_peppol_endpoint_value(self, country_code, field, eas):
-        self.ensure_one()
-        if country_code == 'FR' and field == 'peppol_endpoint' and eas == '0225':
-            return self._get_suggested_pdp_identifier()
-        return super()._get_peppol_endpoint_value(country_code, field, eas)
-
-    def _build_error_peppol_endpoint(self, eas, endpoint):
-        # Extend 'account_edi_ubl_cii' for '0225' endpoint
-        if eas != '0225':
-            return super()._build_error_peppol_endpoint(eas, endpoint)
-        if not self.env["res.company"]._check_pdp_identifier(endpoint):
-            return self.env._("The Peppol endpoint is not valid. The expected format is: SIREN, SIREN_SIRET, SIREN_SIRET_CodeRoutage or SIREN_SuffixeAdressage")
 
     def _get_edi_builder(self, invoice_edi_format):
         # EXTENDS 'account_edi_ubl_cii'
@@ -150,11 +143,13 @@ class ResPartner(models.Model):
 
     @api.model
     @handle_demo
-    def _get_peppol_verification_state(self, peppol_endpoint, peppol_eas, invoice_edi_format, process_type='billing'):
-        proxy_type, edi_identification = self._get_peppol_proxy_identification_info(peppol_eas, peppol_endpoint)
-        if proxy_type != 'pdp' or self.env.company._get_peppol_proxy_type() != 'pdp':
-            return super()._get_peppol_verification_state(peppol_endpoint, peppol_eas, invoice_edi_format, process_type=process_type)
-        return self._get_pdp_annuaire_verification_state(edi_identification, invoice_edi_format)
+    def _get_peppol_verification_state(self, routing_identifier, invoice_edi_format, process_type='billing', partner=None):
+        # EXTENDS 'account_peppol': French PDP participants (EAS 0225) are verified against the
+        # PDP annuaire (the official French directory) instead of the Peppol SML.
+        scheme, _sep, _endpoint = routing_identifier.lower().partition(":")
+        if scheme != '0225':
+            return super()._get_peppol_verification_state(routing_identifier, invoice_edi_format, process_type=process_type, partner=partner)
+        return self._get_pdp_annuaire_verification_state(routing_identifier, invoice_edi_format)
 
     @api.model
     def _get_pdp_annuaire_verification_state(self, edi_identification, invoice_edi_format):
@@ -199,16 +194,13 @@ class ResPartner(models.Model):
         return decoded_response.get('result')
 
     def _get_pdp_receiver_identification_info(self):
-        return self._get_peppol_proxy_identification_info(self.peppol_eas, self.peppol_endpoint)
+        eas, _sep, endpoint = (self.routing_identifier or '').partition(':')
+        return self._get_peppol_proxy_identification_info(eas, endpoint)
 
     @api.model
-    def _get_peppol_proxy_identification_info(self, peppol_eas, peppol_endpoint):
+    def _get_peppol_proxy_identification_info(self, routing_scheme, routing_endpoint):
         # Extend `account_peppol`
-        proxy_type, identifier = super()._get_peppol_proxy_identification_info(peppol_eas, peppol_endpoint)
-        if peppol_eas == '0225':
+        proxy_type, identifier = super()._get_peppol_proxy_identification_info(routing_scheme, routing_endpoint)
+        if routing_scheme == '0225':
             proxy_type = 'pdp'
         return proxy_type, identifier
-
-    @handle_demo
-    def button_account_peppol_check_partner_endpoint(self, company=None):
-        return super().button_account_peppol_check_partner_endpoint(company=company)

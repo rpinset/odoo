@@ -153,6 +153,7 @@ class MaintenanceEquipment(models.Model):
     is_assigned = fields.Boolean(compute='_compute_is_assigned', search='_search_is_assigned')
     # maintenance.mixin override
     technician_user_id = fields.Many2one(tracking=True)
+    equipment_req_properties_definition = fields.PropertiesDefinition('Maintenance Request Properties')
 
     def _get_owner_methods_by_equipment_assign_to(self):
         return {
@@ -222,8 +223,8 @@ class MaintenanceEquipment(models.Model):
         """ Read group customization in order to display all the categories in
             the kanban view, even if they are empty.
         """
-        # bypass ir.model.access checks, but search with ir.rules
-        search_domain = self.env['ir.rule']._compute_domain(categories._name)
+        # bypass permissions, but search with company restriction only
+        search_domain = [] if self.env.su else [('company_id', 'in', self.env.companies.ids)]
         category_ids = categories.sudo()._search(search_domain, order=categories._order)
         return categories.browse(category_ids)
 
@@ -320,6 +321,12 @@ class MaintenanceRequest(models.Model):
         ('until', 'Until'),
     ], default="forever", string="Until")
     repeat_until = fields.Date(string="End Date")
+    equipment_req_properties = fields.Properties(
+            string='Maintenance Request Properties',
+            definition='equipment_id.equipment_req_properties_definition',
+            copy=True,
+            precompute=False
+        )
 
     def cancel_equipment_request(self):
         self.write({'state': 'cancelled', 'recurring_maintenance': False})

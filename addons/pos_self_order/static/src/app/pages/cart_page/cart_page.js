@@ -1,5 +1,5 @@
-import { useLayoutEffect, useRef, useState } from "@web/owl2/utils";
-import { Component } from "@odoo/owl";
+import { useLayoutEffect, useRef } from "@web/owl2/utils";
+import { Component, proxy } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { useSelfOrder } from "@pos_self_order/app/services/self_order_service";
 import { OrderWidget } from "@pos_self_order/app/components/order_widget/order_widget";
@@ -23,7 +23,7 @@ export class CartPage extends Component {
         this.selfOrder = useSelfOrder();
         this.dialog = useService("dialog");
         this.router = useService("router");
-        this.state = useState({
+        this.state = proxy({
             orderNoteValue: "",
         });
 
@@ -37,6 +37,17 @@ export class CartPage extends Component {
                     .filter((l) => l.product_id?.id !== nonDeliveryId)
                     .reduce((sum, l) => sum + (l.qty || 0) * (l.price_unit || 0), 0);
                 return [order.preset_id?.id, nonDeliveryTotal];
+            }
+        );
+        useLayoutEffect(
+            () => this.selfOrder.currentOrder.recomputeServiceFees(),
+            () => {
+                const order = this.selfOrder.currentOrder;
+                const serviceFeeProductId = order.preset_id?.service_fee_product_id?.id;
+                const applicableTotal = order.lines
+                    .filter((l) => l.product_id?.id !== serviceFeeProductId)
+                    .reduce((sum, l) => sum + (l.qty || 0) * (l.price_unit || 0), 0);
+                return [order.preset_id?.id, applicableTotal];
             }
         );
     }
@@ -62,7 +73,13 @@ export class CartPage extends Component {
                 ? order.unsentLines
                 : this.selfOrder.currentOrder.lines) || [];
 
-        return lines.filter((line) => !line.combo_parent_id);
+        const regularLines = [];
+        const serviceFeeLines = [];
+        for (const line of lines.filter((line) => !line.combo_parent_id)) {
+            (line.isServiceFeeLine() ? serviceFeeLines : regularLines).push(line);
+        }
+
+        return [...regularLines, ...serviceFeeLines];
     }
 
     get totalPriceAndTax() {

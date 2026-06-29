@@ -125,6 +125,7 @@ class ResConfigSettings(models.TransientModel):
         compute='_compute_has_plausible_shared_key',
         inverse='_inverse_has_plausible_shared_key')
     module_website_livechat = fields.Boolean()
+    module_website_address_autocomplete = fields.Boolean("Website Address Autocomplete")
 
     @api.depends('website_id')
     def _compute_shared_user_account(self):
@@ -207,7 +208,7 @@ class ResConfigSettings(models.TransientModel):
         # update the website_default_lang_id
         language_ids = self.language_ids._origin
         if not language_ids:
-            self.website_default_lang_id = False
+            self.website_default_lang_id = self.env['website']._default_language()
         elif self.website_default_lang_id not in language_ids:
             self.website_default_lang_id = language_ids[0]
         self.website_language_count = len(language_ids)

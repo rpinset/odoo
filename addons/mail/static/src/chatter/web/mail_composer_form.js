@@ -1,18 +1,18 @@
 import { useLayoutEffect, useRef, useSubEnv } from "@web/owl2/utils";
 import { formView } from "@web/views/form/form_view";
 import { registry } from "@web/core/registry";
-import { EventBus } from "@odoo/owl";
+import { EventBus, props, t } from "@odoo/owl";
+import { formControllerProps } from "@web/views/form/form_controller";
 import { useCustomDropzone } from "@web/core/dropzone/dropzone_hook";
 import { useService } from "@web/core/utils/hooks";
 import { useX2ManyCrud } from "@web/views/fields/relational_utils";
 import { MailAttachmentDropzone } from "@mail/core/common/mail_attachment_dropzone";
 
 export class MailComposerFormController extends formView.Controller {
-    static props = {
-        ...formView.Controller.props,
-        fullComposerBus: { type: EventBus, optional: true },
-    };
-    static defaultProps = { fullComposerBus: new EventBus() };
+    props = props({
+        ...formControllerProps,
+        fullComposerBus: t.instanceOf(EventBus).optional(new EventBus()),
+    });
     setup() {
         super.setup();
         this.env.dialogData.model = "mail.compose.message";
@@ -84,7 +84,9 @@ export class MailComposerFormRenderer extends formView.Renderer {
                 // otherwise will remove all suggested recipients since there are no recipients
                 return;
             }
-            const selectedPartnerIds = this.props.record.data.partner_ids.currentIds;
+            const partnerCcIds = this.props.record.data.partner_cc_ids.currentIds;
+            const selectedPartnerIds =
+                this.props.record.data.partner_ids.currentIds.concat(partnerCcIds);
             const selectedPartners = await this.orm.searchRead(
                 "res.partner",
                 [["id", "in", selectedPartnerIds]],
@@ -106,6 +108,7 @@ export class MailComposerFormRenderer extends formView.Renderer {
                         lang: partner.lang,
                         name: partner.name,
                         partner_id: partner.id,
+                        recipient_type: partnerCcIds.includes(partner.id) ? "cc" : "to",
                     };
                 }
                 return recipient;
@@ -148,6 +151,7 @@ export class MailComposerFormRenderer extends formView.Renderer {
                             lang: partner.lang,
                             name: partner.name,
                             partner_id: partner.id,
+                            recipient_type: partnerCcIds.includes(partner.id) ? "cc" : "to",
                         });
                     }
                 }

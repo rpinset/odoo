@@ -5,9 +5,11 @@ from urllib import parse
 
 from odoo import _, api, fields, models
 from odoo.exceptions import ValidationError
+from odoo.tools.business_data import split_vat
 
 from odoo.addons.l10n_dk.tools.demo_utils import handle_demo
 
+APPLICATION_RESPONSE_CUSTOMISATION_ID = "busdox-docid-qns::urn:oasis:names:specification:ubl:schema:xsd:ApplicationResponse-2::ApplicationResponse##OIOUBL-2.1::2.1"
 TIMEOUT = 10
 _logger = logging.getLogger(__name__)
 
@@ -47,6 +49,8 @@ class ResPartner(models.Model):
         compute="_compute_nemhandel_identifier_value", store=True, readonly=False,
         tracking=True,
     )
+    nemhandel_supported_documents = fields.Json('Supported Nemhandel Documents')
+    nemhandel_response_support = fields.Boolean('Nemhandel Response Service', compute='_compute_nemhandel_response_support')
 
     is_using_nemhandel = fields.Boolean(compute='_compute_is_using_nemhandel')
 
@@ -54,17 +58,7 @@ class ResPartner(models.Model):
     # COMPUTE METHODS
     # -------------------------------------------------------------------------
 
-    @api.depends('vat', 'country_id')
-    def _compute_company_registry(self):
-        # OVERRIDE
-        # In Denmark, if you have a VAT number, it's also your company registry (CVR) number
-        super()._compute_company_registry()
-        for partner in self.filtered(lambda p: p.country_id.code == 'DK' and p.vat):
-            vat_country, vat_number = self._split_vat(partner.vat)
-            if vat_country in ('DK', '') and self._check_vat_number('DK', vat_number):
-                partner.company_registry = vat_number
-
-    @api.depends('country_code', 'vat', 'company_registry')
+    @api.depends('country_code', 'vat')
     def _compute_nemhandel_identifier_type(self):
         for partner in self:
             partner.nemhandel_identifier_type = partner.nemhandel_identifier_type
@@ -74,7 +68,7 @@ class ResPartner(models.Model):
             elif country_code != 'DK':
                 partner.nemhandel_identifier_type = False
 
-    @api.depends('country_code', 'vat', 'company_registry', 'nemhandel_identifier_type')
+    @api.depends('country_code', 'vat', 'additional_identifiers', 'nemhandel_identifier_type')
     def _compute_nemhandel_identifier_value(self):
         for partner in self:
             if partner.nemhandel_identifier_value != partner._origin.nemhandel_identifier_value:
@@ -82,13 +76,23 @@ class ResPartner(models.Model):
                 partner.nemhandel_identifier_value = partner.nemhandel_identifier_value
                 continue
             country_code = partner._deduce_country_code()
+            cvr = partner._get_additional_identifier('DK_CVR')
             if country_code == 'DK' and partner.nemhandel_identifier_type == '0184':
-                vat_country, vat_number = partner._split_vat(partner.company_registry or '')
-                partner.nemhandel_identifier_value = vat_number if vat_country == 'DK' else partner.company_registry
+                vat_country, vat_number = split_vat(cvr or '')
+                partner.nemhandel_identifier_value = vat_number if vat_country == 'DK' else cvr
             elif country_code == 'DK':
                 partner.nemhandel_identifier_value = partner.nemhandel_identifier_value
             else:
                 partner.nemhandel_identifier_value = ''
+
+    @api.depends('nemhandel_supported_documents', 'nemhandel_verification_state')
+    def _compute_nemhandel_response_support(self):
+        for partner in self:
+            partner.nemhandel_response_support = (
+                partner.nemhandel_verification_state == 'valid'
+                and partner.nemhandel_supported_documents
+                and APPLICATION_RESPONSE_CUSTOMISATION_ID in partner.nemhandel_supported_documents
+            )
 
     @api.depends_context('allowed_company_ids')
     @api.depends('invoice_edi_format')
@@ -249,7 +253,7 @@ class ResPartner(models.Model):
 
         self_partner = self.with_company(company)
         old_value = self_partner.nemhandel_verification_state
-        self_partner.nemhandel_verification_state = self._get_nemhandel_verification_state(self_partner.invoice_edi_format)
+        self_partner.nemhandel_verification_state = self_partner._get_nemhandel_verification_state(self_partner.invoice_edi_format)
         if self_partner.nemhandel_verification_state == 'valid' and not self_partner.invoice_sending_method:
             self_partner.invoice_sending_method = 'nemhandel'
 
@@ -272,5 +276,7 @@ class ResPartner(models.Model):
         if participant_info is None:
             return 'not_valid'
 
-        is_participant_on_network = self._check_nemhandel_participant_exists(participant_info, edi_identification)
-        return 'valid' if is_participant_on_network else 'not_valid'
+        if self._check_nemhandel_participant_exists(participant_info, edi_identification):
+            self.nemhandel_supported_documents = [service['document_id'] for service in participant_info.get('services', []) if service.get('document_id')]
+            return 'valid'
+        return 'not_valid'

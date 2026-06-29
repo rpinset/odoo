@@ -11,7 +11,6 @@
     'depends': ['product', 'stock', 'resource'],
     'data': [
         'security/mrp_security.xml',
-        'security/ir.model.access.csv',
         'data/digest_data.xml',
         'data/mail_templates.xml',
         'data/mrp_data.xml',
@@ -43,10 +42,10 @@
         'report/mrp_report_bom_structure.xml',
         'report/mrp_report_mo_overview.xml',
         'report/mrp_production_templates.xml',
-        'report/report_stock_reception.xml',
         'report/report_stock_rule.xml',
         'report/mrp_zebra_production_templates.xml',
         'report/mrp_workorder_templates.xml',
+        'security/ir.access.csv',
     ],
     'demo': [
         'data/mrp_demo.xml',

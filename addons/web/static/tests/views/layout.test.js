@@ -1,7 +1,7 @@
-import { reactive, useChildSubEnv, useState, useSubEnv } from "@web/owl2/utils";
+import { useChildSubEnv, useSubEnv } from "@web/owl2/utils";
 import { expect, test } from "@odoo/hoot";
 import { animationFrame } from "@odoo/hoot-mock";
-import { Component, onWillStart, xml } from "@odoo/owl";
+import { Component, onWillStart, xml, proxy } from "@odoo/owl";
 import {
     defineModels,
     fields,
@@ -259,7 +259,7 @@ test(`Custom search panel`, async () => {
 });
 
 test(`Simple rendering: with dynamically displayed search`, async () => {
-    const state = reactive({ displayControlPanelActions: true });
+    const state = proxy({ displayControlPanelActions: true });
 
     class ToyComponent extends Component {
         static props = ["*"];
@@ -274,7 +274,7 @@ test(`Simple rendering: with dynamically displayed search`, async () => {
         static components = { Layout };
 
         setup() {
-            this.state = useState(state);
+            this.state = proxy(state);
         }
 
         get display() {

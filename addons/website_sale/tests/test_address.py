@@ -251,7 +251,7 @@ class TestCheckoutAddress(WebsiteSaleCommon):
             self.assertEqual(order, so)
             self.assertEqual(order.pricelist_id, self.pricelist)
 
-            order_b = request.website.with_user(test_user)._get_and_cache_current_cart()
+            order_b = request.env.website.with_user(test_user)._get_and_cache_current_cart()
             self.assertEqual(order, order_b)
             self.assertEqual(order_b.pricelist_id, pl_with_code)
 

@@ -256,8 +256,6 @@ class ProjectTask(models.Model):
     working_hours_close = fields.Float(compute='_compute_elapsed', string='Working Hours to Close', digits=(16, 2), store=True, aggregator="avg")
     working_days_open = fields.Float(compute='_compute_elapsed', string='Working Days to Assign', store=True, aggregator="avg")
     working_days_close = fields.Float(compute='_compute_elapsed', string='Working Days to Close', store=True, aggregator="avg")
-    # customer portal: include comment and (incoming/outgoing) emails in communication history
-    website_message_ids = fields.One2many(domain=lambda self: [('model', '=', self._name), ('message_type', 'in', ['email', 'comment', 'email_outgoing', 'auto_comment'])], export_string_translation=False)
     allow_milestones = fields.Boolean(related='project_id.allow_milestones', export_string_translation=False)
     milestone_id = fields.Many2one(
         'project.milestone',
@@ -384,6 +382,15 @@ class ProjectTask(models.Model):
                 task.display_in_project = True
             elif task.display_in_project and task.project_id == task.parent_id.sudo().project_id:
                 task.display_in_project = False
+
+    @api.depends_context('formatted_display_name', 'show_muted_project')
+    def _compute_display_name(self):
+        super()._compute_display_name()
+        if not (self.env.context.get('formatted_display_name') and self.env.context.get('show_muted_project')):
+            return
+        for task in self:
+            if task.project_id:
+                task.display_name = f'{task.name} \t --{task.project_id.sudo().name}--'
 
     @api.depends('stage_id', 'depend_on_ids.state')
     def _compute_state(self):
@@ -871,6 +878,8 @@ class ProjectTask(models.Model):
         milestone_mapping = self.env.context.get('milestone_mapping', {})
         role_to_users_mapping = self.env.context.get('role_to_users_mapping')
         for task, vals in zip(self, vals_list):
+            if self.env.context.get('convert_to_template'):
+                vals['date_deadline'] = task.date_deadline
             if not default.get('stage_id'):
                 vals['stage_id'] = task.stage_id.id
             if 'active' not in default and not task['active'] and not self.env.context.get('copy_project'):
@@ -1057,7 +1066,7 @@ class ProjectTask(models.Model):
         return vals
 
     @api.model
-    @tools.ormcache(cache='stable')
+    @api.ormcache(cache='stable')
     def _portal_accessible_fields(self) -> tuple[frozenset[str], frozenset[str]]:
         """Readable and writable fields by portal users."""
         readable = frozenset(self.TASK_PORTAL_READABLE_FIELDS)
@@ -1093,13 +1102,23 @@ class ProjectTask(models.Model):
                 self.env[field.comodel_name].browse(value).check_access('read')
 
     def _set_stage_on_project_from_task(self):
-        stage_ids_per_project = defaultdict(list)
-        for task in self:
-            if task.stage_id and task.stage_id not in task.project_id.type_ids and task.stage_id.id not in stage_ids_per_project[task.project_id]:
-                stage_ids_per_project[task.project_id].append(task.stage_id.id)
+        tasks_with_stage = self.filtered(lambda t: t.stage_id and t.project_id)
+        if not tasks_with_stage:
+            return
 
-        for project, stage_ids in stage_ids_per_project.items():
-            project.write({'type_ids': [Command.link(stage_id) for stage_id in stage_ids]})
+        missing_stages_per_project = {
+            project: tasks.stage_id - project.type_ids
+            for project, tasks in tasks_with_stage.grouped('project_id').items()
+        }
+        project_ids_per_missing_stage_ids = defaultdict(set)
+        for project, missing_stages in missing_stages_per_project.items():
+            if missing_stages:
+                project_ids_per_missing_stage_ids[frozenset(missing_stages.ids)].add(project.id)
+
+        for stage_ids, project_ids in project_ids_per_missing_stage_ids.items():
+            self.env['project.project'].browse(project_ids).write({
+                'type_ids': [Command.link(stage_id) for stage_id in stage_ids],
+            })
 
     def _load_records_create(self, vals_list):
         for vals in vals_list:
@@ -1466,12 +1485,12 @@ class ProjectTask(models.Model):
     # Mail gateway
     # ---------------------------------------------------
 
-    def _notify_by_email_prepare_rendering_context(self, message, msg_vals=False, model_description=False,
+    def _notify_by_email_prepare_rendering_context(self, message, model_description=False,
                                                    force_email_company=False, force_email_lang=False,
                                                    force_header=False, force_footer=False,
                                                    force_record_name=False):
         render_context = super()._notify_by_email_prepare_rendering_context(
-            message, msg_vals=msg_vals, model_description=model_description,
+            message, model_description=model_description,
             force_email_company=force_email_company, force_email_lang=force_email_lang,
             force_header=force_header, force_footer=force_footer,
             force_record_name=force_record_name,
@@ -1608,14 +1627,12 @@ class ProjectTask(models.Model):
                 res -= waiting_subtype
         return res
 
-    def _notify_get_recipients_groups(self, message, model_description, msg_vals=False):
+    def _notify_get_recipients_groups(self, message, model_description):
         # Handle project users and managers recipients that can assign
         # tasks and create new one directly from notification emails. Also give
         # access button to portal users and portal customers. If they are notified
         # they should probably have access to the document.
-        groups = super()._notify_get_recipients_groups(
-            message, model_description, msg_vals=msg_vals
-        )
+        groups = super()._notify_get_recipients_groups(message, model_description)
         if not self:
             return groups
 
@@ -1713,7 +1730,7 @@ class ProjectTask(models.Model):
             headers['X-Odoo-Tags'] = ','.join(self.tag_ids.mapped('name'))
         return headers
 
-    def _message_post_after_hook(self, message, msg_vals):
+    def _message_post_after_hook(self, message):
         if message.attachment_ids and not self.displayed_image_id:
             image_attachments = message.attachment_ids.filtered(lambda a: a.mimetype == 'image')
             if image_attachments:
@@ -1724,16 +1741,15 @@ class ProjectTask(models.Model):
            not self.description
            and message.subtype_id == self._creation_subtype()
            and self.partner_id == message.author_id
-           and msg_vals['message_type'] == 'email'
-           and msg_vals.get('body')
+           and message.message_type == 'email'
+           and message.body  # TDE FIXME: use html empty
         ):
             # Remove the signature from the email body
-            source_html = msg_vals.get('body')
+            source_html = message.body
             doc = html.fromstring(source_html)
 
             signature_xpath = (
-                '//*[@id="Signature"] | '
-                '//*[@data-smartmail="gmail_signature"] | '
+                '//*[@data-o-mail-quote="1"] | '
                 '//span[normalize-space(.) = "--"]'
             )
 
@@ -1743,7 +1759,7 @@ class ProjectTask(models.Model):
             cleaned_html = html.tostring(doc, encoding='unicode').strip()
             self.description = html_sanitize(cleaned_html)
 
-        return super()._message_post_after_hook(message, msg_vals)
+        return super()._message_post_after_hook(message)
 
     def _get_projects_to_make_billable_domain(self, additional_domain=None):
         return Domain('partner_id', '!=', False) & Domain(additional_domain or Domain.TRUE)

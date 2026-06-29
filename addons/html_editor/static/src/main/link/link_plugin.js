@@ -218,7 +218,10 @@ export class LinkPlugin extends Plugin {
             },
         ],
 
-        toolbar_groups: [withSequence(40, { id: "link", namespaces: ["compact", "expanded"] })],
+        toolbar_groups: [
+            withSequence(40, { id: "link", namespaces: ["compact", "expanded"] }),
+            withSequence(30, { id: "image_link", namespaces: ["image", "icon"] }),
+        ],
         toolbar_items: [
             {
                 id: "link",
@@ -237,7 +240,7 @@ export class LinkPlugin extends Plugin {
             },
             withSequence(20, {
                 id: "link",
-                groupId: "image_actions",
+                groupId: "image_link",
                 commandId: "openLinkTools",
                 isActive: isLinkActive,
                 isDisabled: (sel, nodes) =>
@@ -245,7 +248,7 @@ export class LinkPlugin extends Plugin {
             }),
             withSequence(30, {
                 id: "unlink",
-                groupId: "image_actions",
+                groupId: "image_link",
                 commandId: "removeLinkFromSelection",
                 isDisabled: () => this.removeLinkFromSelectionIsDisabled(),
             }),
@@ -351,6 +354,7 @@ export class LinkPlugin extends Plugin {
                     (attr) => attr.name !== "href" && btn.removeAttribute(attr.name)
                 );
             }
+            return node;
         },
     };
 
@@ -775,6 +779,7 @@ export class LinkPlugin extends Plugin {
                 this.removeLinkInDocument(anchorEl);
             }
         }
+        return root;
     }
 
     handleSelectionChange(selectionData) {
@@ -1082,6 +1087,7 @@ export class LinkPlugin extends Plugin {
             }
             remove(link);
         }
+        return root;
     }
 
     updateCurrentLinkSyncState() {
@@ -1207,7 +1213,9 @@ export class LinkPlugin extends Plugin {
             const textNodeSplitted = textSliced.split(/\s/);
             const potentialUrl = textNodeSplitted.pop();
             // In case of multiple matches, only the last one will be converted.
-            const match = [...potentialUrl.matchAll(new RegExp(URL_REGEX, "g"))].pop();
+            const match = [
+                ...potentialUrl.matchAll(new RegExp(URL_REGEX.source, URL_REGEX.flags + "g")),
+            ].pop();
 
             if (match) {
                 selection.anchorNode.splitText(selection.anchorOffset);

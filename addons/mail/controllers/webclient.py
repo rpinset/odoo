@@ -1,40 +1,23 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 from collections import defaultdict
 
+from odoo.fields import Domain
 from odoo.http import request
 
 from odoo.addons.mail.controllers.thread import ThreadController
-from odoo.addons.mail.tools.discuss import Store, mail_route
-from odoo.addons.mail.tools.store_handler import (
-    store_handler,
-    store_handler_registry,
-)
+from odoo.addons.mail.models.mail_message import SHARE_DOMAIN
+from odoo.addons.mail.tools.discuss import Store
+from odoo.addons.mail.tools.store_handler import store_handler
 
 
 class WebclientController(ThreadController):
-    """Routes for the web client."""
-
-    @mail_route("/mail/store", methods=["POST"], type="jsonrpc", auth="public", readonly=lambda self, *_: self._is_mail_fetch_readonly())
-    def mail_store(self, fetch_params, context=None):
-        """Returns store data for the given fetch_params."""
-        store = Store()
-        if context:
-            request.update_context(**context)
-        self._process_request_loop(store, fetch_params)
-        return store
-
-    def _is_mail_fetch_readonly(self):
-        if request.httprequest.method == "OPTIONS":
-            # CORS preflight request has an empty body, nothing to parse
-            return True
-        fetch_params = request.get_json_data().get("params", {}).get("fetch_params", [])
-        return store_handler_registry.is_fetch_readonly(fetch_params)
+    """Generic store handlers for the web client."""
 
     def _process_request_loop(self, store: Store, fetch_params):
-        # aggregate of messages to return, to batch them in a single query when all the fetch params
-        # have been processed
+        # aggregate of messages to return, to batch them in a single query when all the fetch
+        # params have been processed
         request.update_context(messages=request.env["mail.message"], add_inbox_fields=False, add_chatter_fields=False)
-        store_handler_registry.execute_for_user(self, store, fetch_params)
+        super()._process_request_loop(store, fetch_params)
         if messages := request.env.context["messages"]:
             fields_params = {
                 **({"inbox_fields": True} if request.env.context["add_inbox_fields"] else {}),
@@ -140,18 +123,35 @@ class WebclientController(ThreadController):
             lost.sudo().unlink()  # no unlink right except admin, ok to remove as lost anyway
         store.add(valid.mail_message_id, "_store_notification_fields")
 
-    @store_handler("/mail/thread/messages", audience="logged_in", readonly=False)
-    def store_get_thread_messages(self, store: Store, thread_model, thread_id, fetch_params=None):
+    @store_handler("/mail/thread/messages", audience="everyone", readonly=False)
+    def store_get_thread_messages(
+        self,
+        store: Store,
+        thread_model,
+        thread_id,
+        fetch_params=None,
+        access_params=None,
+    ):
         request.update_context(add_chatter_fields=True)
         if thread := self._get_thread_with_access(
             thread_model,
             thread_id,
             mode="read",
+            **(access_params or {}),
         ):
+            domain = Domain.TRUE
+            if not request.env.user._is_internal() or not thread.sudo(False).has_access("read"):
+                domain = (
+                    SHARE_DOMAIN
+                    & Domain("message_type", "in", thread._get_customer_portal_message_types())
+                    & ~request.env["mail.message"]._get_empty_domain()
+                )
             messages = self._resolve_messages(
                 store,
+                domain=domain,
                 thread=thread,
                 fetch_params=fetch_params,
+                sudo=thread.env.su,
             )
             if not request.env.user._is_public():
                 messages.set_message_done()
@@ -164,6 +164,7 @@ class WebclientController(ThreadController):
         bus_last_id = request.env["bus.bus"].sudo()._bus_last_id()
         groups = request.env["res.users"]._get_activity_groups()
         store.add_global_values(
+            activities_to_assign_count=request.env["res.users"]._get_activities_to_assign_count(),
             activityCounter=sum(group.get("total_count", 0) for group in groups),
             activity_counter_bus_id=bus_last_id,
             activityGroups=groups,

@@ -28,7 +28,7 @@ import { registry } from "@web/core/registry";
 import { uniqueId } from "@web/core/utils/functions";
 import { WebClient } from "@web/webclient/webclient";
 import { EditInteractionPlugin } from "@website/builder/plugins/edit_interaction_plugin";
-import { WebsiteSessionPlugin } from "@website/builder/plugins/website_session_plugin";
+import { WebsiteBridgePlugin } from "@website/builder/plugins/website_bridge_plugin";
 import { WebsiteBuilderClientAction } from "@website/client_actions/website_preview/website_builder_action";
 import { WebsiteSystrayItem } from "@website/client_actions/website_preview/website_systray_item";
 import { mockImageRequests } from "./image_test_helpers";
@@ -41,9 +41,6 @@ import { BackgroundShapeOptionPlugin } from "@html_builder/plugins/background_op
 
 class Website extends models.Model {
     _name = "website";
-    get_current_website() {
-        return [1];
-    }
 }
 
 class IrUiView extends models.Model {
@@ -64,6 +61,7 @@ export function defineWebsiteModels({ includeMailModels = true } = {}) {
         defineMailModels();
     }
     defineModels([Website, IrUiView]);
+    onRpc("/website/get_current_website_id", () => 1);
     onRpc("/website/theme_customize_data_get", () => []);
     onRpc("website", "web_search_read", () => ({
         length: 1,
@@ -73,6 +71,7 @@ export function defineWebsiteModels({ includeMailModels = true } = {}) {
                 default_lang_id: {
                     code: "en_US",
                 },
+                company_id: 1,
             },
         ],
     }));
@@ -277,9 +276,15 @@ export async function setupWebsiteBuilder(
         },
     });
 
-    patchWithCleanup(WebsiteSessionPlugin.prototype, {
+    patchWithCleanup(WebsiteBridgePlugin.prototype, {
         getSession() {
             return {};
+        },
+        getRegistry() {
+            return registry;
+        },
+        _t() {
+            return (source, ...substitutions) => source;
         },
     });
 
@@ -497,7 +502,7 @@ export async function setupSidebarBuilderForTranslation(options) {
     // on the "Edit" button of the systray. The goal of this hack is to avoid
     // the handling of an extra reload of the action to arrive in translate
     // mode.
-    patchWithCleanup(Builder.prototype, {
+    patchWithCleanup(WebsiteBuilder.prototype, {
         setup() {
             super.setup();
             this.env.services.website = websiteServiceInTranslateMode;

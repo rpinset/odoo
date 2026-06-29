@@ -1,10 +1,9 @@
 /** @odoo-module **/
 
-import { useState } from "@web/owl2/utils";
 import { after, beforeEach, describe, expect, test } from "@odoo/hoot";
-import { queryFirst, waitFor, press, Deferred, waitForNone } from "@odoo/hoot-dom";
+import { queryFirst, waitFor, press, waitForNone } from "@odoo/hoot-dom";
 import { advanceTime, animationFrame } from "@odoo/hoot-mock";
-import { Component, xml } from "@odoo/owl";
+import { Component, onMounted, onPatched, proxy, xml } from "@odoo/owl";
 import {
     contains,
     getService,
@@ -22,6 +21,7 @@ import { session } from "@web/session";
 import { WebClient } from "@web/webclient/webclient";
 import { TourInteractive } from "@web_tour/js/tour_interactive/tour_interactive";
 import { Tour, TourStep } from "./tour_models";
+import { TourPointer } from "@web_tour/js/tour_pointer/tour_pointer";
 
 describe.current.tags("desktop");
 
@@ -61,7 +61,7 @@ class Counter extends Component {
         </div>
     `;
     setup() {
-        this.state = useState({ interval: 1, value: 0 });
+        this.state = proxy({ interval: 1, value: 0 });
     }
     onIncrement() {
         this.state.value += this.state.interval;
@@ -291,7 +291,7 @@ test("Tour backward when the pointed element disappear", async () => {
 
     class Dummy extends Component {
         static props = ["*"];
-        state = useState({ bool: true });
+        state = proxy({ bool: true });
         static components = {};
         static template = xml`
             <button class="fool w-100" t-on-click="() => { this.state.bool = true; }">You fool</button>
@@ -349,7 +349,7 @@ test("Tour backward when the pointed element disappear and ignore warn step", as
 
     class Dummy extends Component {
         static props = ["*"];
-        state = useState({ bool: true });
+        state = proxy({ bool: true });
         static components = {};
         static template = xml`
             <button class="fool" t-on-click="() => { this.state.bool = true; }">You fool</button>
@@ -398,7 +398,7 @@ test("Tour started by the URL", async () => {
 
     class Dummy extends Component {
         static props = ["*"];
-        state = useState({ bool: true });
+        state = proxy({ bool: true });
         static components = {};
         static template = xml`
             <button class="foo w-100" t-if="this.state.bool" t-on-click="() => { this.state.bool = false; }">Foo</button>
@@ -435,7 +435,7 @@ test("Log a warning if step ignored", async () => {
 
     class Dummy extends Component {
         static props = ["*"];
-        state = useState({ bool: true });
+        state = proxy({ bool: true });
         static components = {};
         static template = xml`
             <button class="foo w-100" t-if="this.state.bool" t-on-click="() => { this.state.bool = false; }">Foo</button>
@@ -627,7 +627,7 @@ test("Tour don't backward when dropdown loading", async () => {
         ],
     });
 
-    const def = new Deferred();
+    const def = Promise.withResolvers();
     let makeItLag = false;
     await mountWithCleanup(WebClient);
 
@@ -639,7 +639,7 @@ test("Tour don't backward when dropdown loading", async () => {
 
     onRpc("product", "web_name_search", async () => {
         if (makeItLag) {
-            await def;
+            await def.promise;
         }
     });
 
@@ -680,7 +680,7 @@ test("Don't backward when action manager is busy", async () => {
 
     class Dummy extends Component {
         static props = ["*"];
-        state = useState({ bool: true });
+        state = proxy({ bool: true });
         static components = {};
         static template = xml`
             <button class="fool w-100" t-on-click="() => { this.state.bool = true; }">You fool</button>
@@ -828,4 +828,48 @@ test("start a tour that no longer exist should clear tourstate", async () => {
     registry.category("web_tour.tours").remove("tour69");
     await getService("tour_service").startTour("tour69", { mode: "manual" });
     expect(browser.localStorage.getItem("current_tour")).toBe(null);
+});
+
+test("avoid rendering loop of pointer", async () => {
+    registry.category("web_tour.tours").add("tour1", {
+        steps: () => [{ trigger: "button.foo", run: "click" }],
+    });
+    Tour._records = [{ name: "tour1" }];
+    let patchCount = 0;
+    patchWithCleanup(TourPointer.prototype, {
+        setup() {
+            super.setup();
+            onMounted(() => {
+                patchCount++;
+            });
+            onPatched(() => {
+                patchCount++;
+            });
+        },
+    });
+    const state = proxy({ hasFoo: true });
+    class Dummy extends Component {
+        static props = ["*"];
+        static components = {};
+        static template = xml`
+            <div class="o_home_menu">Dummy menu to allow pointer to disappear</div>
+            <button t-if="this.state.hasFoo" class="foo w-100">Foo</button>
+        `;
+
+        state = state;
+    }
+    await mountWithCleanup(Dummy);
+    await getService("tour_service").startTour("tour1", { mode: "manual" });
+    await waitFor(".o_tour_pointer");
+    expect(patchCount).toBe(1);
+    await animationFrame();
+    expect(patchCount).toBe(2);
+    await animationFrame();
+    expect(patchCount).toBe(2);
+
+    state.hasFoo = false;
+    await waitForNone(".o_tour_pointer");
+    expect(patchCount).toBe(3);
+    await animationFrame();
+    expect(patchCount).toBe(3);
 });

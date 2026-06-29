@@ -95,7 +95,7 @@ class SaleOrderLine(models.Model):
     @api.depends('order_id.partner_id', 'product_id', 'order_id.project_id')
     def _compute_analytic_distribution(self):
         ctx_project = self.env['project.project'].browse(self.env.context.get('project_id'))
-        project_lines = self.filtered(lambda l: not l.display_type and (ctx_project or l.product_id.with_company(l.company_id).project_id or l.order_id.project_id))
+        project_lines = self.filtered(lambda l: l._is_product_line() and (ctx_project or l.product_id.with_company(l.company_id).project_id or l.order_id.project_id))
         empty_project_lines = project_lines.filtered(lambda l: not l.analytic_distribution)
         super(SaleOrderLine, (self - project_lines) + empty_project_lines)._compute_analytic_distribution()
 
@@ -164,6 +164,14 @@ class SaleOrderLine(models.Model):
             if origin.analytic_distribution == origin.order_id.project_id.sudo()._get_analytic_distribution():
                 datum['analytic_distribution'] = False
         return data
+
+    def action_view_sale_order(self):
+        self.ensure_one()
+        action = self.env["ir.actions.actions"]._for_xml_id("sale.action_orders")
+        action['views'] = [(False, 'form')]
+        action['res_id'] = self.order_id.id
+        action['context'] = {'create': False}
+        return action
 
     ###########################################
     # Service : Project and task generation

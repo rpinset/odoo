@@ -33,7 +33,7 @@ class RestaurantFloor(models.Model):
     table_ids = fields.One2many('restaurant.table', 'floor_id', string='Tables')
     sequence = fields.Integer('Sequence', default=1)
     active = fields.Boolean(default=True)
-    floor_plan_layout = fields.Json(string='Floor Plan Layout')
+    floor_plan_layout = fields.Json(string='Floor Plan Layout', copy=False)
 
     @api.model
     def _load_pos_data_domain(self, data, config):
@@ -58,7 +58,7 @@ class RestaurantFloor(models.Model):
     def write(self, vals):
         for floor in self:
             for config in floor.pos_config_ids:
-                if config.has_active_session and (vals.get('pos_config_ids') or vals.get('active')):
+                if config.current_session_id and (vals.get('pos_config_ids') or vals.get('active')):
                     raise UserError(
                         self.env._(
                             "Please close and validate the following open PoS Session before modifying this floor.\n"

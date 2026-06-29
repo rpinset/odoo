@@ -3,6 +3,7 @@
 # -----------------------------------------------------------
 import collections
 import contextlib
+import contextvars
 import errno
 import logging
 import os
@@ -56,9 +57,9 @@ except ImportError:
 from odoo import api, sql_db
 from odoo.http.server import HTTPSocket
 from odoo.modules.registry import Registry
+from odoo.orm.cache import log_ormcache_stats
 from odoo.release import nt_service_name
 from odoo.tools import OrderedSet, config, gc, osutil, profiler
-from odoo.tools.cache import log_ormcache_stats
 from odoo.tools.misc import dumpstacks, mute_logger, stripped_sys_argv
 
 _logger = logging.getLogger(__name__)
@@ -412,7 +413,9 @@ class ThreadedServer(CommonServer):
             t.start()
 
     def http_client_thread(self, client, address, prelude=b''):
+        current_thread = threading.current_thread()
         try:
+            current_thread.processing_http = True
             # timeout to avoid chrome headless preconnect during tests
             if config['test_enable']:
                 client.settimeout(5)
@@ -420,11 +423,11 @@ class ThreadedServer(CommonServer):
             http_socket = HTTPSocket(client, address, prelude=prelude)
             http_socket.process_request()
         except BaseException:  # noqa: BLE001
-            current_thread = threading.current_thread()
             _logger.critical("Thread %s (%s) Exception occurred, quitting...",
                 current_thread.name, current_thread.ident, exc_info=True)
         finally:
             client.close()
+            current_thread.processing_http = False
 
     def http_server_thread(self, stop_event):
         try:
@@ -465,7 +468,8 @@ class ThreadedServer(CommonServer):
                     except TimeoutError:
                         continue
                     else:
-                        thread_pool.submit(self.http_client_thread, client, address)
+                        thread_pool.submit(contextvars.Context().run,
+                            self.http_client_thread, client, address)
 
         except SystemExit:
             raise
@@ -764,6 +768,8 @@ class GeventServer(CommonServer):
             super().stop()
 
     def run(self, preload, stop):
+        if rc := preload_registries(preload):
+            return rc
         self.start()
         self.stop()
         self.logger.info("Stopped")
@@ -1325,7 +1331,7 @@ class WorkerHTTP(Worker):
             pass
         else:
             with client:
-                self.process_request(client, addr)
+                contextvars.Context().run(self.process_request, client, addr)
 
 
 class WorkerCron(Worker):
@@ -1389,7 +1395,7 @@ class WorkerCron(Worker):
         self.setproctitle(db_name)
 
         from odoo.addons.base.models.ir_cron import IrCron  # noqa: PLC0415
-        IrCron._process_jobs(db_name)
+        contextvars.Context().run(IrCron._process_jobs, db_name)
 
         # dont keep cursors in multi database mode
         if self.db_count > 1:
@@ -1405,9 +1411,11 @@ class WorkerCron(Worker):
 
     def start(self):
         os.nice(10)     # mommy always told me to be nice with others...
-        Worker.start(self)
+        super().start()
         if self.multi.socket:
             self.multi.socket.close()
+        if registries_size := os.environ.get('ODOO_REGISTRY_LRU_SIZE_CRON'):
+            Registry.registries.count = int(registries_size)
 
         dbconn = sql_db.db_connect(config['db_system'])
         self.dbcursor = dbconn.cursor()
@@ -1499,6 +1507,21 @@ def preload_registries(dbnames):
     rc = 0
 
     preload_profiler = contextlib.nullcontext()
+
+    registries_size = int(os.environ.get('ODOO_REGISTRY_LRU_SIZE') or 0)
+    if not registries_size and os.name == 'posix':
+        # Size the LRU depending of the memory limits
+        # A registry takes 10MB of memory on average, so we reserve
+        # 10Mb (registry) + 5Mb (working memory) per registry
+        avgsz = 15 * 1024 * 1024
+        limit_memory_soft = config['limit_memory_soft'] if config['limit_memory_soft'] > 0 else (2048 * 1024 * 1024)
+        registries_size = (limit_memory_soft // avgsz) or 1
+    elif not registries_size and len(dbnames) > Registry.registries.count:
+        # If we give a list of databases higher and did not specify the size,
+        # use the number of preloaded databases as the limit.
+        registries_size = len(dbnames)
+    if registries_size:
+        Registry.registries.count = registries_size
 
     for dbname in dbnames:
         if os.environ.get('ODOO_PROFILE_PRELOAD'):

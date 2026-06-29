@@ -1,5 +1,5 @@
 declare module "plugins" {
-    import { AnchorShared } from "@html_builder/core/anchor/anchor_plugin";
+    import { anchor_allowed_selectors, anchor_excluded_selectors, AnchorShared } from "@html_builder/core/anchor/anchor_plugin";
     import { builder_components, BuilderComponentShared } from "@html_builder/core/builder_component_plugin";
     import { builder_header_middle_buttons, builder_options_render_context, BuilderOptionsShared, on_current_options_containers_changed_handlers, clone_disabled_reason_providers, container_title, elements_to_options_title_components, options_container_top_buttons_providers, has_overlay_options, should_keep_overlay_options_predicates, no_parent_containers, on_will_restore_containers_handlers, remove_disabled_reason_providers, auto_unfold_container_providers } from "@html_builder/core/builder_options_plugin";
     import { BuilderOverlayShared } from "@html_builder/core/builder_overlay/builder_overlay_plugin";
@@ -14,6 +14,7 @@ declare module "plugins" {
     import { get_overlay_buttons, OverlayButtonsShared, should_show_overlay_buttons_of_ancestor_predicates } from "@html_builder/core/overlay_buttons/overlay_buttons_plugin";
     import { is_node_empty_predicates, is_unremovable_selectors, on_removed_handlers, on_will_remove_handlers, RemoveShared } from "@html_builder/core/remove_plugin";
     import { on_saved_handlers, on_will_save_handlers, dirty_els_providers, on_will_save_element_handlers, save_elements_overrides, on_ready_to_save_document_handlers, SaveShared } from "@html_builder/core/save_plugin";
+    import { submit_button_selectors } from "@html_builder/core/save_snippet_plugin";
     import { after_setup_editor_overrides, on_will_setup_editor_handlers, savable_selectors, SetupEditorShared } from "@html_builder/core/setup_editor_plugin";
     import { on_target_hidden_handlers, on_target_shown_handlers, VisibilityShared } from "@html_builder/core/visibility_plugin";
     import { default_shape_providers, image_shape_groups_providers, on_shape_computed_handlers } from "@html_builder/plugins/image/image_shape_option_plugin";
@@ -134,9 +135,12 @@ declare module "plugins" {
         target_element_providers: target_element_providers;
 
         // Data
+        anchor_allowed_selectors: anchor_allowed_selectors;
+        anchor_excluded_selectors: anchor_excluded_selectors;
         builder_actions: builder_actions;
         builder_components: builder_components;
         builder_header_middle_buttons: builder_header_middle_buttons;
+        builder_options_render_context: builder_options_render_context;
         container_title: container_title;
         content_editable_selectors: content_editable_selectors;
         content_not_editable_selectors: content_not_editable_selectors;
@@ -154,7 +158,7 @@ declare module "plugins" {
         so_content_addition_selectors: so_content_addition_selectors;
         so_snippet_addition_selectors: so_snippet_addition_selectors;
         snippet_preview_dialog_bundles: snippet_preview_dialog_bundles;
-        builder_options_render_context: builder_options_render_context;
         uncrossable_element_selector: uncrossable_element_selector;
+        submit_button_selectors: submit_button_selectors;
     }
 }

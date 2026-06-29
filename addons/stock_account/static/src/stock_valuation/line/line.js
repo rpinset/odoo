@@ -1,26 +1,22 @@
-import { useState } from "@web/owl2/utils";
-import { Component } from "@odoo/owl";
+import { Component, props, proxy, t } from "@odoo/owl";
 
 
 export class StockValuationReportLine extends Component {
     static template = "stock_account.StockValuationReport.InventoryValuationLine";
-    static props = {
-        class: { type: String, optional: true },
-        displayDebitCredit: { type: Boolean, optional: true },
-        label: { type: String, optional: true },
-        level: { type: Number, optional: true },
-        line: { type: Object, optional: true },
-        sublines: { type: Array, optional: true },
-        onClickMethod: { type: Function, optional: true },
-        value: { type: Number, optional: true },
-    };
-    static defaultProps = {
-        level: 0,
-    };
+    props = props({
+        class: t.string().optional(),
+        displayDebitCredit: t.boolean().optional(),
+        label: t.string().optional(),
+        level: t.number().optional(0),
+        line: t.object().optional(),
+        sublines: t.array().optional(),
+        onClickMethod: t.function().optional(),
+        value: t.number().optional(),
+    });
 
     setup() {
         this.hasSublines = Boolean(this.props.sublines?.length);
-        this.state = useState({ displaySublines: this.hasSublines });
+        this.state = proxy({ displaySublines: this.hasSublines });
     }
 
     // Getters -----------------------------------------------------------------

@@ -40,7 +40,7 @@ class StripeTest(StripeCommon, PaymentHttpCommon):
 
     @mute_logger("odoo.addons.payment_stripe.models.payment_transaction")
     def test_tx_state_after_send_capture_request(self):
-        self.provider.payment_method_ids.active = False  # deactivate default payment methods
+        self.provider.payment_method_ids.active = False  # TODO VCHU: remove in master
         self.provider.capture_manually = True
         tx = self._create_transaction("direct", state="authorized")
 
@@ -53,13 +53,14 @@ class StripeTest(StripeCommon, PaymentHttpCommon):
             },
         ):
             tx._capture()
+        self._run_processing()
         self.assertEqual(
             tx.state, "done", msg="The state should be 'done' after a successful capture."
         )
 
     @mute_logger("odoo.addons.payment_stripe.models.payment_transaction")
     def test_tx_state_after_send_void_request(self):
-        self.provider.payment_method_ids.active = False  # deactivate default payment methods
+        self.provider.payment_method_ids.active = False  # TODO VCHU: remove in master
         self.provider.capture_manually = True
         tx = self._create_transaction("redirect", state="authorized")
 
@@ -72,6 +73,7 @@ class StripeTest(StripeCommon, PaymentHttpCommon):
             },
         ):
             child_tx = tx._void()
+        self._run_processing()
         self.assertEqual(
             child_tx.state,
             "cancel",
@@ -87,6 +89,7 @@ class StripeTest(StripeCommon, PaymentHttpCommon):
             "odoo.addons.payment_stripe.controllers.main.StripeController._verify_signature"
         ):
             self._make_json_request(url, data=self.payment_data)
+        self._run_processing()
         self.assertEqual(tx.state, "done")
 
     def test_validate_amount_succeeds_for_special_currencies(self):
@@ -152,6 +155,7 @@ class StripeTest(StripeCommon, PaymentHttpCommon):
             self._make_json_request(
                 url, data=dict(self.payment_data, type="setup_intent.succeeded")
             )
+            self._run_processing()
         self.assertEqual(tokenize_check_mock.call_count, 1)
 
     @mute_logger("odoo.addons.payment_stripe.controllers.main")

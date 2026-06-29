@@ -32,7 +32,8 @@ SALE_ORDER_STATE = [
 
 class SaleOrder(models.Model):
     _name = "sale.order"
-    _explanation = "Represents a customer quotation that can be converted into a sales order. Used to manage pricing, product quantities, and status"
+    _explanation = "Represents a customer quotation that can be converted into a sales order. Used"
+    " to manage pricing, product quantities, and status"
     _inherit = [
         "account.document.import.mixin",
         "mail.activity.mixin",
@@ -184,6 +185,17 @@ class SaleOrder(models.Model):
         check_company=True,
         help="If set, the SO will invoice in this journal; "
         "otherwise the sales journal with the lowest sequence is used.",
+    )
+    document_tax_mode = fields.Selection(
+        selection=[
+            ('tax_excluded', "Tax Excl."),
+            ('tax_included', "Tax Incl."),
+        ],
+        compute='_compute_document_tax_mode',
+        precompute=True,
+        store=True,
+        readonly=False,
+        required=True,
     )
 
     # Partner-based computes
@@ -442,6 +454,7 @@ class SaleOrder(models.Model):
         help="Delivery date you can promise to the customer, computed from the minimum lead time of"
         " the order lines.",
     )
+    extra_total_fields = fields.Json(compute="_compute_extra_total_fields")
     is_expired = fields.Boolean(
         string="Is Expired", compute="_compute_is_expired", search="_search_is_expired"
     )
@@ -460,6 +473,9 @@ class SaleOrder(models.Model):
     terms_type = fields.Selection(related="company_id.terms_type")
     type_name = fields.Char(string="Type Name", compute="_compute_type_name")
 
+    has_overages = fields.Boolean(compute="_compute_has_overages")
+    invoice_overages = fields.Boolean()
+
     # Remaining ux fields (not computed, not stored)
 
     has_active_pricelist = fields.Boolean(compute="_compute_has_active_pricelist")
@@ -475,19 +491,22 @@ class SaleOrder(models.Model):
 
     # === COMPUTE METHODS ===#
 
-    @api.depends("partner_id")
+    @api.depends("name", "partner_id", "client_order_ref")
     @api.depends_context("sale_show_partner_name", "formatted_display_name")
     def _compute_display_name(self):
-        if not self.env.context.get("sale_show_partner_name"):
-            return super()._compute_display_name()
+        super()._compute_display_name()
         for order in self:
-            if order.partner_id.name:
+            order_label = order.name
+            if order.client_order_ref:
+                order_label = f"{order_label} ({order.client_order_ref})"
+
+            if self.env.context.get("sale_show_partner_name") and order.partner_id.name:
                 if self.env.context.get("formatted_display_name"):
-                    order.display_name = f"{order.name} \t --{order.partner_id.name}--"
+                    order.display_name = f"{order_label} \t --{order.partner_id.name}--"
                 else:
-                    order.display_name = f"{order.name} - {order.partner_id.name}"
+                    order.display_name = f"{order_label} - {order.partner_id.name}"
             else:
-                order.display_name = order.name
+                order.display_name = order_label
 
     @api.depends("order_line.product_id")
     def _compute_has_archived_products(self):
@@ -903,7 +922,7 @@ class SaleOrder(models.Model):
         :rtype: tuple(float, float)
         """
 
-        def grouping_function(base_line, tax_data):
+        def grouping_function(base_line, tax_data):  # noqa: ARG001
             return base_line["special_type"] not in ("global_discount", "loyalty_discount")
 
         self.ensure_one()
@@ -1032,7 +1051,7 @@ class SaleOrder(models.Model):
                 continue
             dates_list = order.order_line.filtered(
                 lambda line: (
-                    line.product_id.type == "consu"
+                    (not line.product_id or line.product_id.type == "consu")
                     and not line.display_type
                     and not line._is_delivery()
                 )
@@ -1056,7 +1075,7 @@ class SaleOrder(models.Model):
             )
 
     def _search_is_expired(self, operator, value):  # noqa: ARG002
-        expired_domain = [("state", "in", ("draft", "sent")), ("validity_date", "<", 'today')]
+        expired_domain = [("state", "in", ("draft", "sent")), ("validity_date", "<", "today")]
         if operator == "in":
             return expired_domain
         return ["!", "&"] + expired_domain
@@ -1114,6 +1133,21 @@ class SaleOrder(models.Model):
                 company=order.company_id,
             )
 
+    @api.depends(
+        "order_line", "order_line.discount", "order_line.price_unit", "order_line.product_uom_qty"
+    )
+    def _compute_extra_total_fields(self):
+        for order in self:
+            basic_group = {"sequence": 1, "name": "basic", "lines": []}
+            _excl, incl = order._get_advantages()
+            if incl:
+                basic_group["lines"].append({
+                    "label": self.env._("Total Advantage"),
+                    "value": abs(incl),
+                })
+
+            order.extra_total_fields = [basic_group]
+
     @api.depends("state")
     @api.depends_context("lang")
     def _compute_type_name(self):
@@ -1152,6 +1186,18 @@ class SaleOrder(models.Model):
     def _compute_delivery_date(self):
         for order in self:
             order.delivery_date = order.commitment_date or order.expected_date
+
+    @api.depends("order_line.qty_overage")
+    def _compute_has_overages(self):
+        for order in self:
+            order.has_overages = any(line.qty_overage for line in order.order_line)
+
+    @api.depends('company_id')
+    def _compute_document_tax_mode(self):
+        for order in self:
+            if not order.document_tax_mode:
+                company = order.company_id or self.env.company
+                order.document_tax_mode = company.account_price_include
 
     # === CONSTRAINT METHODS ===#
 
@@ -1426,6 +1472,9 @@ class SaleOrder(models.Model):
             "proforma": self.env.context.get("proforma", False),
         }
 
+        for order in self:
+            order._portal_ensure_token()
+
         if len(self) > 1:
             ctx["default_composition_mode"] = "mass_mail"
         else:
@@ -1434,9 +1483,6 @@ class SaleOrder(models.Model):
                 mail_template = self._find_mail_template()
                 if mail_template:
                     ctx.update({"default_template_id": mail_template.id, "mark_so_as_sent": True})
-            else:
-                for order in self:
-                    order._portal_ensure_token()
 
         action = {
             "name": self.env._("Send"),
@@ -1543,18 +1589,10 @@ class SaleOrder(models.Model):
         return self.env["res.groups"]._is_feature_enabled("sale.group_auto_done_setting")
 
     def _confirmation_error_message(self):
-        """Return whether order can be confirmed or not if not then returm error message."""
+        """Return whether order can be confirmed or not if not then return error message."""
         self.ensure_one()
         if self.state not in {"draft", "sent"}:
             return self.env._("Some orders are not in a state requiring confirmation.")
-        if any(
-            not line.display_type and not line.is_downpayment and not line.product_id
-            for line in self.order_line
-        ):
-            return self.env._(
-                "Some order lines are missing a product, you need to correct them before going"
-                " further."
-            )
 
         return False
 
@@ -1805,6 +1843,7 @@ class SaleOrder(models.Model):
             "user_id": self.user_id.id,
             "invoice_incoterm_id": self.incoterm.id,
             "incoterm_location": self.incoterm_location,
+            "document_tax_mode": self.document_tax_mode,
         }
         if self.journal_id:
             values["journal_id"] = self.journal_id.id
@@ -2128,13 +2167,11 @@ class SaleOrder(models.Model):
             kwargs["notify_author_mention"] = kwargs.get("notify_author_mention", True)
         return super().message_post(**kwargs)
 
-    def _notify_get_recipients_groups(self, message, model_description, msg_vals=False):
+    def _notify_get_recipients_groups(self, message, model_description):
         # Give access button to users and portal customer as portal is integrated
         # in sale. Customer and portal group have probably no right to see
         # the document so they don't have the access button.
-        groups = super()._notify_get_recipients_groups(
-            message, model_description, msg_vals=msg_vals
-        )
+        groups = super()._notify_get_recipients_groups(message, model_description)
         if not self:
             return groups
 
@@ -2161,7 +2198,6 @@ class SaleOrder(models.Model):
     def _notify_by_email_prepare_rendering_context(
         self,
         message,
-        msg_vals=False,
         model_description=False,
         force_email_company=False,
         force_email_lang=False,
@@ -2171,7 +2207,6 @@ class SaleOrder(models.Model):
     ):
         render_context = super()._notify_by_email_prepare_rendering_context(
             message,
-            msg_vals=msg_vals,
             model_description=model_description,
             force_email_company=force_email_company,
             force_email_lang=force_email_lang,
@@ -2624,14 +2659,14 @@ class SaleOrder(models.Model):
             res[product.id]["price"] = prices.get(product.id)
         return res
 
-    def _get_product_catalog_product_data(self, product, **kwargs):
+    def _get_product_catalog_product_data(self, product, **kwargs):  # noqa: ARG002
         product_data = super()._get_product_catalog_product_data(product)
         has_warning_group = self.env["res.groups"]._is_feature_enabled("sale.group_warning_sale")
         if product.sale_line_warn_msg and has_warning_group:
             product_data.update(warning=product.sale_line_warn_msg)
         return product_data
 
-    def _get_product_catalog_record_lines(self, product_ids, *, section_id=None, **kwargs):
+    def _get_product_catalog_record_lines(self, product_ids, *, section_id=None, **kwargs):  # noqa: ARG002
         grouped_lines = defaultdict(lambda: self.env["sale.order.line"])
         if section_id is None:
             section_id = (
@@ -2698,7 +2733,7 @@ class SaleOrder(models.Model):
                 "sequence": self._get_new_line_sequence(child_field, section_id),
                 "product_uom_id": uom.id,
             })
-        else:  # quantity of 0, no line to update, return defaut pricelist price
+        else:  # quantity of 0, no line to update, return default pricelist price
             return self.pricelist_id._get_product_price(
                 product=product,
                 quantity=1.0,

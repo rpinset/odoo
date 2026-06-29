@@ -1,7 +1,7 @@
 import { useService } from "@web/core/utils/hooks";
 import { Dropdown } from "@web/core/dropdown/dropdown";
 import { DropdownItem } from "@web/core/dropdown/dropdown_item";
-import { Component, signal } from "@odoo/owl";
+import { Component, props, signal, t } from "@odoo/owl";
 import { ImStatus } from "@mail/core/common/im_status";
 import { useDynamicInterval } from "@mail/utils/common/misc";
 import { formatLocalDateTime } from "@mail/utils/common/dates";
@@ -10,19 +10,16 @@ import { ActionList } from "@mail/core/common/action_list";
 export class AvatarCard extends Component {
     static template = "mail.AvatarCard";
     static components = { ActionList, Dropdown, DropdownItem, ImStatus };
-    static props = {
-        id: { type: Number },
-        close: { type: Function },
-        model: {
-            type: String,
-            validate: (m) => AvatarCard.allowedModels.includes(m),
-        },
-    };
     static get allowedModels() {
         return ["res.users", "res.partner"];
     }
 
     setup() {
+        this.props = props({
+            close: t.function([]),
+            id: t.number(),
+            model: t.selection(AvatarCard.allowedModels),
+        });
         this.actionService = useService("action");
         this.store = useService("mail.store");
         this.dialog = useService("dialog");
@@ -31,19 +28,13 @@ export class AvatarCard extends Component {
             id: this.props.id,
             model: this.props.model,
         });
-        useDynamicInterval(
-            (...args) => this.onChangeTz(...args),
-            () => [this.partner?.tz, this.store.self?.tz]
-        );
+        useDynamicInterval(() => this.onChangeTz());
     }
 
-    /**
-     * @param {string} partnerTz
-     * @param {string} currentUserTz
-     */
-    onChangeTz(partnerTz, currentUserTz) {
-        this.partnerLocalDateTimeFormatted.set(formatLocalDateTime(partnerTz, currentUserTz));
-        if (!this.partnerLocalDateTimeFormatted()) {
+    onChangeTz() {
+        const formatted = formatLocalDateTime(this.partner?.tz, this.store.self?.tz);
+        this.partnerLocalDateTimeFormatted.set(formatted);
+        if (!formatted) {
             return;
         }
         return 60000 - (Date.now() % 60000);

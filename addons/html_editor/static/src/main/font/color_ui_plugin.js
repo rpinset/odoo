@@ -6,12 +6,14 @@ import { ColorSelector } from "./color_selector";
 import { isStylable, isTextNode } from "@html_editor/utils/dom_info";
 import { closestElement } from "@html_editor/utils/dom_traversal";
 import { isCSSColor, normalizeCSSColor, RGBA_REGEX } from "@web/core/utils/colors";
+import { withSequence } from "@html_editor/utils/resource";
 
 const RGBA_OPACITY = 0.6;
 const HEX_OPACITY = "99";
 
 /**
  * @typedef { Object } ColorUIShared
+ * @typedef {(() => string)[]} selected_background_color_providers
  * @property { ColorUIPlugin['getPropsForColorSelector'] } getPropsForColorSelector
  */
 
@@ -42,16 +44,22 @@ export class ColorUIPlugin extends Plugin {
                 isDisabled: (sel, nodes) => nodes.some((node) => !isStylable(node)),
             },
         ],
-        on_selectionchange_handlers: this.updateSelectedColor.bind(this),
+        on_selectionchange_handlers: withSequence(100, this.updateSelectedColor.bind(this)),
+        on_color_requested_handlers: this.updateSelectedColor.bind(this),
         background_color_processors: this.getBackgroundColorProcessor.bind(this),
         apply_background_color_processors: this.applyBackgroundColorProcessor.bind(this),
+        /** Providers */
+        selected_background_color_providers: withSequence(
+            10,
+            this.computeBackgroundColorForTextNode.bind(this)
+        ),
     };
 
     setup() {
         this.selectedColors = proxy({ color: "", backgroundColor: "" });
         this.previewableApplyColor = this.dependencies.history.makePreviewableOperation(
             (color, mode, previewMode) =>
-                this.dependencies.color.applyColor(color, mode, previewMode)
+                this.dependencies.color.requestColor(color, mode, previewMode)
         );
     }
 
@@ -125,7 +133,7 @@ export class ColorUIPlugin extends Plugin {
         return usedCustomColors;
     }
 
-    updateSelectedColor() {
+    computeBackgroundColorForTextNode() {
         const nodes = this.dependencies.selection.getTargetedNodes().filter(isTextNode);
         if (nodes.length === 0) {
             return;
@@ -135,7 +143,37 @@ export class ColorUIPlugin extends Plugin {
             return;
         }
 
-        Object.assign(this.selectedColors, this.dependencies.color.getElementColors(el));
+        return this.dependencies.color.getElementColors(el).backgroundColor;
+    }
+
+    updateSelectedColor() {
+        // Compute and update the background color.
+        let backgroundColor;
+        for (const provider of this.getResource("selected_background_color_providers")) {
+            const providedBackgroundColor = provider();
+            if (providedBackgroundColor) {
+                backgroundColor = providedBackgroundColor;
+                break;
+            }
+        }
+
+        const pending = this.dependencies.color.getActiveColorInfo();
+        this.selectedColors.backgroundColor =
+            pending.backgroundColor ?? (backgroundColor || "#00000000");
+
+        // Compute and update the text color.
+        const nodes = this.dependencies.selection.getTargetedNodes().filter(isTextNode);
+        if (nodes.length === 0) {
+            this.selectedColors.color = pending.color ?? "";
+            return;
+        }
+        const el = closestElement(nodes[0]);
+        if (!el) {
+            this.selectedColors.color = pending.color ?? "";
+            return;
+        }
+        const fromDom = this.dependencies.color.getElementColors(el);
+        this.selectedColors.color = pending.color ?? fromDom.color;
     }
 
     getBackgroundColorProcessor(backgroundColor) {

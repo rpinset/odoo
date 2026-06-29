@@ -3,7 +3,6 @@
 from werkzeug.urls import url_encode
 
 from odoo import api, models
-from odoo.exceptions import ValidationError
 from odoo.tools import urls
 
 from odoo.addons.payment import utils as payment_utils
@@ -168,20 +167,15 @@ class PaymentTransaction(models.Model):
             },
         }
 
-        try:
-            # Send the payment request to Worldline.
-            response_content = self._send_api_request(
-                "POST",
-                "payments",
-                json=payload,
-                idempotency_key=payment_utils.generate_idempotency_key(
-                    self, scope="payment_request_token"
-                ),
-            )
-        except ValidationError as e:
-            self._set_error(str(e))
-        else:
-            self._process("worldline", response_content)
+        response_content = self._send_api_request(
+            "POST",
+            "payments",
+            json=payload,
+            idempotency_key=payment_utils.generate_idempotency_key(
+                self, scope="payment_request_token"
+            ),
+        )
+        self._record(response_content)
 
     @api.model
     def _extract_reference(self, provider_code, payment_data):
@@ -215,7 +209,7 @@ class PaymentTransaction(models.Model):
         # Update the payment method.
         payment_method_data = self._worldline_extract_payment_method_data(payment_data)
         payment_method_code = payment_method_data.get("paymentProductId", "")
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             payment_method_code, mapping=const.PAYMENT_METHODS_MAPPING
         )
         self.payment_method_id = payment_method or self.payment_method_id

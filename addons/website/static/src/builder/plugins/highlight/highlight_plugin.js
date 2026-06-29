@@ -1,13 +1,12 @@
-import { reactive, useChildEnv, useRef, useState } from "@web/owl2/utils";
+import { useChildEnv, useRef } from "@web/owl2/utils";
 import { Plugin } from "@html_editor/plugin";
 import { withSequence } from "@html_editor/utils/resource";
-import { Component, xml } from "@odoo/owl";
+import { Component, xml, proxy } from "@odoo/owl";
 import { _t } from "@web/core/l10n/translation";
 import { usePopover } from "@web/core/popover/popover_hook";
 import { registry } from "@web/core/registry";
 import { HighlightConfigurator } from "./highlight_configurator";
 import { StackingComponent, useStackingComponentState } from "./stacking_component";
-import { formatsSpecs } from "@html_editor/utils/formatting";
 import { closestElement, descendants } from "@html_editor/utils/dom_traversal";
 import { removeClass, removeStyle } from "@html_editor/utils/dom";
 import { isTextNode } from "@html_editor/utils/dom_info";
@@ -22,6 +21,41 @@ export class HighlightPlugin extends Plugin {
     static dependencies = ["history", "selection", "split", "format", "edit_interaction"];
     /** @type {import("plugins").WebsiteResources} */
     resources = {
+        format_specs: [
+            {
+                id: "highlight",
+                isFormatted: (node) => closestElement(node)?.classList.contains("o_text_highlight"),
+                hasStyle: (node) => closestElement(node)?.classList.contains("o_text_highlight"),
+                addStyle(node, { highlightId, thicknessToRestore, colorToRestore }) {
+                    const styledNode = closestElement(node, ".o_text_highlight");
+                    if (styledNode) {
+                        this.removeStyle(styledNode);
+                        node = styledNode;
+                    }
+                    node.classList.add("o_text_highlight", `o_text_highlight_${highlightId}`);
+                    if (colorToRestore && colorToRestore !== "currentColor") {
+                        node.style.setProperty("--text-highlight-color", colorToRestore);
+                    }
+                    if (thicknessToRestore) {
+                        node.style.setProperty("--text-highlight-width", thicknessToRestore);
+                    } else {
+                        const style = getComputedStyle(node);
+                        node.style.setProperty(
+                            "--text-highlight-width",
+                            Math.round(parseFloat(style.fontSize) * 0.1) + "px"
+                        );
+                    }
+                },
+                removeStyle(node) {
+                    removeClass(
+                        node,
+                        ...[...node.classList].filter((cls) => cls.startsWith("o_text_highlight"))
+                    );
+                    removeStyle(node, "--text-highlight-width");
+                    removeStyle(node, "--text-highlight-color");
+                },
+            },
+        ],
         toolbar_groups: [withSequence(50, { id: "websiteDecoration" })],
         toolbar_items: [
             {
@@ -59,6 +93,7 @@ export class HighlightPlugin extends Plugin {
                 // Signal to the interaction that there is (maybe) a new element
                 node.dispatchEvent(new Event("text_highlight_added", { bubbles: true }));
             }
+            return root;
         },
         is_format_class_predicates: (className) => {
             if (className.startsWith("o_text_highlight")) {
@@ -70,7 +105,7 @@ export class HighlightPlugin extends Plugin {
             // we rely on the normalize handler to start it again
             this.dependencies.edit_interaction.stopInteraction("website.text_highlight");
         },
-        format_selection_overrides: () => {
+        before_format_handlers: () => {
             this.dependencies.edit_interaction.stopInteraction("website.text_highlight");
         },
         on_will_save_handlers: () => {
@@ -85,7 +120,7 @@ export class HighlightPlugin extends Plugin {
         this.previewableApplyHighlightStyle = this.dependencies.history.makePreviewableOperation(
             this._applyHighlightStyle.bind(this)
         );
-        this.highlightState = reactive({
+        this.highlightState = proxy({
             highlightId: undefined,
             color: "",
             thickness: undefined,
@@ -151,7 +186,7 @@ export class HighlightPlugin extends Plugin {
             thicknessToRestore = style.getPropertyValue("--text-highlight-width");
         }
 
-        this.dependencies.format.formatSelection("highlight", {
+        this.dependencies.format.requestFormat("highlight", {
             formatProps: { highlightId, colorToRestore, thicknessToRestore },
             applyStyle: true,
         });
@@ -246,46 +281,12 @@ export class HighlightPlugin extends Plugin {
     }
 
     deleteSelectedHighlight() {
-        this.dependencies.format.formatSelection("highlight", { applyStyle: false });
+        this.dependencies.format.requestFormat("highlight", { applyStyle: false });
         this.updateSelectedHighlight();
     }
 }
 registry.category("website-plugins").add(HighlightPlugin.id, HighlightPlugin);
 registry.category("translation-plugins").add(HighlightPlugin.id, HighlightPlugin);
-
-// Todo: formatsSpecs should allow to be register new formats through resources.
-formatsSpecs.highlight = {
-    isFormatted: (node) => closestElement(node)?.classList.contains("o_text_highlight"),
-    hasStyle: (node) => closestElement(node)?.classList.contains("o_text_highlight"),
-    addStyle: (node, { highlightId, thicknessToRestore, colorToRestore }) => {
-        const styledNode = closestElement(node, ".o_text_highlight");
-        if (styledNode) {
-            formatsSpecs.highlight.removeStyle(styledNode);
-            node = styledNode;
-        }
-        node.classList.add("o_text_highlight", `o_text_highlight_${highlightId}`);
-        if (colorToRestore && colorToRestore !== "currentColor") {
-            node.style.setProperty("--text-highlight-color", colorToRestore);
-        }
-        if (thicknessToRestore) {
-            node.style.setProperty("--text-highlight-width", thicknessToRestore);
-        } else {
-            const style = getComputedStyle(node);
-            node.style.setProperty(
-                "--text-highlight-width",
-                Math.round(parseFloat(style.fontSize) * 0.1) + "px"
-            );
-        }
-    },
-    removeStyle: (node) => {
-        removeClass(
-            node,
-            ...[...node.classList].filter((cls) => cls.startsWith("o_text_highlight"))
-        );
-        removeStyle(node, "--text-highlight-width");
-        removeStyle(node, "--text-highlight-color");
-    },
-};
 
 class HighlightToolbarButton extends Component {
     static props = {
@@ -302,7 +303,7 @@ class HighlightToolbarButton extends Component {
     `;
 
     setup() {
-        this.highlightState = useState(this.props.highlightConfiguratorProps.getHighlightState());
+        this.highlightState = proxy(this.props.highlightConfiguratorProps.getHighlightState());
         this.root = useRef("root");
         this.componentStack = useStackingComponentState();
         this.componentStack.push(HighlightConfigurator, {

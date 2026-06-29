@@ -47,23 +47,23 @@ class WebsiteSaleVariantController(Controller):
             combination_info["no_product_change"] = True
             return combination_info
 
-        if request.website.product_page_image_width != "none" and not self.env.context.get(
+        if self.env.website.product_page_image_width != "none" and not self.env.context.get(
             "website_sale_no_images", False
         ):
             product_or_template = product or product_template
             combination_info["display_image"] = bool(product_or_template.image_128)
-            combination_info["carousel"] = self.env["ir.ui.view"]._render_template(
+            combination_info["carousel"] = self.env.website._render_template(
                 "website_sale.shop_product_images",
                 values={
                     "product": product_template,
                     "product_variant": product,
-                    "website": request.website,
+                    "website": self.env.website,
                 },
             )
 
-        if request.website.is_view_active("website_sale.product_tags"):
+        if self.env.website.is_view_active("website_sale.product_tags"):
             all_tags = product.all_product_tag_ids if product else product_template.product_tag_ids
-            combination_info["product_tags"] = self.env["ir.ui.view"]._render_template(
+            combination_info["product_tags"] = self.env.website._render_template(
                 "website_sale.product_tags",
                 values={"all_product_tags": all_tags.filtered("visible_to_customers")},
             )
@@ -91,7 +91,7 @@ class WebsiteSaleVariantController(Controller):
         product_template = self.env["product.template"].browse(int(product_template_id))
         return product_template._get_dynamic_attribute_images(
             self.env["product.template.attribute.value"].browse(combination).exists().ids,
-            request.website.id,
+            self.env.website.id,
         )
 
     @route("/sale/create_product_variant", type="jsonrpc", auth="public", methods=["POST"])

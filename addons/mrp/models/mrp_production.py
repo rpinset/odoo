@@ -13,7 +13,7 @@ from odoo import api, fields, models, _
 from odoo.addons.web.controllers.utils import clean_action
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command, Domain
-from odoo.tools import SQL, format_datetime
+from odoo.tools import float_is_zero, SQL, format_datetime
 from odoo.tools.misc import OrderedSet, format_date, groupby as tools_groupby, topological_sort
 
 from odoo.addons.stock.models.stock_move import PROCUREMENT_PRIORITIES
@@ -134,7 +134,7 @@ class MrpProduction(models.Model):
     use_create_components_lots = fields.Boolean(related='picking_type_id.use_create_components_lots')
     location_src_id = fields.Many2one(
         'stock.location', 'Components Location',
-        compute='_compute_locations', store=True, check_company=True,
+        compute='_compute_location_src_id', store=True, check_company=True,
         readonly=False, required=True, precompute=True, index=True,
         domain="[('usage','=','internal')]",
         help="Location where the system will look for components.")
@@ -142,7 +142,7 @@ class MrpProduction(models.Model):
     warehouse_id = fields.Many2one(related='location_src_id.warehouse_id')
     location_dest_id = fields.Many2one(
         'stock.location', 'Finished Products Location',
-        compute='_compute_locations', store=True, check_company=True,
+        compute='_compute_location_dest_id', store=True, check_company=True,
         readonly=False, required=True, precompute=True,
         domain="[('usage','=','internal')]",
         help="Location where the system will stock the finished products.")
@@ -284,9 +284,7 @@ class MrpProduction(models.Model):
         compute='_compute_show_allocation',
         help='Technical Field used to decide whether the button "Allocation" should be displayed.')
     allow_workorder_dependencies = fields.Boolean('Allow Work Order Dependencies')
-    show_produce = fields.Boolean(compute='_compute_show_produce', help='Technical field to check if produce button can be shown')
     show_generate_bom = fields.Boolean('Show Generate BOM', compute='_compute_show_generate_bom')
-    show_produce_all = fields.Boolean(compute='_compute_show_produce', help='Technical field to check if produce all button can be shown')
     is_outdated_bom = fields.Boolean("Outdated BoM", help="The BoM has been updated since creation of the MO")
     is_delayed = fields.Boolean(compute='_compute_is_delayed', search='_search_is_delayed')
     is_due_today = fields.Boolean(compute='_compute_is_delayed')
@@ -301,7 +299,7 @@ class MrpProduction(models.Model):
         search='_search_date_category', readonly=True
     )
     serial_numbers_count = fields.Integer("Count of serial numbers", compute='_compute_serial_numbers_count')
-    note = fields.Html(string="Additional Notes", compute='_compute_note', store=True, help="Additional notes for the manufacturing order. Notes added here will also be displayed in the Shop Floor.")
+    note = fields.Html(string="Additional Notes", compute='_compute_note', store=True, readonly=False, help="Additional notes for the manufacturing order. Notes added here will also be displayed in the Shop Floor.")
     remaining_time = fields.Float('Remaining Working Time', compute='_compute_remaining_time',
                                   help="The remaining time to finish this production in hours.")
     active_workcenter_ids = fields.Many2many('mrp.workcenter', compute='_compute_active_workcenter_ids')
@@ -377,12 +375,19 @@ class MrpProduction(models.Model):
                 production.uom_id = False
 
     @api.depends('picking_type_id')
-    def _compute_locations(self):
+    def _compute_location_src_id(self):
         for production in self:
             if not production.picking_type_id.default_location_src_id or not production.picking_type_id.default_location_dest_id:
                 company_id = production.company_id.id if (production.company_id and production.company_id in self.env.companies) else self.env.company.id
                 fallback_loc = self.env['stock.warehouse'].search([('company_id', '=', company_id)], limit=1).lot_stock_id
             production.location_src_id = production.picking_type_id.default_location_src_id.id or fallback_loc.id
+
+    @api.depends('picking_type_id')
+    def _compute_location_dest_id(self):
+        for production in self:
+            if not production.picking_type_id.default_location_src_id or not production.picking_type_id.default_location_dest_id:
+                company_id = production.company_id.id if (production.company_id and production.company_id in self.env.companies) else self.env.company.id
+                fallback_loc = self.env['stock.warehouse'].search([('company_id', '=', company_id)], limit=1).lot_stock_id
             production.location_dest_id = production.picking_type_id.default_location_dest_id.id or fallback_loc.id
 
     @api.model
@@ -483,8 +488,9 @@ class MrpProduction(models.Model):
     @api.depends('move_finished_ids.date_deadline')
     def _compute_date_deadline(self):
         for production in self:
-            if not production.date_deadline:
-                production.date_deadline = min(production.move_finished_ids.filtered('date_deadline').mapped('date_deadline'), default=False)
+            deadline = min(production.move_finished_ids.filtered('date_deadline').mapped('date_deadline'), default=False)
+            if deadline:
+                production.date_deadline = deadline
 
     @api.depends('workorder_ids.duration_expected')
     def _compute_duration_expected(self):
@@ -753,25 +759,26 @@ class MrpProduction(models.Model):
     @api.depends('state', 'move_finished_ids')
     def _compute_show_allocation(self):
         self.show_allocation = False
-        if not self.env.user.has_group('mrp.group_mrp_reception_report'):
-            return
         for mo in self:
-            if not mo.picking_type_id:
-                return
-            lines = mo.move_finished_ids.filtered(lambda m: m.product_id.is_storable and m.state != 'cancel')
-            if lines:
+            if not mo.picking_type_id.auto_show_allocation_report:
+                continue
+            moves = mo.move_finished_ids.filtered(lambda m: m.product_id.is_storable and m.state != 'cancel')
+            if moves:
                 allowed_states = ['confirmed', 'partially_available', 'waiting']
                 if mo.state == 'done':
                     allowed_states += ['assigned']
-                wh_location_ids = self.env['stock.location']._search([('id', 'child_of', mo.picking_type_id.warehouse_id.view_location_id.id), ('usage', '!=', 'supplier')])
+                wh_location_ids = self.env['stock.location']._search([
+                    ('id', 'child_of', mo.picking_type_id.warehouse_id.view_location_id.id),
+                    ('usage', '!=', 'supplier'),
+                ])
                 if self.env['stock.move'].search_count([
                     ('state', 'in', allowed_states),
                     ('product_qty', '>', 0),
                     ('location_id', 'in', wh_location_ids),
                     ('raw_material_production_id', 'not in', mo.ids),
-                    ('product_id', 'in', lines.product_id.ids),
+                    ('product_id', 'in', moves.product_id.ids),
                     '|', ('move_orig_ids', '=', False),
-                        ('move_orig_ids', 'in', lines.ids)], limit=1):
+                        ('move_orig_ids', 'in', moves.ids)], limit=1):
                     mo.show_allocation = True
 
     @api.depends('product_uom_qty', 'date_start')
@@ -899,14 +906,6 @@ class MrpProduction(models.Model):
                 or (not production.move_raw_ids and production.workorder_ids)
             )
 
-    @api.depends('state', 'product_qty', 'qty_producing')
-    def _compute_show_produce(self):
-        for production in self:
-            state_ok = production.state in ('confirmed', 'progress', 'to_close')
-            qty_none_or_all = production.qty_producing in (0, production.product_qty)
-            production.show_produce_all = state_ok and qty_none_or_all
-            production.show_produce = state_ok and not qty_none_or_all
-
     @api.depends('bom_id', 'bom_id.note')
     def _compute_note(self):
         for record in self:
@@ -988,7 +987,7 @@ class MrpProduction(models.Model):
             return False
         if self.state not in ('progress', 'done'):
             self.state = 'progress'
-        if self.product_tracking == 'serial' and self.lot_producing_ids:
+        if self.product_tracking == 'serial' and self.lot_producing_ids and float_is_zero(self.qty_producing, precision_digits=0):
             self.qty_producing = len(self.lot_producing_ids)
         productions_bypass_qty_producting = self.filtered(lambda p: p.lot_producing_ids and p.product_tracking == 'lot' and p._origin and p._origin.qty_producing == p.qty_producing)
         # sudo needed for portal users
@@ -1453,18 +1452,11 @@ class MrpProduction(models.Model):
         self.move_byproduct_ids.picked = True
 
     def _set_qty_producing(self, mark_moves_picked=True):
-        if self.product_id.tracking == 'serial':
-            qty_producing_uom = self.uom_id._compute_quantity(self.qty_producing, self.product_id.uom_id, rounding_method='HALF-UP')
-            qty_production_uom = self.uom_id._compute_quantity(self.product_qty, self.product_id.uom_id, rounding_method='HALF-UP')
-            # allow changing a non-zero value to a 0 to not block mass produce feature
-            if qty_producing_uom != qty_production_uom and not (qty_producing_uom == 0 and self._origin.qty_producing != self.qty_producing):
-                self.qty_producing = self.product_id.uom_id._compute_quantity(len(self.lot_producing_ids), self.uom_id, rounding_method='HALF-UP')
-
-        # waiting for a preproduction move before assignement
-        is_waiting = self.warehouse_id.manufacture_steps != 'mrp_one_step' and self.picking_ids.filtered(lambda p: p.picking_type_id == self.warehouse_id.pbm_type_id and p.state not in ('done', 'cancel'))
+        if self.product_tracking == 'serial' and self.lot_producing_ids and float_is_zero(self.qty_producing, precision_digits=0):
+            self.qty_producing = self.product_id.uom_id._compute_quantity(len(self.lot_producing_ids), self.uom_id, rounding_method='HALF-UP')
 
         for move in (
-            self.move_raw_ids.filtered(lambda m: not is_waiting or m.product_id.tracking not in ['lot', 'serial'])
+            self.move_raw_ids
             | self.move_finished_ids.filtered(lambda m: m.product_id != self.product_id or m.product_id.tracking == 'serial')
         ):
             is_byproduct = move in self.move_byproduct_ids
@@ -1474,6 +1466,13 @@ class MrpProduction(models.Model):
                 continue
 
             new_qty = move.uom_id.round((self.qty_producing - self.qty_produced) * move.unit_factor)
+            if move.has_tracking in ['lot', 'serial']:
+                qty_waiting = 0
+                for move_orig in move.move_orig_ids:
+                    if move_orig.state not in ('draft', 'done', 'cancel'):
+                        qty_waiting += move_orig.uom_id._compute_quantity(move_orig.quantity, move.uom_id)
+                if not move.uom_id.is_zero(qty_waiting):
+                    new_qty = min(new_qty, move.product_uom_qty - qty_waiting)
             move._set_quantity_done(new_qty)
             if mark_moves_picked \
                     and move.quantity \
@@ -1684,6 +1683,8 @@ class MrpProduction(models.Model):
             }
             if workorder:
                 action['context']['default_workorder_id'] = workorder.id
+                if self.env.context.get('from_shop_floor'):
+                    action['context']['qty_produced'] = workorder.qty_produced
             return action
 
     def action_confirm(self):
@@ -1775,7 +1776,7 @@ class MrpProduction(models.Model):
             if as_soon_as_possible:
                 order.date_start = fields.Datetime.now()
             order._plan_workorders()
-            order.message_post(body=self.env._("The manufacturing order has been planned."), subtype_id=self.env.ref('mrp.mrp_mo_planned').id)
+            order.message_post(body=self.env._("The manufacturing order has been planned."), subtype_id=self.env.ref('mrp.mt_mo_state').id)
         return True
 
     def _plan_workorders(self):
@@ -1799,9 +1800,6 @@ class MrpProduction(models.Model):
     def button_unplan(self):
         self._unplan_workorders()
         for order in self:
-            for message in order.message_ids:
-                if message.subtype_id.id == self.env.ref('mrp.mrp_mo_planned').id:
-                    break
             if order.previous_date_start:
                 order.date_start = order.previous_date_start
             order.message_post(body=self.env._("The manufacturing order has been unplanned."))
@@ -1834,10 +1832,13 @@ class MrpProduction(models.Model):
             all_lines = self.env['mrp.bom.line']
             # Dynamic recordset of orphan lines to be processed as we remove matched lines.
             missing_lines = self.env['mrp.bom.line']
-            bomless_factor = order.qty_producing / order.product_qty
+            if self.env.context.get('close_production') or order.picking_type_id.create_backorder == 'never':
+                qty_producing = order.product_qty
+            else:
+                qty_producing = order.qty_producing
+            bomless_factor = qty_producing / order.product_qty
             if order.bom_id:
-                bom_factor = order.qty_producing / order.bom_id.uom_id._compute_quantity(
-                    order.bom_id.product_qty, order.uom_id, round=False)
+                bom_factor = qty_producing / order.bom_id.uom_id._compute_quantity(order.bom_id.product_qty, order.uom_id, round=False)
                 bom_factors = defaultdict(lambda: bom_factor)
                 # Flatten the BoM lines into only the ones that are supposed to correspond to moves in the MO (ie those
                 # of the current MO's BoM and of the components that are kits), stash the BoMs' normalised factors (the
@@ -1909,7 +1910,8 @@ class MrpProduction(models.Model):
         if self.env.context.get('skip_backorder', False):
             return quantity_issues
         for order in self:
-            if not order.uom_id.is_zero(order._get_quantity_to_backorder()):
+            if order.picking_type_id.create_backorder != 'never' \
+               and not order.uom_id.is_zero(order._get_quantity_to_backorder()):
                 quantity_issues.append(order)
         return quantity_issues
 
@@ -2284,7 +2286,11 @@ class MrpProduction(models.Model):
 
     def button_mark_done(self):
         for production in self:
-            if production.product_tracking not in ['lot', 'serial'] or production.lot_producing_ids:
+            if production.product_tracking not in ['lot', 'serial']:
+                continue
+            if production.lot_producing_ids:
+                if production.product_tracking == 'serial' and production.qty_producing and int(production.qty_producing) != len(production.lot_producing_ids):
+                    raise UserError(_("Please specify the produced serial numbers."))
                 continue
             if not production.qty_producing:
                 production.qty_producing = production.product_qty - production.qty_produced
@@ -2366,12 +2372,14 @@ class MrpProduction(models.Model):
                     'res_id': self.id,
                     'target': 'main',
                 }
-            elif self.env.user.has_group('mrp.group_mrp_reception_report'):
-                mos_to_show = self.filtered(lambda mo: mo.picking_type_id.auto_show_reception_report)
-                lines = mos_to_show.move_finished_ids.filtered(lambda m: m.product_id.is_storable and m.state != 'cancel' and m.picked and not m.move_dest_ids)
-                if lines:
-                    if any(mo.show_allocation for mo in mos_to_show):
-                        another_action = mos_to_show.action_view_reception_report()
+            else:
+                mos_to_show = self.filtered(lambda mo: mo.picking_type_id.auto_show_allocation_report)
+                has_lines_to_assign = any(
+                    (m.product_id.is_storable and m.state != 'cancel' and m.picked and not m.move_dest_ids)
+                    for m in mos_to_show.move_finished_ids
+                )
+                if has_lines_to_assign and any(mo.show_allocation for mo in mos_to_show):
+                    another_action = mos_to_show.action_view_allocation_report()
             if report_actions:
                 return {
                     'type': 'ir.actions.client',
@@ -2381,9 +2389,7 @@ class MrpProduction(models.Model):
                         'anotherAction': another_action,
                     }
                 }
-            if another_action:
-                return another_action
-            return True
+            return another_action or True
         context = {
             k: False if k.startswith('skip_') else v
             for k, v in self.env.context.items()
@@ -2503,9 +2509,8 @@ class MrpProduction(models.Model):
             'context': dict(self.env.context, default_origin=self.name, create=False),
         }
 
-    def action_view_reception_report(self):
-        action = self.env["ir.actions.actions"]._for_xml_id("mrp.mrp_reception_action")
-        # default_production_ids needs to be first default_ key so the "print" button correctly works
+    def action_view_allocation_report(self):
+        action = self.env["ir.actions.actions"]._for_xml_id("stock.allocation_report_action")
         action['context'] = dict({'default_production_ids': self.ids}, **self.env.context)
         return action
 
@@ -2575,19 +2580,19 @@ class MrpProduction(models.Model):
     def button_unbuild(self):
         self.ensure_one()
         return {
-            'name': _('Unbuild: %s', self.product_id.display_name),
             'view_mode': 'form',
             'res_model': 'mrp.unbuild',
-            'view_id': self.env.ref('mrp.mrp_unbuild_form_view_simplified').id,
             'type': 'ir.actions.act_window',
-            'context': {'default_product_id': self.product_id.id,
-                        'default_lot_id': self.lot_producing_ids[:1].id,
-                        'default_mo_id': self.id,
-                        'default_company_id': self.company_id.id,
-                        'default_location_id': self.location_dest_id.id,
-                        'default_location_dest_id': self.location_src_id.id,
-                        'create': False, 'edit': False},
-            'target': 'new',
+            'context': {
+                'default_product_id': self.product_id.id,
+                'default_product_qty': self.qty_producing,
+                'default_lot_ids': self.lot_producing_ids.ids,
+                'default_mo_id': self.id,
+                'default_company_id': self.company_id.id,
+                'default_location_id': self.location_dest_id.id,
+                'default_location_dest_id': self.location_src_id.id,
+                'create': False,
+            },
         }
 
     def action_split(self):
@@ -3060,30 +3065,26 @@ class MrpProduction(models.Model):
                 action = self.env.ref("mrp.label_manufacture_template").report_action(labels_to_print.ids, config=False)
                 clean_action(action, self.env)
                 report_actions.append(action)
-        if self.env.user.has_group('mrp.group_mrp_reception_report'):
-            reception_reports_to_print = self.filtered(
-                lambda p: p.picking_type_id.auto_print_mrp_reception_report
-                          and p.picking_type_id.code == 'mrp_operation'
-                          and p.move_finished_ids.move_dest_ids
-            )
-            if reception_reports_to_print:
-                action = self.env.ref('stock.stock_reception_report_action').report_action(reception_reports_to_print, config=False)
-                action['context'] = dict({'default_production_ids': reception_reports_to_print.ids}, **self.env.context)
-                clean_action(action, self.env)
-                report_actions.append(action)
-            reception_labels_to_print = self.filtered(lambda p: p.picking_type_id.auto_print_mrp_reception_report_labels and p.picking_type_id.code == 'mrp_operation')
-            if reception_labels_to_print:
-                moves_to_print = reception_labels_to_print.move_finished_ids.move_dest_ids
-                if moves_to_print:
-                    # needs to be string to support python + js calls to report
-                    quantities = ','.join(str(qty) for qty in moves_to_print.mapped(lambda m: math.ceil(m.product_uom_qty)))
-                    data = {
-                        'docids': moves_to_print.ids,
-                        'quantity': quantities,
-                    }
-                    action = self.env.ref('stock.label_picking').report_action(moves_to_print, data=data, config=False)
-                    clean_action(action, self.env)
-                    report_actions.append(action)
+
+        # Filters MOs and their dest. moves to print reception report and labels.
+        orders_for_reception_report = self.env['mrp.production']
+        print_label_move_ids = set()
+        for order in self:
+            if not order.picking_type_id.auto_show_allocation_report or order.picking_type_id.code != 'mrp_operation' or not order.move_finished_ids.move_dest_ids:
+                continue
+            if order.picking_type_id.auto_print_mrp_reception_report:
+                orders_for_reception_report |= order
+            if order.picking_type_id.auto_print_mrp_reception_report_labels:
+                print_label_move_ids.update(order.move_finished_ids.move_dest_ids.ids)
+        if orders_for_reception_report:
+            action = self.env.ref('stock.stock_reception_report_action').report_action(orders_for_reception_report, config=False)
+            action['context'] = dict(default_production_ids=orders_for_reception_report.ids, **self.env.context)
+            clean_action(action, self.env)
+            report_actions.append(action)
+        if print_label_move_ids:
+            action = self.env['stock.move'].browse(print_label_move_ids).action_print_reception_report()
+            clean_action(action, self.env)
+            report_actions.append(action)
         if self.env.user.has_group('stock.group_production_lot'):
             productions_to_print = self.filtered(lambda p: p.picking_type_id.auto_print_done_mrp_lot and p.move_finished_ids.move_line_ids.lot_id)
             productions_by_print_formats = productions_to_print.grouped(lambda p: p.picking_type_id.done_mrp_lot_label_to_print)
@@ -3116,18 +3117,7 @@ class MrpProduction(models.Model):
         return {}
 
     def action_open_label_layout(self):
-        view = self.env.ref('stock.product_label_layout_form_picking')
-        return {
-            'name': _('Choose Labels Layout'),
-            'type': 'ir.actions.act_window',
-            'res_model': 'product.label.layout',
-            'views': [(view.id, 'form')],
-            'target': 'new',
-            'context': {
-                'default_product_ids': self.move_finished_ids.product_id.ids,
-                'default_move_ids': self.move_finished_ids.ids,
-                'default_move_quantity': 'move'},
-        }
+        return self.move_finished_ids.action_open_label_layout()
 
     def action_open_label_type(self):
         move_line_ids = self.move_finished_ids.mapped('move_line_ids')
@@ -3180,16 +3170,8 @@ class MrpProduction(models.Model):
 
     def _track_log_get_default_subtype(self, track_init_values):
         self.ensure_one()
-        if 'state' in track_init_values and self.state == 'confirmed':
-            return self.env.ref('mrp.mrp_mo_in_confirmed')
-        elif 'state' in track_init_values and self.state == 'progress':
-            return self.env.ref('mrp.mrp_mo_in_progress')
-        elif 'state' in track_init_values and self.state == 'to_close':
-            return self.env.ref('mrp.mrp_mo_in_to_close')
-        elif 'state' in track_init_values and self.state == 'done':
-            return self.env.ref('mrp.mrp_mo_in_done')
-        elif 'state' in track_init_values and self.state == 'cancel':
-            return self.env.ref('mrp.mrp_mo_in_cancelled')
+        if 'state' in track_init_values:
+            return self.env.ref('mrp.mt_mo_state')
         return super()._track_log_get_default_subtype(track_init_values)
 
     # -------------------------------------------------------------------------

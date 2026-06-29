@@ -1,6 +1,5 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 import logging
-from datetime import datetime
 from collections import defaultdict
 from uuid import uuid4
 from random import randrange
@@ -529,12 +528,14 @@ class PosOrder(models.Model):
 
     def _update_sequence_number(self, session, values):
         # Some localization needs orders to have a sequence number
-        values['sequence_number'] = (
-            session.config_id.order_seq_id
-            ._next()
-            .removeprefix(session.config_id.order_seq_id.prefix or '')
-            .removesuffix(session.config_id.order_seq_id.suffix or '')
-        )
+        seq_id = session.config_id.order_seq_id
+        prefix, suffix = seq_id._get_prefix_suffix()
+        seq_next = seq_id._next()
+        if prefix:
+            seq_next = seq_next.removeprefix(prefix)
+        if suffix:
+            seq_next = seq_next.removesuffix(suffix)
+        values['sequence_number'] = seq_next
 
     @api.model
     def _complete_values_from_session(self, session, values):
@@ -578,7 +579,7 @@ class PosOrder(models.Model):
                 totally_paid_or_more = order.currency_id.compare_amounts(order.amount_paid, order.amount_total)
                 if totally_paid_or_more < 0 and order.state in ['paid', 'done']:
                     raise UserError(_('The paid amount is different from the total amount of the order.'))
-                elif totally_paid_or_more > 0 and order.state == 'paid':
+                if totally_paid_or_more > 0 and order.state == 'paid':
                     list_line.append(_("Warning, the paid amount is higher than the total amount. (Difference: %s)", formatLang(self.env, order.amount_paid - order.amount_total, currency_obj=order.currency_id)))
                 if order.nb_print > 0 and any(command[0] in [0, 1] and command[2].get('payment_status') and command[2]['payment_status'] != 'cancelled' for command in vals.get('payment_ids')):
                     raise UserError(_('You cannot change the payment of a printed order.'))
@@ -653,15 +654,23 @@ class PosOrder(models.Model):
         body += Markup("</ul>")
         return body
 
+    def _get_order_name_from_pos_reference(self, session=None):
+        """Return the order name from the sequence prefix and the receipt reference (``pos_reference``)."""
+        self.ensure_one()
+        session = session or self.session_id
+        last_reference_part = self.get_reference_last_part()
+        seq_id = session.config_id.order_seq_id
+        prefix, suffix = seq_id._get_prefix_suffix()
+        if not prefix:
+            prefix = session.config_id.name
+        suffix = f" - {suffix}" if suffix else ''
+        return f"{prefix} - {last_reference_part}{suffix}"
+
     def _compute_order_name(self, session=None):
         session = session or self.session_id
         if self.refunded_order_id.exists():
             return _('%(refunded_order)s REFUND', refunded_order=self.refunded_order_id.name)
-        else:
-            last_reference_part = self.get_reference_last_part()
-            prefix = session.config_id.order_seq_id.prefix or session.config_id.name
-            suffix = f" - {session.config_id.order_seq_id.suffix}" if session.config_id.order_seq_id.suffix else ''
-            return f"{prefix} - {last_reference_part}{suffix}"
+        return self._get_order_name_from_pos_reference(session)
 
     def get_reference_last_part(self):
         return self.pos_reference.split('-')[-1]
@@ -1176,6 +1185,11 @@ class PosOrder(models.Model):
         invoice_receivable_lines = invoice.line_ids.filtered(lambda line: line.account_id == receivable_account and not line.reconciled)
         (payment_receivable_lines | invoice_receivable_lines).sudo().with_company(invoice.company_id).reconcile()
 
+    def _post_cancel_message(self, author_id=None):
+        author_id = author_id or self.env.user.partner_id.id
+        for record in self:
+            record.message_post(body=_('Point of Sale Order cancelled'), author_id=author_id)
+
     def cancel_order_from_pos(self):
         draft_orders = self.filtered(lambda o: o.state == 'draft')
         today = fields.Date.context_today(self)
@@ -1189,6 +1203,8 @@ class PosOrder(models.Model):
 
         if draft_orders:
             draft_orders.write({'state': 'cancel'})
+            author_id = self.session_id._get_message_author().id
+            draft_orders._post_cancel_message(author_id=author_id)
             for config in draft_orders.mapped('config_id'):
                 config.notify_synchronisation(config.current_session_id.id, self.env.context.get('device_identifier', 0))
 
@@ -1199,6 +1215,7 @@ class PosOrder(models.Model):
     def action_pos_order_cancel(self):
         orders = self.browse(self.env.context.get('active_ids'))
         orders.write({'state': 'cancel'})
+        orders._post_cancel_message()
         for config in orders.config_id:
             config.notify_synchronisation(config.current_session_id.id, 0)
 
@@ -1467,10 +1484,17 @@ class PosOrder(models.Model):
         return orders.ids
 
     @api.model
-    def search_paid_order_ids(self, config_id, domain, limit, offset):
-        """Search for 'paid' orders that satisfy the given domain, limit and offset."""
+    def search_order_ids(self, config_id, domain, limit, offset, state_filter='paid'):
+        """Search for orders that satisfy the given domain, limit and offset.
+
+        state_filter: 'paid' for non-draft/non-cancelled orders, 'cancelled' for cancelled orders.
+        """
         pos_config = self.env['pos.config'].browse(config_id)
-        default_domain = Domain('state', '!=', 'draft') & Domain('state', '!=', 'cancel') & Domain('config_id', 'in', [config_id] + pos_config.trusted_config_ids.ids)
+        if state_filter == 'cancelled':
+            state_domain = Domain('state', '=', 'cancel')
+        else:
+            state_domain = Domain('state', '!=', 'draft') & Domain('state', '!=', 'cancel')
+        default_domain = state_domain & Domain('config_id', 'in', [config_id] + pos_config.trusted_config_ids.ids)
         real_domain = Domain(domain) & default_domain
         orders = self.search(real_domain, limit=limit, offset=offset, order='create_date desc')
         # We clean here the orders that does not have the same currency.
@@ -1484,7 +1508,7 @@ class PosOrder(models.Model):
         # orders that are not up-to-date.
         # The date of their last modification is either the last time one of its orderline has changed,
         # or the last time a refunded orderline related to it has changed.
-        orders_info = defaultdict(lambda: datetime.min)
+        orders_info = {order.id: order.write_date for order in orders}
         for orderline in orderlines:
             key_order = orderline.order_id.id if orderline.order_id in orders \
                             else orderline.refunded_orderline_id.order_id.id
@@ -1493,9 +1517,17 @@ class PosOrder(models.Model):
         totalCount = self.search_count(real_domain)
         return {'ordersInfo': list(orders_info.items())[::-1], 'totalCount': totalCount}
 
+    def _should_send_to_preparation(self):
+        """
+        Determine whether the order should be sent to preparation based
+        on its payment status and the config's payment method configuration.
+        """
+        return not self.config_id.has_valid_self_payment_method() or self.state == "paid"
+
     def _send_order(self):
-        # This function is made to be overriden by pos_self_order_preparation_display
-        pass
+        self.ensure_one()
+        if self._should_send_to_preparation():
+            self.env['pos.prep.order'].sudo().update_last_order_change(self.sudo())  # Will send to preparation display if installed.
 
     def _prepare_pos_log(self, body):
         return body

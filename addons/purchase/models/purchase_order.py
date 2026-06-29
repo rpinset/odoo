@@ -125,6 +125,7 @@ class PurchaseOrder(models.Model):
     note = fields.Html('Terms and Conditions')
 
     partner_bill_count = fields.Integer(related='partner_id.supplier_invoice_count')
+    bill_matched_ratio = fields.Float(compute='_compute_bill_matched_ratio', string='Bill Matched Ratio')
     invoice_count = fields.Integer(compute="_compute_invoice", string='Bill Count', copy=False, default=0, store=True)
     invoice_ids = fields.Many2many('account.move', compute="_compute_invoice", string='Bills', copy=False, store=True)
     invoice_status = fields.Selection([
@@ -153,9 +154,22 @@ class PurchaseOrder(models.Model):
     tax_calculation_rounding_method = fields.Selection(
         related='company_id.tax_calculation_rounding_method',
         string='Tax calculation rounding method', readonly=True)
+    document_tax_mode = fields.Selection(
+        selection=[
+            ('tax_excluded', "Tax Excl."),
+            ('tax_included', "Tax Incl."),
+        ],
+        compute='_compute_document_tax_mode',
+        precompute=True,
+        store=True,
+        readonly=False,
+        required=True,
+    )
     payment_term_id = fields.Many2one('account.payment.term', 'Payment Terms', domain="['|', ('company_id', '=', False), ('company_id', '=', company_id)]")
-    incoterm_id = fields.Many2one('account.incoterms', 'Incoterm', help="International Commercial Terms are a series of predefined commercial terms used in international transactions.")
-
+    incoterm_id = fields.Many2one('account.incoterms', 'Incoterm',
+        compute="_compute_incoterm_id", store=True, readonly=False,
+        help="International Commercial Terms are a series of predefined commercial terms used in international transactions.")
+    incoterm_location = fields.Char(string='Incoterm Location', compute='_compute_incoterm_location', store=True, readonly=False)
     product_id = fields.Many2one('product.product', related='order_line.product_id', string='Product')
     user_id = fields.Many2one(
         'res.users', string='Buyer', index=True, tracking=True,
@@ -210,6 +224,17 @@ class PurchaseOrder(models.Model):
         super(PurchaseOrder, self)._compute_access_url()
         for order in self:
             order.access_url = '/my/purchase/%s' % (order.id)
+
+    @api.depends('order_line.qty_invoiced', 'order_line.product_qty', 'order_line.qty_received')
+    def _compute_bill_matched_ratio(self):
+        def get_line_invoiced_ratio(line):
+            base_quantity = line.product_qty if line.product_id.purchase_method == 'purchase' else line.qty_received
+            return line.qty_invoiced / base_quantity if base_quantity else 0
+
+        for order in self:
+            product_lines = order.order_line.filtered(lambda pol: not pol.display_type)
+            invoiced_ratio = [get_line_invoiced_ratio(line) for line in product_lines]
+            order.bill_matched_ratio = sum(invoiced_ratio) / len(product_lines) * 100 if product_lines else 0
 
     @api.depends('state', 'date_order', 'date_approve')
     def _compute_date_calendar_start(self):
@@ -298,6 +323,20 @@ class PurchaseOrder(models.Model):
                 record.tax_country_id = record.fiscal_position_id.country_id
             else:
                 record.tax_country_id = record.company_id.account_fiscal_country_id
+
+    @api.depends("partner_id")
+    def _compute_incoterm_id(self):
+        for po in self:
+            partner_incoterm = po.partner_id.purchase_incoterm_id
+            if partner_incoterm:
+                po.incoterm_id = partner_incoterm
+
+    @api.depends("partner_id")
+    def _compute_incoterm_location(self):
+        for po in self:
+            partner_incoterm_location = po.partner_id.purchase_incoterm_location
+            if partner_incoterm_location:
+                po.incoterm_location = partner_incoterm_location
 
     @api.depends('order_line', 'order_line.product_id')
     def _compute_show_comparison(self):
@@ -494,6 +533,13 @@ class PurchaseOrder(models.Model):
         """
         self.order_line._compute_tax_id()
 
+    @api.depends('company_id')
+    def _compute_document_tax_mode(self):
+        for order in self:
+            if not order.document_tax_mode:
+                company = order.company_id or self.env.company
+                order.document_tax_mode = company.account_price_include
+
     # ------------------------------------------------------------
     # MAIL.THREAD
     # ------------------------------------------------------------
@@ -508,11 +554,9 @@ class PurchaseOrder(models.Model):
         self._mark_rfqs_as_sent()
         return super()._message_mail_after_hook(mails)
 
-    def _notify_get_recipients_groups(self, message, model_description, msg_vals=False):
+    def _notify_get_recipients_groups(self, message, model_description):
         # Tweak 'view document' button for portal customers, calling directly routes for confirm specific to PO model.
-        groups = super()._notify_get_recipients_groups(
-            message, model_description, msg_vals=msg_vals
-        )
+        groups = super()._notify_get_recipients_groups(message, model_description)
         if not self:
             return groups
 
@@ -533,12 +577,12 @@ class PurchaseOrder(models.Model):
 
         return groups
 
-    def _notify_by_email_prepare_rendering_context(self, message, msg_vals=False, model_description=False,
+    def _notify_by_email_prepare_rendering_context(self, message, model_description=False,
                                                    force_email_company=False, force_email_lang=False,
                                                    force_header=False, force_footer=False,
                                                    force_record_name=False):
         render_context = super()._notify_by_email_prepare_rendering_context(
-            message, msg_vals=msg_vals, model_description=model_description,
+            message, model_description=model_description,
             force_email_company=force_email_company, force_email_lang=force_email_lang,
             force_header=force_header, force_footer=force_footer,
             force_record_name=force_record_name,
@@ -647,10 +691,6 @@ class PurchaseOrder(models.Model):
         for order in self:
             for line in order.order_line:
                 line.qty_received = line.product_qty
-
-    def print_quotation(self):
-        self._mark_rfqs_as_sent()
-        return self.env.ref('purchase.report_purchase_quotation').report_action(self)
 
     def _mark_rfqs_as_sent(self):
         self.filtered(lambda po: po.state == 'draft').state = 'sent'
@@ -795,10 +835,16 @@ class PurchaseOrder(models.Model):
             'type': 'ir.actions.act_window',
             'name': _("Bill Matching"),
             'res_model': 'purchase.bill.line.match',
+            'context': {
+                'partner_id': self.partner_id.id,
+            },
             'domain': [
                 ('partner_id', 'in', (self.partner_id | self.partner_id.commercial_partner_id).ids),
                 ('company_id', 'in', self.env.company.ids),
-                ('purchase_order_id', 'in', [self.id, False]),
+                '|', '|',
+                ('purchase_order_id', '=', self.id),
+                ('matching_id', '=', 0),
+                ('aml_id.purchase_order_id', '=', self.id),
             ],
             'views': [(self.env.ref('purchase.purchase_bill_line_match_tree').id, 'list')],
         }
@@ -998,10 +1044,6 @@ class PurchaseOrder(models.Model):
     def _merge_po_post_process(self, rfqs):
         pass
 
-    # TODO: remove in master
-    def _merge_alternative_po(self, rfqs):
-        pass
-
     def _prepare_grouped_data(self, rfq):
         return (rfq.partner_id.id, rfq.currency_id.id, rfq.dest_address_id.id)
 
@@ -1011,20 +1053,20 @@ class PurchaseOrder(models.Model):
         self.ensure_one()
         move_type = self.env.context.get('default_move_type', 'in_invoice')
 
-        partner_invoice = self.env['res.partner'].browse(self.partner_id.address_get(['invoice'])['invoice'])
         partner_bank_id = self.partner_id.commercial_partner_id.bank_ids.filtered_domain(['|', ('company_id', '=', False), ('company_id', '=', self.company_id.id)])[:1]
-
         invoice_vals = {
             'move_type': move_type,
             'narration': self.note,
             'currency_id': self.currency_id.id,
-            'partner_id': partner_invoice.id,
-            'fiscal_position_id': (self.fiscal_position_id or self.fiscal_position_id._get_fiscal_position(partner_invoice)).id,
+            'partner_id': self.partner_id.id,
+            'fiscal_position_id': (self.fiscal_position_id or self.fiscal_position_id._get_fiscal_position(self.partner_id)).id,
             'partner_bank_id': partner_bank_id.id,
             'invoice_origin': self.name,
             'invoice_payment_term_id': self.payment_term_id.id,
             'invoice_line_ids': [],
+            'invoice_incoterm_id': self.incoterm_id.id,
             'company_id': self.company_id.id,
+            'document_tax_mode': self.document_tax_mode,
         }
         return invoice_vals
 

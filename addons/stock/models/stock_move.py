@@ -8,7 +8,7 @@ from re import findall as regex_findall
 from odoo import _, api, Command, fields, models, SUPERUSER_ID
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Domain
-from odoo.tools.float_utils import float_compare, float_round
+from odoo.tools.float_utils import float_compare, float_repr, float_round
 from odoo.tools.misc import clean_context, OrderedSet, groupby
 
 PROCUREMENT_PRIORITIES = [('0', 'Normal'), ('1', 'Urgent')]
@@ -168,7 +168,10 @@ class StockMove(models.Model):
     has_tracking = fields.Selection(related='product_id.tracking', string='Product with Tracking')
     has_lines_without_result_package = fields.Boolean(compute="_compute_has_lines_without_result_package")
     quantity = fields.Float(
-        'Quantity', compute='_compute_quantity', digits='Product Unit', inverse='_set_quantity', store=True)
+        'Quantity', compute='_compute_quantity', digits='Product Unit', inverse='_set_quantity', store=True,
+        write_sequence=25,  # ensure that the lot_ids changed is processed before processing the quantity change,
+                            # to avoid unexpected lot_ids that will be re-added later in the process.
+    )
     quantity_product_uom = fields.Float(
         'Quantity in Product UoM', digits='Product Unit',
         copy=False, compute='_compute_quantity_product_uom', store=True)
@@ -238,7 +241,17 @@ class StockMove(models.Model):
             elif move.rule_id.location_dest_from_rule:
                 location_dest = move.rule_id.location_dest_id
             elif move.is_scrap:
-                location_dest = move.company_id.scrap_location_id
+                curr_location_dest = move.location_dest_id
+                if (
+                    curr_location_dest
+                    and curr_location_dest.usage == 'inventory'
+                    and (
+                        not curr_location_dest.company_id
+                        or curr_location_dest.company_id == move.company_id
+                    )
+                ):
+                    location_dest = curr_location_dest
+                location_dest = location_dest or move.company_id.scrap_location_id
             elif move.picking_type_id:
                 location_dest = move.picking_type_id.default_location_dest_id
             is_move_to_interco_transit = False
@@ -658,6 +671,12 @@ Please change the quantity done or the rounding precision in your settings.""",
                     move_line = move.move_line_ids.filtered(lambda line: line.lot_id.id == lot.id)
                     move_line.quantity = 1
             move.write({'move_line_ids': move_lines_commands})
+            # When `quantity` is written in the same call as `lot_ids`, the
+            # user-set value is kept and the recompute triggered by this
+            # inverse rewriting `move_line_ids` does not override it. Force
+            # the recompute to keep `quantity` in sync with the move lines
+            if any(command[0] == Command.DELETE for command in move_lines_commands):
+                self.env.add_to_compute(move._fields['quantity'], move)
 
     @api.depends('picking_type_id', 'date', 'priority', 'state')
     def _compute_reservation_date(self):
@@ -763,6 +782,11 @@ Please change the quantity done or the rounding precision in your settings.""",
                 vals['state'] = 'done'
             if vals.get('state') == 'done':
                 vals['picked'] = True
+            if vals.get('description_picking') and vals.get('product_id') and picking_id.state != 'done':
+                # we don't want the picking description to be stored unless it was manually added or the picking is already done
+                product = self.env['product.product'].browse(vals.get('product_id'))
+                if vals.get('description_picking') == product._get_picking_description(picking_id.picking_type_id):
+                    vals.pop('description_picking')
         res = super().create(vals_list)
         res._update_orderpoints()
         res._set_references()
@@ -777,12 +801,6 @@ Please change the quantity done or the rounding precision in your settings.""",
         if 'quantity' in vals:
             if any(move.state == 'cancel' for move in self):
                 raise UserError(_('You cannot change a cancelled stock move, create a new line instead.'))
-            # TODO The order of the calls is based on the orders of the keys in vals, which is the order of changes made
-            # in the UI. This should be refactored to avoid relying on the order of the keys in vals.
-            if 'lot_ids' in vals:
-                # If lot_ids is changed after changing the quantity, we need to ensure that the lot_ids changed is process before
-                # processing the quantity change, to avoid unexpected lot_ids that will be re-added later in the process.
-                vals = dict(sorted(vals.items()))
         if 'uom_id' in vals and any(move.state == 'done' for move in self) and not self.env.context.get('skip_uom_conversion'):
             raise UserError(_('You cannot change the UoM for a stock move that has been set to \'Done\'.'))
         if 'product_uom_qty' in vals:
@@ -906,6 +924,30 @@ Please change the quantity done or the rounding precision in your settings.""",
             'domain': [('location_id', 'child_of', picking.location_id.id)],
             'context': {
                 'picking_id': picking.id,
+            },
+        }
+
+    def action_print_reception_report(self):
+        # Quantities needs to be expressed as string to support python + js calls to report.
+        quantities = ','.join(float_repr(qty, 0) for qty in self.mapped('product_uom_qty'))
+        data = {
+            'docids': self.ids,
+            'quantity': quantities,
+        }
+        return self.env.ref('stock.label_picking').report_action(self, data=data, config=False)
+
+    def action_open_label_layout(self):
+        view = self.env.ref('stock.product_label_layout_form_picking')
+        return {
+            'name': _('Choose Labels Layout'),
+            'type': 'ir.actions.act_window',
+            'res_model': 'product.label.layout',
+            'views': [(view.id, 'form')],
+            'target': 'new',
+            'context': {
+                'default_product_ids': self.product_id.ids,
+                'default_move_ids': self.ids,
+                'default_move_quantity': 'move',
             },
         }
 
@@ -2119,7 +2161,10 @@ Please change the quantity done or the rounding precision in your settings.""",
 
     def _skip_push(self):
         return self.is_inventory or (
-            self.move_dest_ids and any(m.location_id._child_of(self.location_dest_id) for m in self.move_dest_ids)
+            self.move_dest_ids and any(
+                m.location_id._child_of(self.location_dest_id) or self.location_dest_id._child_of(m.location_id)
+                for m in self.move_dest_ids
+            )
         )
 
     def _check_quantity(self):
@@ -2178,6 +2223,9 @@ Please change the quantity done or the rounding precision in your settings.""",
 
         move_dests_per_company = defaultdict(lambda: self.env['stock.move'])
 
+        # Apply allocated location if relevant.
+        moves._apply_allocation()
+
         # Break move dest link if move dest and move_dest source are not the same,
         # so that when move_dests._action_assign is called, the move lines are not created with
         # the new location, they should not be created at all.
@@ -2207,6 +2255,7 @@ Please change the quantity done or the rounding precision in your settings.""",
         if moves_todo:
             moves_todo._check_quantity()
             moves_todo._action_synch_order()
+            moves_todo._inverse_description_picking()   # we want to make sure the current description won't change on done pickings if it is changed on the product
         return moves_todo
 
     def _action_synch_order(self):
@@ -2492,6 +2541,14 @@ Please change the quantity done or the rounding precision in your settings.""",
                 move.procure_method = rule.procure_method
             else:
                 move.procure_method = 'make_to_stock'
+
+    def _apply_allocation(self):
+        """ If the moves go to the allocated location, update their destination
+        moves so they use this location as their source. """
+        for move in self:
+            allocated_location = move.picking_type_id.allocated_location_id
+            if allocated_location and move.location_dest_id._child_of(allocated_location) and move.move_dest_ids:
+                move.move_dest_ids.location_id = move.location_dest_id
 
     def _trigger_scheduler(self):
         """ Check for auto-triggered orderpoints and trigger them. """

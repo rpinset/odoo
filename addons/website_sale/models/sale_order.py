@@ -66,7 +66,7 @@ class SaleOrder(models.Model):
         order_lines = self.env["sale.order.line"].search_fetch([("order_id", "in", self.ids)])
         for order in self:
             order.website_order_line = order_lines.filtered(
-                lambda sol: sol.order_id == order and sol._show_in_cart()
+                lambda sol: sol.order_id == order and sol._show_line_in_cart()
             )
 
     @api.depends("order_line.price_total", "order_line.price_subtotal")
@@ -286,6 +286,10 @@ class SaleOrder(models.Model):
         """Exclude delivery-related lines."""
         return self.order_line.filtered(lambda line: not line.is_delivery)
 
+    def _get_update_prices_lines(self):
+        """Exclude donation lines from pricelist recomputation."""
+        return super()._get_update_prices_lines().filtered(lambda line: not line.is_donation)
+
     def _get_amount_total_excluding_delivery(self):
         return sum(self._get_non_delivery_lines().mapped("price_total"))
 
@@ -396,7 +400,7 @@ class SaleOrder(models.Model):
         self.ensure_one()
         self = self.with_company(self.company_id)
 
-        product = self.env['product.product'].browse(product_id)
+        product = self.env["product.product"].browse(product_id)
         if not uom_id or not product._has_multiple_uoms():
             # Fall back on product uom if uom is not specified or if multi-uom is not
             # allowed/supported for that product.
@@ -458,11 +462,13 @@ class SaleOrder(models.Model):
         :rtype: `sale.order.line` recordset
         """
         self.ensure_one()
-
         if not self.order_line:
             return self.env["sale.order.line"]
 
         product = self.env["product.product"].browse(product_id)
+        if product._is_donation():
+            return self.env["sale.order.line"]
+
         if product.type == "combo":
             return self.env["sale.order.line"]
 
@@ -658,6 +664,7 @@ class SaleOrder(models.Model):
         # item lines.
         if line.product_type != "combo":
             line._check_validity()
+
         return line
 
     def _prepare_order_line_values(
@@ -670,6 +677,7 @@ class SaleOrder(models.Model):
         no_variant_attribute_value_ids=None,
         product_custom_attribute_values=None,
         combo_item_id=None,
+        donation_amount=None,
         **_kwargs,
     ):
         self.ensure_one()
@@ -708,6 +716,9 @@ class SaleOrder(models.Model):
             "linked_line_id": linked_line_id,
             "combo_item_id": combo_item_id,
         }
+        # Set price_unit with the user-selected donation amount
+        if product._is_donation() and donation_amount is not None:
+            values["price_unit"] = max(float(donation_amount), 1)
 
         # add no_variant attributes that were not received
         no_variant_attribute_values |= combination.filtered(
@@ -845,18 +856,16 @@ class SaleOrder(models.Model):
             ]).cart_recovery_email_sent = True
         return super()._message_mail_after_hook(mails)
 
-    def _message_post_after_hook(self, message, msg_vals):
+    def _message_post_after_hook(self, message):
         # After sending recovery cart emails, update orders to avoid sending it again
         if self.env.context.get("website_sale_send_recovery_email"):
             self.cart_recovery_email_sent = True
-        return super()._message_post_after_hook(message, msg_vals)
+        return super()._message_post_after_hook(message)
 
-    def _notify_get_recipients_groups(self, message, model_description, msg_vals=False):
+    def _notify_get_recipients_groups(self, message, model_description):
         # In case of cart recovery email, update link to redirect directly
         # to the cart (like ``mail_template_sale_cart_recovery`` template).
-        groups = super()._notify_get_recipients_groups(
-            message, model_description, msg_vals=msg_vals
-        )
+        groups = super()._notify_get_recipients_groups(message, model_description)
         if not self:
             return groups
 
@@ -1050,7 +1059,7 @@ class SaleOrder(models.Model):
         :rtype: bool
         """
         self.ensure_one()
-        return self.partner_id.id == request.website.user_id.sudo().partner_id.id
+        return self.partner_id.id == self.env.website.user_id.sudo().partner_id.id
 
     def _get_lang(self):
         res = super()._get_lang()
@@ -1181,31 +1190,6 @@ class SaleOrder(models.Model):
     def _clear_alerts(self):
         self.order_line._clear_alerts()
         return super()._clear_alerts()
-
-    def _validate_order(self):
-        super()._validate_order()
-        # After SO confirmation and email sending, archive customers without accounts
-        self.filtered("website_id")._archive_partner_if_no_user()
-
-    def _archive_partner_if_no_user(self):
-        """Archive SO customer if it has no linked users."""
-        if (
-            not self
-            .env["ir.config_parameter"]
-            .sudo()
-            .get_bool("website_sale.automatic_archiving_of_guest_contacts", True)
-        ):
-            return
-        partners_to_archive = self.env["res.partner"]
-        for order in self:
-            customer = order.partner_id
-            customer_comm_partner_contacts = (
-                customer | customer.commercial_partner_id | customer.commercial_partner_id.child_ids
-            )
-            if not customer_comm_partner_contacts.user_ids:
-                partners_to_archive |= customer_comm_partner_contacts
-
-        partners_to_archive.active = False
 
     @api.model
     def retrieve_ecommerce_dashboard(self, period_days):

@@ -1,8 +1,7 @@
-import { reactive, useState } from "@web/owl2/utils";
 import { expect, test } from "@odoo/hoot";
 import { click, edit } from "@odoo/hoot-dom";
 import { animationFrame, tick } from "@odoo/hoot-mock";
-import { Component, xml } from "@odoo/owl";
+import { Component, xml, proxy } from "@odoo/owl";
 import { mountWithCleanup } from "@web/../tests/web_test_helpers";
 import { DateTimeInput } from "@web/core/datetime/datetime_input";
 import { useDateTimePicker } from "@web/core/datetime/datetime_picker_hook";
@@ -46,13 +45,13 @@ test("reactivity: update inert object", async () => {
 });
 
 test("reactivity: useState & update getter object", async () => {
-    const pickerProps = reactive({
+    const pickerProps = proxy({
         value: false,
         type: "date",
     });
 
     await mountInput(() => {
-        const state = useState(pickerProps);
+        const state = proxy(pickerProps);
         state.value; // artificially subscribe to value
 
         useDateTimePicker({
@@ -68,6 +67,24 @@ test("reactivity: useState & update getter object", async () => {
     await animationFrame();
 
     expect(".datetime_hook_input").toHaveValue("06/06/2023");
+});
+
+test("getter-only undefined props do not prevent service defaults", async () => {
+    let pickerProps;
+    const defaultPickerProps = {
+        value: false,
+        type: "date",
+    };
+    Object.defineProperty(defaultPickerProps, "onReset", {
+        enumerable: true,
+        get: () => undefined,
+    });
+
+    await mountInput(() => {
+        pickerProps = useDateTimePicker({ pickerProps: defaultPickerProps }).state;
+    });
+
+    expect(pickerProps.onReset).toBeOfType("function");
 });
 
 test("reactivity: update reactive object returned by the hook", async () => {
@@ -176,7 +193,7 @@ test("close popover when owner component is unmounted", async () => {
         static template = xml`<Child t-if="!this.state.hidden"/>`;
 
         setup() {
-            this.state = useState({
+            this.state = proxy({
                 hidden: false,
             });
             promise.then(() => {

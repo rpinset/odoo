@@ -848,6 +848,70 @@ class TestPointOfSaleFlow(CommonPosTest):
         with self.assertRaises(ValidationError, msg="The points of sale for the payment method Bank must belong to its company."):
             bank_payment_method.write({"config_ids": sub_pos_config.ids})
 
+    def test_order_unexisting_lots(self):
+        self.ten_dollars_with_10_incl.product_variant_id.write({
+            'tracking': 'lot',
+            'is_storable': True,
+        })
+
+        order, _ = self.create_backend_pos_order({
+            'line_data': [{
+                'product_id': self.ten_dollars_with_10_incl.product_variant_id.id,
+                'pack_lot_ids': [[0, 0, {'lot_name': '1001'}]],
+            }],
+            'payment_data': [
+                {'payment_method_id': self.cash_payment_method.id, 'amount': 10},
+            ],
+        })
+
+        self.pos_config_usd.current_session_id.action_pos_session_closing_control()
+        order_lot_id = order.picking_ids.move_line_ids.lot_id
+        self.assertEqual(order_lot_id.name, '1001')
+        self.assertTrue(all(
+            quant.lot_id == order_lot_id
+            for quant in self.env['stock.quant'].search([
+                ('product_id', '=', self.ten_dollars_with_10_incl.product_variant_id.id)
+            ])
+        ))
+
+    def test_order_existing_lot_gs1_nomenclature(self):
+        """An existing lot whose name is also a valid GS1 barcode (e.g. "10156":
+        AI "10" -> Batch/Lot) must still be found when the order is validated,
+        instead of being recreated and raising a duplicate lot error.
+        """
+        if not self.env['ir.module.module'].search_count([('name', '=', 'stock_barcode'), ('state', '=', 'installed')]):
+            self.skipTest("stock_barcode is not installed")
+        gs1_nomenclature = self.env.ref('barcodes_gs1_nomenclature.default_gs1_nomenclature')
+        self.env.company.nomenclature_id = gs1_nomenclature
+        self.pos_config_usd.picking_type_id.write({
+            'use_create_lots': True,
+            'use_existing_lots': True,
+        })
+        product = self.ten_dollars_with_10_incl.product_variant_id
+        product.write({
+            'tracking': 'lot',
+            'is_storable': True,
+        })
+
+        order_data = {
+            'line_data': [{
+                'product_id': product.id,
+                'pack_lot_ids': [Command.create({'lot_name': '10156'})],
+            }],
+            'payment_data': [
+                {'payment_method_id': self.cash_payment_method.id, 'amount': 10},
+            ],
+        }
+        order1, _ = self.create_backend_pos_order(order_data)
+        lot = order1.picking_ids.move_line_ids.lot_id
+        self.assertEqual(lot.name, '10156')
+
+        order2, _ = self.create_backend_pos_order(order_data)
+        self.pos_config_usd.current_session_id.action_pos_session_closing_control()
+
+        self.assertEqual(order2.state, 'done')
+        self.assertEqual(order2.picking_ids.move_line_ids.lot_id, lot)
+
     def test_pos_creation_in_branch(self):
         branch = self.env['res.company'].create({
             'name': 'Branch 1',
@@ -1263,8 +1327,8 @@ class TestPointOfSaleFlow(CommonPosTest):
         pos_order.action_pos_order_invoice()
         self.assertEqual(pos_order.state, 'done')
 
-    def test_search_paid_order_ids(self):
-        """ Test if the orders from other configs are excluded in search_paid_order_ids """
+    def test_search_order_ids(self):
+        """ Test if the orders from other configs are excluded in search_order_ids """
         other_pos_config = self.env['pos.config'].create({
             'name': 'Other POS',
         })
@@ -1292,13 +1356,41 @@ class TestPointOfSaleFlow(CommonPosTest):
             'state': 'paid',
         } for session_id in (current_session.id, other_session.id)])
 
-        order_ids = [oi[0] for oi in self.env['pos.order'].search_paid_order_ids(other_pos_config.id, [], 80, 0)['ordersInfo']]
-        self.assertNotIn(paid_order_1.id, order_ids)
-        self.assertIn(paid_order_2.id, order_ids)
+        cancelled_order = self.env['pos.order'].create({
+            'company_id': self.env.company.id,
+            'session_id': other_session.id,
+            'partner_id': self.partner.id,
+            'lines': [
+                Command.create({
+                    'product_id': self.product_a.id,
+                    'qty': 1,
+                    'price_subtotal': 134.38,
+                    'price_subtotal_incl': 134.38,
+                }),
+            ],
+            'amount_tax': 0.0,
+            'amount_total': 134.38,
+            'amount_paid': 0.0,
+            'amount_return': 0.0,
+            'state': 'cancel',
+        })
 
-        order_ids = [oi[0] for oi in self.env['pos.order'].search_paid_order_ids(other_pos_config.id, [('partner_id.complete_name', 'ilike', self.partner.complete_name)], 80, 0)['ordersInfo']]
+        # paid filter: excludes other config and cancelled orders
+        order_ids = [oi[0] for oi in self.env['pos.order'].search_order_ids(other_pos_config.id, [], 80, 0, state_filter='paid')['ordersInfo']]
         self.assertNotIn(paid_order_1.id, order_ids)
         self.assertIn(paid_order_2.id, order_ids)
+        self.assertNotIn(cancelled_order.id, order_ids)
+
+        order_ids = [oi[0] for oi in self.env['pos.order'].search_order_ids(other_pos_config.id, [('partner_id.complete_name', 'ilike', self.partner.complete_name)], 80, 0, state_filter='paid')['ordersInfo']]
+        self.assertNotIn(paid_order_1.id, order_ids)
+        self.assertIn(paid_order_2.id, order_ids)
+        self.assertNotIn(cancelled_order.id, order_ids)
+
+        # cancelled filter: excludes other config and paid orders
+        order_ids = [oi[0] for oi in self.env['pos.order'].search_order_ids(other_pos_config.id, [], 80, 0, state_filter='cancelled')['ordersInfo']]
+        self.assertNotIn(paid_order_1.id, order_ids)
+        self.assertNotIn(paid_order_2.id, order_ids)
+        self.assertIn(cancelled_order.id, order_ids)
 
     def test_session_name_gap(self):
         self.pos_config_usd.open_ui()
@@ -1808,3 +1900,50 @@ class TestPointOfSaleFlow(CommonPosTest):
             "item modified after last_server_date must be fetched on incremental load")
         self.assertNotIn(item_future_start.id, loaded_ids,
             "item with date_start still in the future must not be fetched")
+
+    def test_sequence_dynamic_prefix_suffix(self):
+        """Test that sequence_number is correctly extracted when sequence has dynamic prefix/suffix."""
+        self.pos_config_usd.open_ui()
+        current_session = self.pos_config_usd.current_session_id
+        # Use dynamic prefix and suffix with static hyphen separators
+        current_session.config_id.order_seq_id.prefix = 'POS-%(year)s'
+        current_session.config_id.order_seq_id.suffix = '-%(month)s'
+
+        product_order = {
+            'amount_paid': 750,
+            'amount_tax': 0,
+            'amount_return': 0,
+            'amount_total': 750,
+            'date_order': fields.Datetime.to_string(fields.Datetime.now()),
+            'lines': [[0, 0, {
+                'price_unit': 750.0,
+                'product_id': self.product.id,
+                'price_subtotal': 750.0,
+                'price_subtotal_incl': 750.0,
+                'tax_ids': [[6, False, []]],
+                'qty': 1,
+            }]],
+            'name': 'Order 12345-123-1234',
+            'partner_id': False,
+            'session_id': current_session.id,
+            'payment_ids': [[0, 0, {
+                'amount': 750,
+                'name': fields.Datetime.now(),
+                'payment_method_id': self.bank_payment_method.id
+            }]],
+            'uuid': '12345-123-1234',
+            'user_id': self.env.uid,
+            'to_invoice': False
+        }
+
+        self.env['pos.order'].sync_from_ui([product_order])
+        order = self.env['pos.order'].search([])
+
+        # Verify order name contains interpolated year and month with static parts
+        current_year = fields.Datetime.now().year
+        current_month = fields.Datetime.now().strftime('%m')
+
+        self.assertIn(f'POS-{current_year}', order.name,
+            f"Order name should contain 'POS-{current_year}', got: {order.name}")
+        self.assertIn(f'-{current_month}', order.name,
+            f"Order name should contain '-{current_month}', got: {order.name}")

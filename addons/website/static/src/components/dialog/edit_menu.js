@@ -1,9 +1,9 @@
-import { reactive, useLayoutEffect, useRef, useState } from "@web/owl2/utils";
+import { useLayoutEffect, useRef } from "@web/owl2/utils";
 import { useService, useAutofocus } from "@web/core/utils/hooks";
 import { useNestedSortable } from "@web/core/utils/nested_sortable";
 import wUtils from "@website/js/utils";
 import { WebsiteDialog } from "./dialog";
-import { Component, onWillStart, useEffect } from "@odoo/owl";
+import { Component, onWillStart, useEffect, proxy, useApp } from "@odoo/owl";
 import { _t } from "@web/core/l10n/translation";
 import { rpc } from "@web/core/network/rpc";
 import { isEmail } from "@web/core/utils/strings";
@@ -77,7 +77,7 @@ export class MenuDialog extends Component {
         this.urlInputRef = useRef("url-input");
         this.urlInputEdited = !!this.props.url;
 
-        this.state = useState({
+        this.state = proxy({
             pageNotFound: false,
             url: this.props.url,
             name: this.props.name,
@@ -91,6 +91,7 @@ export class MenuDialog extends Component {
         const debouncedUpdatePageNotFound = useDebounced(updatePageNotFound, 500);
         useEffect(() => debouncedUpdatePageNotFound(this.state.url));
 
+        const app = useApp();
         useLayoutEffect(
             (input) => {
                 if (!input) {
@@ -108,9 +109,9 @@ export class MenuDialog extends Component {
                     },
                 };
                 const unmountAutocompleteWithPages = wUtils.autocompleteWithPages(
+                    app,
                     input,
-                    options,
-                    this.env
+                    options
                 );
                 return () => unmountAutocompleteWithPages();
             },
@@ -198,7 +199,7 @@ export class EditMenuDialog extends Component {
 
         this.menuEditor = useRef("menu-editor");
 
-        this.state = useState({ rootMenu: {} });
+        this.state = proxy({ rootMenu: {} });
 
         onWillStart(async () => {
             const menu = await this.orm.call(
@@ -308,7 +309,7 @@ export class EditMenuDialog extends Component {
             isMegaMenu,
             url: "",
             save: (name, url) => {
-                const newMenu = reactive({
+                const newMenu = proxy({
                     fields: {
                         id: `menu_${new Date().toISOString()}`,
                         name,

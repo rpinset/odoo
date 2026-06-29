@@ -1,8 +1,9 @@
-import { useState } from "@web/owl2/utils";
-import { Component, onMounted, onWillUnmount } from "@odoo/owl";
+import { Component, onMounted, onWillUnmount, proxy } from "@odoo/owl";
 import { useSelfOrder } from "@pos_self_order/app/services/self_order_service";
 import { rpc } from "@web/core/network/rpc";
 import { useService } from "@web/core/utils/hooks";
+import { ask } from "@point_of_sale/app/utils/make_awaitable_dialog";
+import { _t } from "@web/core/l10n/translation";
 
 // This component is only use in Kiosk mode
 export class PaymentPage extends Component {
@@ -13,9 +14,10 @@ export class PaymentPage extends Component {
         this.selfOrder = useSelfOrder();
         this.selfOrder.isOrder();
         this.router = useService("router");
-        this.state = useState({
+        this.state = proxy({
             selection: true,
             paymentMethodId: null,
+            paymentCancelled: false,
             qrCode: null,
             fadeOut: false,
             paymentMethodType: null,
@@ -32,7 +34,23 @@ export class PaymentPage extends Component {
         });
     }
 
-    back() {
+    async back() {
+        if (this.state.paymentMethodType === "cash_machine" && !this.selfOrder.paymentError) {
+            const paymentLine = this.selfOrder.getPendingPaymentLine(
+                this.selectedPaymentMethod.payment_provider
+            );
+            if (paymentLine) {
+                const cancelConfirmed = await ask(this.selfOrder.dialog, {
+                    title: _t("Confirm cancellation"),
+                    body: _t("Are you sure you want to cancel the cash machine payment?"),
+                });
+                if (!cancelConfirmed) {
+                    return;
+                }
+                this.state.paymentCancelled = true;
+                await this.selectedPaymentMethod.payment_interface.sendPaymentCancel(paymentLine);
+            }
+        }
         this.selfOrder.currentOrder.uiState.lineChanges = {};
         this.router.back();
     }
@@ -58,6 +76,7 @@ export class PaymentPage extends Component {
     // in mobile is the only available payment method
     async startPayment() {
         this.state.qrCode = null;
+        this.state.paymentCancelled = false;
         this.selfOrder.paymentError = false;
         try {
             if (this.selectedPaymentMethod.payment_interface) {
@@ -100,7 +119,9 @@ export class PaymentPage extends Component {
                 payment_method_id: this.state.paymentMethodId,
             });
         } catch (error) {
-            this.selfOrder.handleErrorNotification(error);
+            if (!this.state.paymentCancelled) {
+                this.selfOrder.handleErrorNotification(error);
+            }
             this.selfOrder.paymentError = true;
         }
     }

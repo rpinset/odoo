@@ -266,6 +266,7 @@ registry.category("web_tour.tours").add("test_zero_decimal_places_currency", {
             FeedbackScreen.isShown(),
             FeedbackScreen.checkTicketData({
                 total_amount: "100",
+                has_portal_url: true,
             }),
             FeedbackScreen.clickNextOrder(),
             ProductScreen.clickDisplayedProduct("Test Product", true, "1.00"),
@@ -322,8 +323,14 @@ registry.category("web_tour.tours").add("test_click_all_orders_keep_customer", {
             Chrome.clickRegister(),
             ProductScreen.isShown(),
             {
+                isActive: ["desktop"],
                 content: "customer is selected",
                 trigger: ".product-screen .set-partner:contains('Partner Test 1')",
+            },
+            {
+                isActive: ["mobile"],
+                content: `customer is selected`,
+                trigger: `.product-screen .set-partner.btn-outline-secondary.active`,
             },
         ].flat(),
 });

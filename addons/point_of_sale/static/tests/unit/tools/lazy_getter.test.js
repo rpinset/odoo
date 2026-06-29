@@ -1,7 +1,7 @@
-import { onWillRender, reactive, useState } from "@web/owl2/utils";
+import { onWillRender } from "@web/owl2/utils";
 import { afterEach, expect, test } from "@odoo/hoot";
 import { animationFrame } from "@odoo/hoot-dom";
-import { Component, xml } from "@odoo/owl";
+import { Component, xml, proxy } from "@odoo/owl";
 import {
     mountWithCleanup,
     allowTranslations,
@@ -91,7 +91,7 @@ class WithStore extends Component {
     property = "";
 
     setup() {
-        this.store = useState(this.env.store);
+        this.store = proxy(this.env.store);
         onWillRender(() => this.onWillRender());
     }
 
@@ -160,7 +160,7 @@ test("each getter should only be called once and only when needed", async () => 
         },
     });
 
-    const store = reactive(new AppStore());
+    const store = proxy(new AppStore());
     await mountWithCleanup(Root, {
         env: { store },
         noMainContainer: true,
@@ -201,7 +201,7 @@ test("only dependent components rerender", async () => {
         },
     });
 
-    const store = reactive(new AppStore());
+    const store = proxy(new AppStore());
     await mountWithCleanup(Root, {
         env: { store },
         noMainContainer: true,
@@ -263,7 +263,7 @@ test("only dependent getters are called and in correct order", () => {
             return result;
         },
     });
-    const store = reactive(new AppStore());
+    const store = proxy(new AppStore());
 
     expect(store.y).toBe(0);
     verifyUnorderedSteps(["ab", "bc", "cd", "abc", "x", "y"], [["ab", "abc", "x", "y"]]);
@@ -309,7 +309,7 @@ test("dynamically creates a lazy getter", () => {
         }
     }
 
-    const reactiveObj = reactive(new DemoClass());
+    const reactiveObj = proxy(new DemoClass());
     reactiveObj.name = "demo";
 
     let computeCallCount = 0;

@@ -1,5 +1,5 @@
-import { useRef, useState } from "@web/owl2/utils";
-import { Component, onMounted, onWillUnmount, computed } from "@odoo/owl";
+import { useRef } from "@web/owl2/utils";
+import { Component, onMounted, onWillUnmount, computed, proxy } from "@odoo/owl";
 import { useSelfOrder } from "@pos_self_order/app/services/self_order_service";
 import { useService } from "@web/core/utils/hooks";
 
@@ -38,7 +38,7 @@ export class ProductListPage extends Component {
                 ? topCategories[0]
                 : this.selfOrder.currentCategory;
 
-        this.state = useState({
+        this.state = proxy({
             selectedCategory: selectedCategory,
             quantityByProductTmplId: {},
             topCategories: topCategories,
@@ -153,16 +153,11 @@ export class ProductListPage extends Component {
     }
 
     getProducts(category) {
-        const products =
-            category.associatedProducts || this.selfOrder.productByCategIds[category.id] || [];
-
-        if (!products.length) {
-            return [];
-        }
-
-        return products.filter(
-            (product) => product.self_order_available && this.isProductAvailable(product)
-        );
+        return (
+            category.associatedProducts ||
+            this.selfOrder.productByCategIds[category.id] ||
+            []
+        ).filter((product) => product.self_order_available && this.isProductAvailable(product));
     }
 
     toggleSubCategoryPanel() {

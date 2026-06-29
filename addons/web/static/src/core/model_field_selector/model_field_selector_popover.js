@@ -1,5 +1,5 @@
-import { onWillRender, useLayoutEffect, useRef, useState } from "@web/owl2/utils";
-import { Component, onWillStart } from "@odoo/owl";
+import { onWillRender, useLayoutEffect, useRef } from "@web/owl2/utils";
+import { Component, onWillStart, props, proxy, t } from "@odoo/owl";
 import { _t } from "@web/core/l10n/translation";
 import { sortBy } from "@web/core/utils/arrays";
 import { KeepLast } from "@web/core/utils/concurrency";
@@ -105,30 +105,31 @@ class Page {
     }
 }
 
+export const modelFieldSelectorPopoverProps = {
+    close: t.function(),
+    filter: t
+        .function()
+        .optional(
+            () => (value) => value.searchable && value.type != "json" && value.type !== "separator"
+        ),
+    sort: t.function().optional(),
+    followRelation: t.or([t.boolean(), t.function()]).optional(true),
+    showDebugInput: t.boolean().optional(),
+    isDebugMode: t.boolean().optional(false),
+    path: t.any().optional(),
+    readProperty: t.boolean().optional(),
+    resModel: t.string(),
+    showSearchInput: t.boolean().optional(),
+    update: t.function(),
+};
+
 export class ModelFieldSelectorPopover extends Component {
     static template = "web.ModelFieldSelectorPopover";
-    static props = {
-        close: Function,
-        filter: { type: Function, optional: true },
-        sort: { type: Function, optional: true },
-        followRelation: { type: [Boolean, Function], optional: true },
-        showDebugInput: { type: Boolean, optional: true },
-        isDebugMode: { type: Boolean, optional: true },
-        path: { optional: true },
-        readProperty: { type: Boolean, optional: true },
-        resModel: String,
-        showSearchInput: { type: Boolean, optional: true },
-        update: Function,
-    };
-    static defaultProps = {
-        filter: (value) => value.searchable && value.type != "json" && value.type !== "separator",
-        isDebugMode: false,
-        followRelation: true,
-    };
+    props = props(modelFieldSelectorPopoverProps);
 
     setup() {
         this.fieldService = useService("field");
-        this.state = useState({ page: null });
+        this.state = proxy({ page: null });
         this.keepLast = new KeepLast();
         this.debouncedSearchFields = debounce(this.searchFields.bind(this), 250);
 

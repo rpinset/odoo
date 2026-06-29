@@ -1,17 +1,28 @@
-import { onRendered } from "@web/owl2/utils";
-import { beforeEach, destroy, expect, test } from "@odoo/hoot";
-import { queryAll, queryAllAttributes, queryAllTexts, resize } from "@odoo/hoot-dom";
-import { advanceTime, animationFrame, runAllTimers } from "@odoo/hoot-mock";
+import {
+    advanceTime,
+    animationFrame,
+    beforeEach,
+    expect,
+    queryAll,
+    queryAllAttributes,
+    queryAllTexts,
+    resize,
+    runAllTimers,
+    test,
+} from "@odoo/hoot";
 import {
     clearRegistry,
     contains,
     defineMenus,
+    destroyApp,
     getService,
     makeMockEnv,
     mockService,
     mountWithCleanup,
     patchWithCleanup,
+    serverState,
 } from "@web/../tests/web_test_helpers";
+import { onRendered } from "@web/owl2/utils";
 
 import { Component, xml } from "@odoo/owl";
 import { registry } from "@web/core/registry";
@@ -67,6 +78,30 @@ test("href attribute with path on apps menu items", async () => {
     await mountWithCleanup(NavBar);
     await contains(".o_navbar_apps_menu button.dropdown-toggle").click();
     expect(".o-dropdown--menu .dropdown-item").toHaveAttribute("href", "/odoo/my-path");
+});
+
+test.tags("desktop");
+test("href attribute includes debug param when in debug mode", async () => {
+    serverState.debug = "assets";
+    defineMenus([{ id: 1, actionID: 339 }]);
+    await mountWithCleanup(NavBar);
+    await contains(".o_navbar_apps_menu button.dropdown-toggle").click();
+    expect(".o-dropdown--menu .dropdown-item").toHaveAttribute(
+        "href",
+        "/odoo/action-339?debug=assets"
+    );
+});
+
+test.tags("desktop");
+test("href attribute with path includes debug param when in debug mode", async () => {
+    serverState.debug = "assets";
+    defineMenus([{ id: 1, actionID: 339, actionPath: "my-path" }]);
+    await mountWithCleanup(NavBar);
+    await contains(".o_navbar_apps_menu button.dropdown-toggle").click();
+    expect(".o-dropdown--menu .dropdown-item").toHaveAttribute(
+        "href",
+        "/odoo/my-path?debug=assets"
+    );
 });
 
 test.tags("desktop");
@@ -500,13 +535,13 @@ test("Do not execute adapt when navbar is destroyed", async () => {
 
     // Set menu and mount
     getService("menu").setCurrentMenu(1);
-    const navbar = await mountWithCleanup(MyNavbar);
+    await mountWithCleanup(MyNavbar);
     expect.verifySteps(["adapt NavBar"]);
     await resize();
     await runAllTimers();
     expect.verifySteps(["adapt NavBar"]);
     await resize();
-    destroy(navbar);
+    destroyApp();
     await runAllTimers();
     expect.verifySteps([]);
 });

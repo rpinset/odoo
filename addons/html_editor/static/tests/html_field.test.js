@@ -9,21 +9,20 @@ import { READONLY_MAIN_EMBEDDINGS } from "@html_editor/others/embedded_component
 import { normalizeHTML, parseHTML } from "@html_editor/utils/html";
 import { canRenderAsHTML } from "@html_editor/utils/sanitize";
 import { Wysiwyg } from "@html_editor/wysiwyg";
-import { beforeEach, describe, expect, test } from "@odoo/hoot";
+import { beforeEach, describe, expect, microTick, test } from "@odoo/hoot";
 import {
     click,
     press,
     queryAll,
     queryAllTexts,
-    queryFirst,
     queryOne,
     waitFor,
     hover,
     manuallyDispatchProgrammaticEvent,
     advanceTime,
 } from "@odoo/hoot-dom";
-import { Deferred, animationFrame, mockSendBeacon, tick } from "@odoo/hoot-mock";
-import { onWillDestroy, xml } from "@odoo/owl";
+import { animationFrame, mockSendBeacon, tick } from "@odoo/hoot-mock";
+import { onWillDestroy, proxy, signal, xml } from "@odoo/owl";
 import {
     clickSave,
     contains,
@@ -671,18 +670,47 @@ test("edit a html field with `o-contenteditable-true` or `o-contenteditable-fals
             '<div class="o-paragraph" data-selection-placeholder=""><br></div>'
     );
     await clickSave();
-    expect.verifySteps(["update_value", "web_save"]);
+    expect.verifySteps(["update_value", "update_value", "web_save"]);
+});
+
+test("blurring an inner contenteditable field by clicking outside should trigger update_value", async () => {
+    patchWithCleanup(HtmlField.prototype, {
+        updateValue() {
+            expect.step("update_value");
+            super.updateValue(...arguments);
+        },
+    });
+    Partner._records = [
+        {
+            id: 1,
+            txt: `<div contenteditable="false">outside<div contenteditable="true"><p class="inner">inside</p></div></div>`,
+        },
+    ];
+    await mountView({
+        type: "form",
+        resId: 1,
+        resModel: "partner",
+        arch: `
+            <form>
+                <field name="txt" widget="html"/>
+            </form>`,
+    });
+    setSelection({ anchorNode: queryOne(".inner"), anchorOffset: 0 });
+    await tick();
+    await insertText(htmlEditor, "a");
+    await click(document.body);
+    expect.verifySteps(["update_value"]);
 });
 
 test.tags("focus required");
 test("edit html field and blur multiple time should apply 1 onchange", async () => {
-    const def = new Deferred();
+    const def = Promise.withResolvers();
     Partner._onChanges = {
         txt() {},
     };
     onRpc("partner", "onchange", async ({ args }) => {
         expect.step(`onchange: ${args[1].txt}`);
-        await def;
+        await def.promise;
     });
     await mountView({
         type: "form",
@@ -712,7 +740,7 @@ test("edit html field and blur multiple time should apply 1 onchange", async () 
 
 test.tags("focus required");
 test("edit an html field during an onchange", async () => {
-    const def = new Deferred();
+    const def = Promise.withResolvers();
     Partner._onChanges = {
         txt(record) {
             record.txt = "<p>New Value</p>";
@@ -720,7 +748,7 @@ test("edit an html field during an onchange", async () => {
     };
     onRpc("partner", "onchange", async ({ args }) => {
         expect.step(`onchange: ${args[1].txt}`);
-        await def;
+        await def.promise;
     });
     await mountView({
         type: "form",
@@ -880,10 +908,14 @@ test("A new MediaDialog after switching record in a Form view should have the co
             this.contentClass = "o_select_media_dialog";
             this.title = "TEST";
             this.tabs = [];
-            this.state = {};
+            this.notebookPages = [];
+            this.activeTab = signal("");
+            this.isSaving = signal(false);
+            this.selectedMedia = proxy({});
             // no call to super to avoid services dependencies
             // this test only cares about the props given to the dialog
         },
+        onTabChange() {},
     });
     await mountView({
         type: "form",
@@ -920,12 +952,6 @@ test("Embed video by pasting video URL", async () => {
     ];
     const videoId = "qxb74CMR748";
     const videoURL = `https://www.youtube.com/watch?v=${videoId}`;
-
-    onRpc("/html_editor/video_url/data", async () => ({
-        platform: "youtube",
-        video_id: videoId,
-    }));
-
     await mountView({
         type: "form",
         resId: 1,
@@ -943,7 +969,7 @@ test("Embed video by pasting video URL", async () => {
     await animationFrame();
     expect(anchorNode.outerHTML).toBe(`<p>${videoURL}</p>`);
     await expectElementCount(".o-we-powerbox", 1);
-    expect(queryAllTexts(".o-we-command-name")).toEqual(["Embed Youtube Video", "Paste as URL"]);
+    expect(queryAllTexts(".o-we-command-name")).toEqual(["Embed YouTube Video", "Paste as URL"]);
 
     // Press Enter to select first option in the powerbox ("Embed Youtube Video").
     await press("Enter");
@@ -958,19 +984,13 @@ test("Embed video by pasting video URL", async () => {
         `<div class="o-paragraph o-we-hint" o-we-hint-text="Type &quot;/&quot; for commands"><br></div>`
     );
     expect(
-        `div[data-embedded='video'] iframe[data-src="https://www.youtube.com/embed/${videoId}"]`
+        `div[data-embedded='video'] iframe[data-src="https://www.youtube.com/embed/${videoId}?enablejsapi=1&rel=0"]`
     ).toHaveCount(1);
 });
 
 test("Embedded video shouldn't have the 'media_iframe_video' class", async () => {
-    const videoId = "qxb74CMR748";
+    const videoId = "nbso3NVz3p8";
     const videoURL = `https://www.youtube.com/watch?v=${videoId}`;
-
-    onRpc("/html_editor/video_url/data", async () => ({
-        platform: "youtube",
-        video_id: videoId,
-        embed_url: `https://www.youtube.com/embed/${videoId}`,
-    }));
 
     await mountView({
         type: "form",
@@ -1192,32 +1212,6 @@ test("should display overlay on video hover and handle video replacement and rem
     });
     setSelectionInHtmlField();
 
-    await onRpc("/html_editor/video_url/data", async (request) => {
-        const videoUrl = (await request.json()).params.video_url;
-
-        if (videoUrl === "https://www.youtube.com/embed/qxb74CMR748?rel=0&autoplay=0") {
-            return {
-                video_id: "qxb74CMR748",
-                platform: "youtube",
-                embed_url: "https://www.youtube.com/embed/qxb74CMR748?rel=0&autoplay=0",
-                params: {
-                    rel: 0,
-                    autoplay: 0,
-                },
-            };
-        } else {
-            return {
-                video_id: "gbE3azm_Io0",
-                platform: "youtube",
-                embed_url: "https://www.youtube.com/embed/gbE3azm_Io0?rel=0&autoplay=0",
-                params: {
-                    rel: 0,
-                    autoplay: 0,
-                },
-            };
-        }
-    });
-
     // Insert video
     await insertText(htmlEditor, "/video");
     await waitFor(".o-we-powerbox");
@@ -1228,7 +1222,7 @@ test("should display overlay on video hover and handle video replacement and rem
     await waitFor("textarea[id='o_video_text']");
 
     const input = queryOne("textarea[id='o_video_text']");
-    input.value = "https://www.youtube.com/embed/qxb74CMR748?rel=0&autoplay=0";
+    input.value = "https://www.youtube.com/embed/nbso3NVz3p8?rel=0&autoplay=0";
     manuallyDispatchProgrammaticEvent(input, "input", {
         inputType: "insertText",
     });
@@ -1255,13 +1249,13 @@ test("should display overlay on video hover and handle video replacement and rem
         inputType: "insertText",
     });
     await waitFor(
-        '.o_video_dialog_iframe[data-src="https://www.youtube.com/embed/gbE3azm_Io0?rel=0&autoplay=0"]',
+        '.o_video_dialog_iframe[data-src="https://www.youtube.com/embed/gbE3azm_Io0?enablejsapi=1&rel=0"]',
         { timeout: 1500 }
     );
     await click(queryOne(".modal-footer").firstChild);
 
     await waitFor(
-        `div[data-embedded='video'] iframe[data-src="https://www.youtube.com/embed/gbE3azm_Io0?rel=0&autoplay=0"]`
+        `div[data-embedded='video'] iframe[data-src="https://www.youtube.com/embed/gbE3azm_Io0?enablejsapi=1&rel=0"]`
     );
     const iframeSrcAfter = embeddedVideoEl.dataset.src;
     expect(iframeSrcBefore).not.toBe(iframeSrcAfter);
@@ -1277,15 +1271,8 @@ test("should display overlay on video hover and handle video replacement and rem
 });
 
 test("should preserve vertical video setting when reopening media dialog", async () => {
-    const videoId = "qxb74CMR748";
+    const videoId = "nbso3NVz3p8";
     const videoURL = `https://www.youtube.com/watch?v=${videoId}`;
-
-    onRpc("/html_editor/video_url/data", async () => ({
-        video_id: videoId,
-        platform: "youtube",
-        embed_url: `https://www.youtube.com/embed/${videoId}`,
-        params: {},
-    }));
 
     await mountView({
         type: "form",
@@ -1309,17 +1296,21 @@ test("should preserve vertical video setting when reopening media dialog", async
     await contains(".o_video_dialog_form textarea").edit(videoURL);
 
     // Wait for options to be rendered before interaction
-    await waitFor(".o_video_dialog_form .o_video_dialog_options", { timeout: 1500 });
+    await waitFor(".o_video_dialog_form .o_video_dialog_options");
     await contains(
         ".o_video_dialog_form .o_video_dialog_options label:contains(Vertical) input"
     ).click();
+    await advanceTime(200); // debounce
 
     // Confirm vertical class is applied in the preview area
-    await waitFor(".modal-content .media_iframe_video .media_iframe_video_size_for_vertical", {
-        timeout: 1500,
-    });
+    await waitFor(".modal-content .media_iframe_video .media_iframe_video_size_for_vertical");
     queryOne(".modal-content footer button:contains(Add)").click();
     await animationFrame();
+
+    // In order to test the media dialog, we need to provide a real src for the iframe,
+    // otherwise the media dialog won't recognize the existing video as valid.
+    const iframeToFix = htmlEditor.editable.querySelector("iframe");
+    iframeToFix.src = iframeToFix.dataset.src;
 
     // Hover on VideoBlock shows overlay
     await hover(queryOne("div[data-embedded='video']"));
@@ -1332,51 +1323,10 @@ test("should preserve vertical video setting when reopening media dialog", async
     await click(".o-dropdown-item .fa-exchange");
 
     // Ensure the vertical setting is still active
-    await waitFor(".o_video_dialog_form .o_video_dialog_options label:contains(Vertical) input", {
-        timeout: 1500,
-    });
+    await waitFor(".o_video_dialog_form .o_video_dialog_options label:contains(Vertical) input");
     expect(
         ".o_video_dialog_form .o_video_dialog_options label:contains(Vertical) input"
     ).toBeChecked();
-});
-
-test.tags("desktop");
-test("add Vimeo video link in 'Videos' tab of MediaDialog", async () => {
-    const vimeoVideoLink = "https://vimeo.com/1128489814?fl=wc";
-    await mountView({
-        type: "form",
-        resId: 1,
-        resModel: "partner",
-        arch: `
-            <form>
-                <field name="txt" widget="html"/>
-            </form>`,
-    });
-    setSelectionInHtmlField();
-
-    await onRpc("/html_editor/video_url/data", async () => ({
-        video_id: "1128489814",
-        platform: "vimeo",
-        embed_url: vimeoVideoLink,
-    }));
-
-    // Insert Vimeo video link
-    await insertText(htmlEditor, "/video");
-    await waitFor(".o-we-powerbox");
-    expect(queryAllTexts(".o-we-command-name")[0]).toBe("Media");
-
-    await press("Enter");
-    await contains(".modal-body .nav-link:contains('Videos')").click();
-    await waitFor("textarea[id='o_video_text']");
-
-    const input = queryOne("textarea[id='o_video_text']");
-    input.value = vimeoVideoLink;
-    manuallyDispatchProgrammaticEvent(input, "input", {
-        inputType: "insertText",
-    });
-    await waitFor(".o_video_dialog_options", { timeout: 1500 });
-    expect(input).toHaveClass("is-valid");
-    await click(queryOne(".modal-footer").firstChild);
 });
 
 test("MediaDialog contains 'Videos' tab by default in html field", async () => {
@@ -1492,42 +1442,6 @@ test("MediaDialog contains 'Videos' tab when sanitize_tags = true and 'allowVide
         "Icons",
         "Videos",
     ]);
-});
-
-test("Image should not be inserted in a formatted empty node", async () => {
-    Partner._records = [
-        {
-            id: 1,
-            txt: `<div class="o-paragraph"><strong>test</strong></div>
-                    <div class="o-paragraph">
-                        <strong data-oe-zws-empty-inline="">\u200b</strong><br />
-                    </div>`,
-        },
-    ];
-
-    await mountView({
-        type: "form",
-        resId: 1,
-        resModel: "partner",
-        arch: `
-            <form>
-                <field name="txt" widget="html"/>
-            </form>`,
-    });
-    setSelection({
-        anchorNode: queryOne("div.o-paragraph strong[data-oe-zws-empty-inline]"),
-        anchorOffset: 0,
-    });
-    await insertText(htmlEditor, "/media");
-    await waitFor(".o-we-powerbox");
-    expect(queryAllTexts(".o-we-command-name")[0]).toBe("Media");
-
-    await press("Enter");
-    await animationFrame();
-    await click(queryFirst(".o_existing_attachment_cell button"));
-    await animationFrame();
-    const img = htmlEditor.editable.querySelector("div.o-paragraph img");
-    expect(img.parentElement.nodeName).toBe("DIV");
 });
 
 test("'Media' command is available by default", async () => {
@@ -2407,7 +2321,7 @@ describe("save image", () => {
                 .replace(/(?:\s|(?:\r\n))+/g, " ")
                 .replace(/\s?(<|>)\s?/g, "$1");
         // Promise to resolve when we want the response of the modify_image RPC.
-        const modifyImagePromise = new Deferred();
+        const modifyImagePromise = Promise.withResolvers();
         let writeCount = 0;
         let modifyImageCount = 0;
         // Valid base64 encoded image in its transitory modified state.
@@ -2426,7 +2340,7 @@ describe("save image", () => {
                 const { params } = await request.json();
                 expect(params.res_model).toBe("partner");
                 expect(params.res_id).toBe(1);
-                await modifyImagePromise;
+                await modifyImagePromise.promise;
                 modifyImageCount++;
                 const res = { original: newImageSrc };
                 return res;
@@ -2446,12 +2360,13 @@ describe("save image", () => {
         });
 
         // Simulate an urgent save without any image in the content.
-        sendBeaconDef = new Deferred();
+        sendBeaconDef = Promise.withResolvers();
         setSelectionInHtmlField(".test_target");
         await insertText(htmlEditor, "a");
         htmlEditor.shared.history.commit();
         await formController.beforeUnload();
-        await sendBeaconDef;
+        await sendBeaconDef.promise;
+        await microTick();
 
         // Replace the empty paragraph with a paragrah containing an unsaved
         // modified image
@@ -2462,19 +2377,19 @@ describe("save image", () => {
 
         // Simulate an urgent save before the end of the RPC roundtrip for the
         // image.
-        sendBeaconDef = new Deferred();
+        sendBeaconDef = Promise.withResolvers();
         await formController.beforeUnload();
-        await sendBeaconDef;
+        await sendBeaconDef.promise;
 
         // Resolve the image modification (simulate end of RPC roundtrip).
         modifyImagePromise.resolve();
-        await modifyImagePromise;
+        await modifyImagePromise.promise;
         await animationFrame();
 
         // Simulate the last urgent save, with the modified image.
-        sendBeaconDef = new Deferred();
+        sendBeaconDef = Promise.withResolvers();
         await formController.beforeUnload();
-        await sendBeaconDef;
+        await sendBeaconDef.promise;
     });
 
     test("Pasted/dropped images are converted to attachments on save", async () => {
@@ -2533,12 +2448,12 @@ describe("save image", () => {
             },
         ];
 
-        const def = new Deferred();
+        const def = Promise.withResolvers();
         onRpc("/html_editor/attachment/add_data", async (request) => {
             const { params } = await request.json();
             const { res_id, res_model } = params;
             expect.step(`add_data-start: ${res_model} ${res_id}`);
-            await def;
+            await def.promise;
             expect.step(`add_data-end: ${res_model} ${res_id}`);
             return {
                 image_src: "/test_image_url.png",
@@ -2602,12 +2517,12 @@ describe("save image", () => {
             },
         ];
 
-        const def = new Deferred();
+        const def = Promise.withResolvers();
         onRpc("/html_editor/attachment/add_data", async (request) => {
             const { params } = await request.json();
             const { res_id, res_model } = params;
             expect.step(`add_data-start: ${res_model} ${res_id}`);
-            await def;
+            await def.promise;
             expect.step(`add_data-end: ${res_model} ${res_id}`);
             return {
                 image_src: "/test_image_url.png",
@@ -2928,7 +2843,7 @@ test("should not render xml template as html in specific invalid cases", async (
         [`<table><t><tr><td></td></tr></t></table>`, false],
         [`<table><tr><t><td></td></t></tr></table>`, false],
         [`<table><tr><t><td></td></t></tr></table>`, false],
-        [`<table><tr><td><table><t/></table></td></tr></table>`, false]
+        [`<table><tr><td><table><t/></table></td></tr></table>`, false],
     ];
     for (const [xmlString, expected] of values) {
         var isValid = canRenderAsHTML(xmlString);

@@ -9,7 +9,6 @@
     'depends': ['resource', 'product', 'account', 'barcodes_gs1_nomenclature', 'html_editor', 'digest', 'phone_validation', 'google_address_autocomplete', 'base_report_wkhtmltox'],
     'data': [
         'security/point_of_sale_security.xml',
-        'security/ir.model.access.csv',
         'data/default_barcode_patterns.xml',
         'data/digest_data.xml',
         'data/pos_note_data.xml',
@@ -57,13 +56,24 @@
         'receipt/pos_receipt_common.xml',  # needed in the backend and frontend
         'receipt/pos_order_receipt.xml',  # needed in the backend and frontend
         'receipt/pos_order_change_receipt.xml',  # needed in the backend and frontend
+        'receipt/pos_order_change_receipt_zpl.xml',  # needed in the backend and frontend
         'receipt/pos_tip_receipt.xml',  # needed in the backend and frontend
         'receipt/pos_cash_move_receipt.xml',  # needed in the backend and frontend
         'receipt/pos_sale_details_receipt.xml',  # needed in the backend and frontend
         'data/ir_cron_data.xml',
+        'security/ir.access.csv',
     ],
     'demo': [
         'data/demo_data.xml',
+    ],
+    'other_files': [
+        'data/orders_demo.xml',
+        'data/scenarios/bakery_category_data.xml',
+        'data/scenarios/bakery_data.xml',
+        'data/scenarios/clothes_category_data.xml',
+        'data/scenarios/clothes_data.xml',
+        'data/scenarios/furniture_category_data.xml',
+        'data/scenarios/furniture_data.xml',
     ],
     'application': True,
     'website': 'https://www.odoo.com/app/point-of-sale-shop',
@@ -250,6 +260,12 @@
             "point_of_sale/static/src/app/hooks/time_hook.js",
             "point_of_sale/static/src/app/pos_app.scss",
             "point_of_sale/static/src/app/screens/login_screen/login_screen.scss",
+            "point_of_sale/static/src/app/components/price_formatter/**/*",
+            "point_of_sale/static/src/app/components/validation_animation/**/*",
+            "point_of_sale/static/src/app/components/feedback_payment_summary/**/*",
+        ],
+        'point_of_sale.customer_display_assets_dark': [
+            ('include', 'point_of_sale.customer_display_assets'),
         ],
         'point_of_sale.customer_display_assets_test': [
             ('include', 'point_of_sale.base_tests'),

@@ -13,7 +13,7 @@
                         <field name="department_id" icon="fa-users" enable_counters="1"/>
                     </searchpanel>
                     <field name="parent_id" string="Manager" domain="[('company_id', 'in', allowed_company_ids)]"/>
-                    <field name="contract_date_start" groups="hr.group_hr_manager"/>
+                    <field name="contract_date_start"/>
                     <field name="job_id"/>
                     <field name="category_ids" groups="hr.group_hr_user"/>
                     <separator/>
@@ -33,8 +33,7 @@
                             domain="[
                                 ('contract_date_start', '!=', False),
                                 ('contract_date_end', '=', False)
-                            ]"
-                            groups="hr.group_hr_manager"/>
+                            ]"/>
                     <filter string="Fixed-term Contract" name="fixed_term_contract"
                             domain="[
                                 ('contract_date_start', '!=', False),
@@ -59,11 +58,10 @@
                                         '&amp;',
                                             ('contract_date_end', '!=', False),
                                             ('contract_date_end', '&lt;', 'today')
-                             ]"
-                            groups="hr.group_hr_manager"/>
+                             ]"/>
                     <separator />
-                    <filter string="Contract Start" name="contract_date_start" date="contract_date_start" groups="hr.group_hr_manager"/>
-                    <filter string="Contract End" name="contract_date_end" date="contract_date_end" groups="hr.group_hr_manager"/>
+                    <filter string="Contract Start" name="contract_date_start" date="contract_date_start"/>
+                    <filter string="Contract End" name="contract_date_end" date="contract_date_end"/>
                     <separator />
                     <filter string="Archived" name="inactive" domain="[('active', '=', False)]"/>
                     <group>
@@ -75,7 +73,7 @@
                         <separator name="main_groupby_separator"/>
                         <filter name="_search_today_location" string="Work location" domain="[]" context="{'group_by':'today_location_name'}"/>
                         <filter name="group_birthday" domain="[]" context="{'group_by': 'birthday_month'}" invisible="1"/>
-                        <filter name="group_start" string="Contract Start" domain="[]" context="{'group_by': 'contract_date_start'}" groups="hr.group_hr_manager"/>
+                        <filter name="group_start" string="Contract Start" domain="[]" context="{'group_by': 'contract_date_start'}"/>
                         <filter name="group_departure_date" string="Departure Date" domain="[]" context="{'group_by': 'departure_date'}" groups="hr.group_hr_manager"/>
                         <separator name="secondary_groupby_separator"/>
                         <separator name="managers_groupby_separator"/>
@@ -115,9 +113,8 @@
                                 context="{'default_create_employee': True}"/>
                         <button name="%(plan_wizard_action)d" string="Launch Plan" type="action"
                             groups="hr.group_hr_user" invisible="not active or not id" context="{'sort_by_responsible': True}"/>
-                        <button name="action_cancel_departure" string="Cancel End of Collaboration" type="object"
-                            groups="hr.group_hr_user" invisible="not id or not departure_id or departure_apply_date"/>
-                        <field name="version_id" widget="versions_timeline" invisible="not id" options="{'clickable': True}" readonly="False"/>
+                        <field name="version_id" widget="versions_timeline" context="{'version_revision': version_revision}" invisible="not id" options="{'clickable': True}" readonly="False"/>
+                        <field name="version_revision" invisible="1"/>
                     </header>
                     <sheet>
                         <div name="button_box" class="oe_button_box">
@@ -137,7 +134,7 @@
                         <div class="d-flex flex-column flex-md-row align-items-center gap-3" name="employee_photo_and_info">
                             <div class="o_employee_avatar">
                                 <field name="hr_icon_display" invisible="not show_hr_icon_display or not id" widget="hr_presence_status"/>
-                                <field name="image_1920" widget='image' options='{"size": [128,158], "zoom": true, "preview_image":"avatar_128"}'/>
+                                <field name="image_1920" widget="image" options="{'size': [128,158], 'zoom': true, 'preview_image':'avatar_128', 'img_class': 'border rounded h-100 object-fit-contain'}"/>
                                 <field name="show_hr_icon_display" invisible="1" />
                             </div>
                             <group class="d-flex flex-column gap-md-0 w-100">
@@ -153,11 +150,15 @@
                                 <label for="work_phone" class="d-md-none"/>
                                 <div class="d-flex align-items-baseline w-md-50 gap-2">
                                     <i class="d-none d-md-inline-flex fa fa-phone" title="Work Phone"/>
+                                    <field name="work_phone_sanitized" invisible="1"/>
+                                    <field name="work_phone_formatted" invisible="1"/>
                                     <field name="work_phone" widget="phone" placeholder="Work Phone" string="Work Phone"/>
                                 </div>
                                 <label for="mobile_phone" class="d-md-none"/>
                                 <div class="d-flex align-items-baseline w-md-50 gap-2">
                                     <i class="d-none d-md-inline-flex fa fa-mobile" title="Work Mobile"/>
+                                    <field name="mobile_phone_sanitized" invisible="1"/>
+                                    <field name="mobile_phone_formatted" invisible="1"/>
                                     <field name="mobile_phone" widget="phone" placeholder="Work Mobile" string="Work Mobile"/>
                                 </div>
                                 <label for="category_ids" class="d-md-none"/>
@@ -232,6 +233,8 @@
                                 <group>
                                     <group string="Private Contact">
                                         <field name="private_email" placeholder="e.g. myprivateemail@example.com" string="Email"/>
+                                        <field name="private_phone_sanitized" invisible="1"/>
+                                        <field name="private_phone_formatted" invisible="1"/>
                                         <field name="private_phone" widget="phone" string="Phone"/>
                                         <field name="has_multiple_bank_accounts" invisible="1"/>
                                         <field name="is_trusted_bank_account" invisible="1"/>
@@ -321,7 +324,9 @@
                                     </group>
                                     <group string="Emergency Contact">
                                         <field name="emergency_contact" string="Contact Name"/>
-                                        <field name="emergency_phone" class="o_force_ltr" string="Phone"/>
+                                        <field name="emergency_phone_sanitized" invisible="1"/>
+                                        <field name="emergency_phone_formatted" invisible="1"/>
+                                        <field name="emergency_phone" widget="phone" class="o_force_ltr" string="Phone"/>
                                     </group>
                                     <group string="Location" name="hr_location_group">
                                         <label for="private_street" string="Private Address"/>
@@ -371,7 +376,7 @@
                                                 nolabel="1"/>
                                             </div>
                                         <field name="employee_type_id" string="Employee Type" placeholder="Select employee type"
-                                                domain="[('country_id', 'in', [company_country_id, False])]"
+                                                domain="[('country_id', 'in', [company_country_id, False]), '|', ('company_id', 'in', [company_id, False]), ('company_id', '=', parent_company_id)]"
                                                 required="contract_date_start"/>
                                         <label for="contract_date_start" string="Contract"/>
                                         <div class="o_row" name="contract_dates">
@@ -388,8 +393,8 @@
                                         </div>
                                         <field name="structure_type_id" string="Pay Category" placeholder="Employee will be excluded from Pay Runs"
                                                 domain="['|', ('country_id', '=', False), ('country_id', '=', company_country_id)]"/>
-
-                                        <separator name="schedule" string="Schedule"/>
+                                    </group>
+                                    <group name="schedule" string="Schedule">
                                         <field name="resource_calendar_id" help="The default working hours are set in configuration." placeholder="Flexible"/>
                                         <label for="hours_per_week" string="Hours Per Week" invisible="resource_calendar_id"/>
                                         <div class="o_row" name="flexible_hours_per_week" invisible="resource_calendar_id">
@@ -428,7 +433,14 @@
                                     <group readonly="1">
                                         <field name="departure_reason_id" readonly="1"
                                                options="{'no_edit': True, 'no_create': True, 'no_open': True}"/>
-                                        <field name="dismissal_date" readonly="1"/>
+                                        <label for="dismissal_date"/>
+                                        <div class="o_row">
+                                            <field name="dismissal_date" readonly="1"/>
+                                            <button name="action_cancel_departure" string="Cancel End of Collaboration"
+                                                    type="object" class="btn btn-link p-0 ms-2 text-decoration-none"
+                                                    groups="hr.group_hr_user"
+                                                    invisible="not id or not departure_id or departure_apply_date"/>
+                                        </div>
                                     </group>
                                     <group>
                                         <field name="departure_description" string="Reason"
@@ -547,7 +559,9 @@
                     </header>
                     <field name="avatar_128" widget="image" options="{'size': [24, 24], 'img_class': 'rounded-3'}" width="30" nolabel="1"/>
                     <field name="name" string="Name" readonly="1"/>
-                    <field name="work_phone" class="o_force_ltr" readonly="1" optional="show"/>
+                    <field name="work_phone_sanitized" column_invisible="1"/>
+                    <field name="work_phone_formatted" column_invisible="1"/>
+                    <field name="work_phone" widget="phone" class="o_force_ltr" readonly="1" optional="show"/>
                     <field name="work_email" optional="hide"/>
                     <field name="work_location_name" readonly="0" string="Work Location" optional="hide"/>
                     <field name="contract_date_start" optional="hide"/>
@@ -595,7 +609,9 @@
                 <list string="Employees" expand="context.get('expand', False)" multi_edit="1" sample="1" js_class="hr_employee_list">
                     <field name="avatar_128" widget="image" options="{'size': [24, 24], 'img_class': 'rounded-3'}" width="30" nolabel="1"/>
                     <field name="name" readonly="1"/>
-                    <field name="work_phone" class="o_force_ltr" readonly="1" optional="hide"/>
+                    <field name="work_phone_sanitized" column_invisible="1"/>
+                    <field name="work_phone_formatted" column_invisible="1"/>
+                    <field name="work_phone" widget="phone" class="o_force_ltr" readonly="1" optional="hide"/>
                     <field name="work_email" optional="hide"/>
                     <field name="contract_date_start" optional="hide"/>
                     <field name="contract_date_end" optional="hide"/>
@@ -635,9 +651,11 @@
                     <field name="show_hr_icon_display"/>
                     <field name="image_128" />
                     <field name="company_id"/>
+                    <field name="work_phone_sanitized"/>
+                    <field name="work_phone_formatted"/>
                     <templates>
                         <t t-name="card" class="flex-row">
-                            <aside class="o_kanban_aside_full">
+                            <aside class="o_card_aside_full">
                                 <t t-if="record.image_1024.raw_value">
                                     <field name="image_1024" widget="background_image" options="{'zoom': true, 'zoom_delay': 1000, 'preview_image':'image_128'}" class="d-block position-relative"/>
                                 </t>
@@ -656,7 +674,7 @@
                             <main class="ms-2">
                                 <div>
                                     <div t-if="record.show_hr_icon_display.raw_value" class="float-end">
-                                        <field name="hr_icon_display" widget="hr_presence_status" />
+                                        <field name="hr_icon_display" class="mt-1" widget="hr_presence_status" />
                                     </div>
                                     <field class="fw-bold fs-5" name="name" placeholder="Employee's Name"/>
                                 </div>
@@ -668,11 +686,11 @@
                                     <i class="fa fa-fw me-2 fa-envelope text-primary" title="Email"/>
                                     <field name="work_email" />
                                 </div>
-                                <div t-if="record.work_phone.raw_value">
+                                <div t-if="record.work_phone.raw_value" class="d-flex align-items-baseline">
                                     <i class="fa fa-fw me-2 fa-phone text-primary" title="Phone"/>
-                                    <field name="work_phone" />
+                                    <field name="work_phone" widget="phone"/>
                                 </div>
-                                <div t-if="record.first_contract_date.raw_value" groups="hr.group_hr_manager" t-att-class="{'text-danger': record.contract_date_end.raw_value &lt; luxon.DateTime.now().toISO()}">
+                                <div t-if="record.first_contract_date.raw_value" groups="hr.group_hr_user" t-att-class="{'text-danger': record.contract_date_end.raw_value &lt; luxon.DateTime.now().toISO()}">
                                     <i class="fa fa-fw me-2 fa-briefcase text-primary" title="Contract"/>
                                     <field name="first_contract_date"/>
                                     <span t-if="record.contract_date_end.raw_value"> - </span>
@@ -770,15 +788,6 @@
             </field>
         </record>
 
-        <record id="action_hr_employee_load_demo_data" model="ir.actions.server">
-            <field name="name">Load Sample Data</field>
-            <field name="model_id" ref="model_hr_employee"/>
-            <field name="state">code</field>
-            <field name="code">
-                action = model._load_demo_data()
-            </field>
-        </record>
-
         <record id="open_view_employee_list_my" model="ir.actions.act_window">
             <field name="name">Employees</field>
             <field name="explanation">Displays the main directory of employees. Use this action when the user wants to manage staff, view org charts, or look up internal HR profiles.</field>
@@ -790,107 +799,11 @@
             <field name="view_id" eval="False"/>
             <field name="search_view_id" ref="view_employee_filter"/>
             <field name="help" type="html">
-                <div>
-                    <div class="o_nocontent_help">
-                        <div>
-                            <p class="text-center fs-1">
-                                Ready to start your experience?
-                            </p>
-                            <div class="px-2 py-2 row justify-content-center g-2">
-                                <div class="col-12 col-md-3">
-                                    <a class="btn btn-primary w-100 text-nowrap text-overflow-ellipsis" type="action" name="%(action_hr_employee_load_demo_data)d" tabindex="-1">Load sample data.</a>
-                                </div>
-                            </div>
-                            <hr class="my-4"/>
-                        </div>
-                        <div>
-                            <div class="container">
-                                <div class="row text-center">
-                                    <div class="col-12 col-sm-4">
-                                        <p class="fs-2 mb-0">Hiring</p>
-                                    </div>
-                                    <div class="col-12 col-sm-4">
-                                        <p class="fs-2 mb-0">Experience</p>
-                                    </div>
-                                    <div class="col-12 col-sm-4">
-                                        <p class="fs-2 mb-0">Development</p>
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div class="container mt-4 d-none d-md-block">
-                                <div class="row text-center">
-                                    <div class="col-md-4 d-flex flex-column align-items-center gap-4 mb-4">
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/hr_recruitment/static/description/icon.png" width="60"/>
-                                            <small>Hiring</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/sign/static/description/icon.png" width="60"/>
-                                            <small>Sign</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/hr_referral/static/description/icon.png" width="60"/>
-                                            <small>Referral</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4 d-flex flex-wrap justify-content-center gap-4 mb-4">
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/ai/static/description/icon.png" width="60"/>
-                                            <small>AI</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/hr_payroll/static/description/icon.png" width="60"/>
-                                            <small>Payroll</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/planning/static/description/icon.png" width="60"/>
-                                            <small>Planning</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/hr_holidays/static/description/icon.png" width="60"/>
-                                            <small>Leaves</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/fleet/static/description/icon.png" width="60"/>
-                                            <small>Fleet</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/lunch/static/description/icon.png" width="60"/>
-                                            <small>Lunch</small>
-                                        </div>
-                                    </div>
-                                    <div class="col-md-4 d-flex flex-wrap justify-content-center gap-4 mb-4">
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/hr_appraisal/static/description/icon.png" width="60"/>
-                                            <small>Performance</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/hr_skills/static/description/icon.png" width="60"/>
-                                            <small>Talent</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/website_slides/static/description/icon.png" width="60"/>
-                                            <small>eLearning</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/event/static/description/icon.png" width="60"/>
-                                            <small>Trainings</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/documents/static/description/icon.png" width="60"/>
-                                            <small>Documents</small>
-                                        </div>
-                                        <div class="d-flex flex-column align-items-center">
-                                            <img src="/board/static/description/icon.png" width="60"/>
-                                            <small>Dashboard</small>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
+                <p class="o_view_nocontent_smiling_face">
+                    Create an employee
+                </p><p>
+                    Find all the information on employees
+                </p>
             </field>
         </record>
 

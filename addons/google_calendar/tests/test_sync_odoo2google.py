@@ -177,7 +177,7 @@ class TestSyncOdoo2Google(TestSyncOdoo2GoogleCommon):
             'start': {'dateTime': '2020-01-15T08:00:00+00:00', 'date': None},
             'end': {'dateTime': '2020-01-15T18:00:00+00:00', 'date': None},
             'summary': 'Event',
-            'description': event.description,
+            'description': '',
             'location': '',
             'visibility': 'private',
             'guestsCanModify': True,
@@ -387,7 +387,7 @@ class TestSyncOdoo2Google(TestSyncOdoo2GoogleCommon):
             'login': 'jean-luc@opoo.com',
             'partner_id': self.partner_jean_luc.id,
         })
-        user.stop_google_synchronization()
+        user.with_user(user).stop_google_synchronization()
         event = self.env['calendar.event'].with_user(user).create({
             'google_id': google_id,
             'name': "Event",

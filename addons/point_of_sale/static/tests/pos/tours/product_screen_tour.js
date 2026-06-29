@@ -874,21 +874,10 @@ registry.category("web_tour.tours").add("test_fiscal_position_tax_group_labels",
             PaymentScreen.clickValidate(),
             FeedbackScreen.isShown(),
             FeedbackScreen.checkTicketData({
-                orderlines: [
-                    {
-                        name: "Test Product",
-                        cssRules: [
-                            {
-                                css: ".tax-group",
-                                text: "Tax Group 1",
-                            },
-                        ],
-                    },
-                ],
                 cssRules: [
                     {
-                        css: ".pos-receipt-taxes",
-                        text: "Tax Group 1  ",
+                        css: "tr[name='taxes_line']",
+                        text: "Tax Group 15%",
                     },
                 ],
             }),
@@ -902,21 +891,10 @@ registry.category("web_tour.tours").add("test_fiscal_position_tax_group_labels",
             PaymentScreen.clickValidate(),
             FeedbackScreen.isShown(),
             FeedbackScreen.checkTicketData({
-                orderlines: [
-                    {
-                        name: "Test Product",
-                        cssRules: [
-                            {
-                                css: ".tax-group",
-                                text: "Tax Group 2",
-                            },
-                        ],
-                    },
-                ],
                 cssRules: [
                     {
-                        css: ".pos-receipt-taxes",
-                        text: "Tax Group 2  ",
+                        css: "tr[name='taxes_line']",
+                        text: "Tax Group 5%",
                     },
                 ],
             }),
@@ -1112,15 +1090,15 @@ registry
             [
                 Chrome.startPoS(),
                 Dialog.confirm("Open Register"),
-                PartnerList.searchCustomerValue("Partner Full", true),
-                PartnerList.clickPartner("Partner Full"),
+                PartnerList.searchCustomerValue("APartner Full", true),
+                PartnerList.clickPartner("APartner Full"),
                 ProductScreen.clickDisplayedProduct("Desk Organizer"),
                 ProductScreen.clickFastPaymentButton("Bank"),
                 FeedbackScreen.isShown(),
                 PartnerList.isShown().map(negateStep),
                 FeedbackScreen.clickNextOrder(),
-                PartnerList.searchCustomerValue("Partner Full", true),
-                PartnerList.clickPartner("Partner Full"),
+                PartnerList.searchCustomerValue("APartner Full", true),
+                PartnerList.clickPartner("APartner Full"),
                 ProductScreen.clickDisplayedProduct("Desk Organizer"),
                 ProductScreen.clickPayButton(),
                 PaymentScreen.clickPaymentMethod("Bank"),
@@ -1292,9 +1270,9 @@ registry.category("web_tour.tours").add("test_preset_customer_selection", {
         [
             Chrome.startPoS(),
             Dialog.confirm("Open Register"),
-            PartnerList.searchCustomerValue("Partner Full", true),
-            PartnerList.clickPartner("Partner Full"),
-            ProductScreen.customerIsSelected("Partner Full"),
+            PartnerList.searchCustomerValue("APartner Full", true),
+            PartnerList.clickPartner("APartner Full"),
+            ProductScreen.customerIsSelected("APartner Full"),
             Chrome.clickOrders(),
             TicketScreen.checkCustomerAddress("77 Santa Barbara Rd Pleasant Hill"),
             Chrome.endTour(),

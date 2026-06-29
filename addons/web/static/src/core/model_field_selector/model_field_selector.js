@@ -1,5 +1,4 @@
-import { useState } from "@web/owl2/utils";
-import { Component, onWillStart, onWillUpdateProps } from "@odoo/owl";
+import { Component, onWillStart, onWillUpdateProps, props, proxy, t } from "@odoo/owl";
 import { usePopover } from "@web/core/popover/popover_hook";
 import { KeepLast } from "@web/core/utils/concurrency";
 import { useService } from "@web/core/utils/hooks";
@@ -11,28 +10,20 @@ export class ModelFieldSelector extends Component {
     static components = {
         Popover: ModelFieldSelectorPopover,
     };
-    static props = {
-        resModel: String,
-        path: { optional: true },
-        allowEmpty: { type: Boolean, optional: true },
-        readonly: { type: Boolean, optional: true },
-        readProperty: { type: Boolean, optional: true },
-        showSearchInput: { type: Boolean, optional: true },
-        isDebugMode: { type: Boolean, optional: true },
-        update: { type: Function, optional: true },
-        filter: { type: Function, optional: true },
-        sort: { type: Function, optional: true },
-        followRelation: { type: [Boolean, Function], optional: true },
-        showDebugInput: { type: Boolean, optional: true },
-    };
-    static defaultProps = {
-        readonly: true,
-        allowEmpty: false,
-        isDebugMode: false,
-        showSearchInput: true,
-        update: () => {},
-        followRelation: true,
-    };
+    props = props({
+        resModel: t.string(),
+        path: t.any().optional(),
+        allowEmpty: t.boolean().optional(false),
+        readonly: t.boolean().optional(true),
+        readProperty: t.boolean().optional(),
+        showSearchInput: t.boolean().optional(true),
+        isDebugMode: t.boolean().optional(false),
+        update: t.function().optional(() => () => {}),
+        filter: t.function().optional(),
+        sort: t.function().optional(),
+        followRelation: t.or([t.boolean(), t.function()]).optional(true),
+        showDebugInput: t.boolean().optional(),
+    });
 
     setup() {
         this.fieldService = useService("field");
@@ -50,7 +41,7 @@ export class ModelFieldSelector extends Component {
             useBottomSheet: this.isBottomSheet,
         });
         this.keepLast = new KeepLast();
-        this.state = useState({ isInvalid: false, displayNames: [] });
+        this.state = proxy({ isInvalid: false, displayNames: [] });
         onWillStart(() => this.updateState(this.props));
         onWillUpdateProps((nextProps) => {
             const modelPathKeys = ["resModel", "path", "allowEmpty"];

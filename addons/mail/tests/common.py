@@ -3,10 +3,12 @@
 import contextlib
 import email
 import email.policy
+from itertools import chain, repeat
 import json
 import re
 import logging
 import time
+import werkzeug
 
 from ast import literal_eval
 from contextlib import contextmanager
@@ -31,7 +33,7 @@ from odoo.addons.mail.models.mail_notification import MailNotification
 from odoo.addons.mail.models.res_users import ResUsers
 from odoo.addons.mail.tools.discuss import Store
 from odoo.tests import common, RecordCapturer, new_test_user
-from odoo.tools import LazyTranslate, mute_logger
+from odoo.tools import LazyTranslate, mute_logger, mail as mail_lib
 from odoo.tools.mail import email_normalize, email_split_and_format_normalize, formataddr
 from odoo.tools.misc import formatLang, format_date, format_datetime, format_amount
 from odoo.tools.translate import code_translations
@@ -315,9 +317,14 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
         # compute reply "To": either "reply-to" of email, either all recipients + reply_to - replier itself
         if not reply_all:
             replying_to = email['reply_to']
+            replying_cc = []
         else:
             replying_to = ','.join([email['reply_to']] + [
                 email for email in email_split_and_format_normalize(smtp_email['msg_to'])
+                if email_normalize(email) not in source_smtp_to_list]
+            )
+            replying_cc = ','.join(([cc] if cc else []) + [
+                email for email in email_split_and_format_normalize(smtp_email['msg_cc'])
                 if email_normalize(email) not in source_smtp_to_list]
             )
         if add_to_lst:
@@ -327,7 +334,7 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
             self._gateway_mail_reply(
                 template, email=email,
                 force_email_from=force_email_from, force_email_to=replying_to,
-                force_return_path=force_return_path, cc=cc,
+                force_return_path=force_return_path, cc=replying_cc,
                 extra=extra, use_references=use_references, extra_references=extra_references, use_in_reply_to=use_in_reply_to,
                 debug_log=debug_log,
                 target_model=target_model,
@@ -443,18 +450,37 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
 
         return sent_email
 
-    def _find_sent_email_wemail(self, email_to):
+    def _find_linked_trace_id_in_email(self, email):
+        """Search for a link in the given email and identify the linked trace id from that link
+
+        :param email: the email in which to look for the link and the corresponding trace id
+
+        :return the trace id.
+        """
+        res = re.findall(mail_lib.HTML_TAG_URL_REGEX, email['body'])
+        if (res):
+            _, link_url, _, _ = res[0]
+            if '/r/' in link_url:  # shortened link, like 'http://localhost:8069/r/LBG/m/53'
+                parsed_url = werkzeug.urls.url_parse(link_url)
+                path_items = parsed_url.path.split('/')
+                _, trace_id = path_items[2], int(path_items[4])
+                return trace_id
+
+    def _find_sent_email_wemail(self, email_to, trace_id=None):
         """ Find a sent email with a given list of recipients. Email should match
         exactly the recipients.
 
         :param email-to: a list of emails that will be compared to email_to
           of sent emails (also a list of emails);
+        :param trace_id: (optional) filter emails in which the links are linked
+          to that trace;
 
         :return email: an email which is a dictionary mapping values given to
           ``build_email``;
         """
         for sent_email in self._mails:
-            if set(sent_email['email_to']) == set([email_to]):
+            if set(sent_email['email_to']) == {email_to} and \
+                 (trace_id is None or self._find_linked_trace_id_in_email(sent_email) == trace_id):
                 break
         else:
             debug_info = '\n'.join(
@@ -515,7 +541,7 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
             )
         return mail
 
-    def _find_mail_mail_wpartners(self, recipients, status, mail_message=None, author=None, content=None, email_from=None):
+    def _find_mail_mail_wpartners(self, recipients, status, recipients_cc=None, mail_message=None, author=None, content=None, email_from=None):
         """ Find a mail.mail record based on various parameters, notably a list
         of recipients (partners).
 
@@ -527,7 +553,7 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
         """
         filtered = self._filter_mail(status=status, mail_message=mail_message, author=author, content=content, email_from=email_from)
         for mail in filtered:
-            if all(p in mail.recipient_ids for p in recipients):
+            if all(p in mail.recipient_ids for p in recipients) and all(p in mail.recipient_cc_ids for p in recipients_cc or []):
                 break
         else:
             debug_info = '\n'.join(
@@ -591,7 +617,8 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
     # ------------------------------------------------------------
 
     def _assertMailMail(self, mail, recipients_list, status,
-                        email_to_all=None, email_to_recipients=None,
+                        recipients_cc_list=None,
+                        email_to_all=None, email_to_recipients=None, email_cc_recipients=None,
                         author=None, content=None,
                         fields_values=None, email_values=None):
         """ Assert mail.mail record values and maybe related emails. Allow
@@ -674,11 +701,17 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
                 recipients = email_to_recipients  # already formatted
             else:
                 recipients = [[r] for r in recipients_list]  # one partner -> list of a single email
-            for recipient in recipients:
+            if email_cc_recipients:
+                recipients_cc = email_cc_recipients
+            else:
+                recipients_cc = [[r] for r in recipients_cc_list or []]
+
+            for recipient, is_cc in chain(zip(recipients, repeat(False)), zip(recipients_cc, repeat(True))):
                 with self.subTest(recipient=recipient):
                     self.assertSentEmail(
                         email_values['email_from'] if email_values and email_values.get('email_from') else author,
-                        recipient,
+                        recipient if not is_cc else [],
+                        recipients_cc=recipient if is_cc else [],
                         **(email_values or {})
                     )
             if email_to_all:
@@ -688,7 +721,8 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
                     **(email_values or {}))
 
     def assertMailMail(self, recipients, status,
-                       email_to_recipients=None, email_to_all=None,
+                       recipients_cc=None,
+                       email_to_recipients=None, email_cc_recipients=None, email_to_all=None,
                        mail_message=None, author=None,
                        content=None, fields_values=None, email_values=None):
         """ Assert mail.mail records are created and maybe sent as emails. This
@@ -703,8 +737,8 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
         See '_assertMailMail' for more details about other parameters.
         """
         email_from = (fields_values or {}).get('email_from')
-        if recipients:
-            found_mail = self._find_mail_mail_wpartners(recipients, status, mail_message=mail_message, author=author, content=content, email_from=email_from)
+        if recipients or recipients_cc:
+            found_mail = self._find_mail_mail_wpartners(recipients, status, recipients_cc=recipients_cc, mail_message=mail_message, author=author, content=content, email_from=email_from)
         else:
             mail_email_to = ','.join(email_to_all)
             found_mail = self._find_mail_mail_wemail(mail_email_to, status, mail_message=mail_message, author=author, content=content, email_from=email_from)
@@ -712,7 +746,9 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
         self.assertTrue(bool(found_mail))
         self._assertMailMail(
             found_mail, recipients, status,
+            recipients_cc_list=recipients_cc,
             email_to_recipients=email_to_recipients,
+            email_cc_recipients=email_cc_recipients,
             author=author, content=content,
             email_to_all=email_to_all, fields_values=fields_values, email_values=email_values,
         )
@@ -873,7 +909,7 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
 
         self.assertEqual(len(mails), 0)
 
-    def assertSentEmail(self, author, recipients, **values):
+    def assertSentEmail(self, author, recipients, recipients_cc=None, **values):
         """ Tool method to ease the check of sent emails (going through the
         outgoing mail gateway, not actual <mail.mail> records).
 
@@ -916,6 +952,7 @@ class MockEmail(common.BaseCase, MockSmtplibCase):
         attachments = [attachment['name']
                        for attachment in values.get('attachments_info', [])
                        if 'name' in attachment]
+
         sent_mail = self._find_sent_email(
             expected['email_from'],
             expected['email_to'],
@@ -1436,6 +1473,7 @@ class MailCase(common.TransactionCase, MockEmail, BusCase):
             {'id': partner.id,
              'active': partner.active,
              'email_normalized': partner.email_normalized,
+             'is_cc': False,
              'is_follower': partner in record.message_partner_ids if record else False,
              'groups': partner.user_ids.group_ids.ids,
              'lang': partner.lang,
@@ -1789,8 +1827,11 @@ class MailCase(common.TransactionCase, MockEmail, BusCase):
                     mail_status = 'outgoing'
                 if not self.mail_unlink_sent and (partners or email_to_lst):
                     self.assertMailMail(
-                        partners,
+                        # We rely on message to determine whether recipients are in Cc or not
+                        # as notifications doesn't have that information.
+                        partners.filtered(lambda p: p not in message.partner_cc_ids),
                         mail_status,
+                        recipients_cc=partners.filtered(lambda p: p in message.partner_cc_ids),
                         author=message_info.get('mail_mail_values', {}).get('author_id', message.author_id),
                         content=mbody,
                         email_to_all=email_to_lst,

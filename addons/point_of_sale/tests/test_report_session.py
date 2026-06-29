@@ -1,4 +1,6 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
+from datetime import timedelta
+
 import odoo
 
 from odoo import Command
@@ -474,6 +476,7 @@ class TestReportSession(TestPoSCommon):
         # Session 2: open, create an order, intentionally leave open.
         self.config.open_ui()
         session2 = self.config.current_session_id
+        session2.set_opening_control(0, None)
         order2 = self.env['pos.order'].create({**order_vals, 'session_id': session2.id})
         self.make_payment(order2, self.bank_pm1, 100)
 
@@ -498,6 +501,20 @@ class TestReportSession(TestPoSCommon):
             "Two closed sessions in range must still produce state='multiple'")
         self.assertEqual(report2['nbr_orders'], 2)
 
+        # Query a window strictly inside session2 (date range, no session_ids)
+        # that contains one of session2's orders. The header must show that
+        # window, not session2's start_at/stop_at.
+        date_start = session2.start_at + timedelta(minutes=1)
+        date_stop = date_start + timedelta(hours=1)
+        order2.date_order = date_start + timedelta(minutes=10)
+        report3 = self.env['report.point_of_sale.report_saledetails'].get_sale_details(
+            date_start=date_start, date_stop=date_stop, config_ids=self.config.ids,
+        )
+        self.assertEqual(report3['nbr_orders'], 1)
+        self.assertEqual(report3['state'], 'multiple')
+        self.assertEqual(report3['date_start'], date_start)
+        self.assertEqual(report3['date_stop'], date_stop)
+
     def test_report_sale_details_total_with_cash_rounding(self):
         """Test that the sale details report shows the cash rounding amount."""
         rounding_method = self.env['account.cash.rounding'].create({
@@ -509,42 +526,35 @@ class TestReportSession(TestPoSCommon):
         self.config.write({
             'cash_rounding': True,
             'rounding_method': rounding_method.id,
-            'only_round_cash_method': False,
-        })
-
-        tax = self.env['account.tax'].create({
-            'name': 'Tax 1',
-            'amount': 10,
         })
         # 10.42 + 10% tax = 11.462 → rounded to 11.45
-        product = self.create_product('Product Rounding', self.categ_basic, 10.42, tax.id)
+        product = self.create_product('Product Rounding', self.categ_basic, 10.42)
 
         self.config.open_ui()
-        session = self.config.current_session_id
 
         order = self.env['pos.order'].create({
             'company_id': self.env.company.id,
-            'session_id': session.id,
+            'session_id': self.config.current_session_id.id,
             'lines': [(0, 0, {
                 'name': "OL/0001",
                 'product_id': product.id,
                 'price_unit': 10.42,
                 'qty': 1,
-                'tax_ids': [[6, False, [tax.id]]],
+                'tax_ids': [],
                 'price_subtotal': 10.42,
                 'price_subtotal_incl': 11.46,
             })],
             'pricelist_id': self.config.pricelist_id.id,
             'amount_paid': 11.45,
             'amount_total': 11.46,
-            'amount_tax': 1.04,
+            'amount_tax': 0.0,
             'amount_return': 0.0,
             'to_invoice': False,
         })
-        self.make_payment(order, self.cash_pm1, 11.45)
-        session.action_pos_session_closing_control()
 
-        report = self.env['report.point_of_sale.report_saledetails'].get_sale_details(session_ids=[session.id])
+        self.make_payment(order, self.cash_pm1, 11.45)
+
+        report = self.env['report.point_of_sale.report_saledetails'].get_sale_details(session_ids=[self.config.current_session_id.id])
         self.assertAlmostEqual(
             report['cash_rounding_total'], 11.45 - 11.46, places=2,
             msg="Cash rounding total should equal sum of (amount_paid - amount_total) across orders"

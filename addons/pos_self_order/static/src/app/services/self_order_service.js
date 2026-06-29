@@ -22,6 +22,7 @@ import { getOrderLineValues } from "./card_utils";
 import { initLNA } from "@point_of_sale/app/utils/init_lna";
 import { GeneratePrinterData } from "@point_of_sale/app/utils/printer/generate_printer_data";
 import { SnoozedProductTracker } from "@point_of_sale/app/models/utils/snooze_tracker";
+import { InfoPopup } from "@pos_self_order/app/components/info_popup/info_popup";
 import { session } from "@web/session";
 
 const { DateTime } = luxon;
@@ -58,8 +59,8 @@ export class SelfOrder extends Reactive {
 
         // data
         this.models = this.data.models;
-        this.session = this.models["pos.session"].getFirst();
-        this.config = this.models["pos.config"].getFirst();
+        this.session = this.models["pos.session"].get(odoo.pos_session_id);
+        this.config = this.models["pos.config"].get(odoo.pos_config_id);
         this.company = this.config.company_id;
         this.currency = this.config.currency_id;
 
@@ -125,7 +126,6 @@ export class SelfOrder extends Reactive {
         if (this.config.self_ordering_mode === "kiosk") {
             this.data.connectWebSocket("STATUS", ({ status }) => {
                 if (status === "closed") {
-                    this.pos_session = [];
                     this.ordering = false;
                 } else {
                     // reload to get potential new settings
@@ -243,6 +243,10 @@ export class SelfOrder extends Reactive {
             : this.config.self_ordering_service_mode;
     }
 
+    get isSessionOpened() {
+        return this.session?.state === "opened";
+    }
+
     getAvailableCategories() {
         let now = luxon.DateTime.now();
         now = now.hour + now.minute / 60;
@@ -332,7 +336,6 @@ export class SelfOrder extends Reactive {
         for (const [date, slots] of Object.entries(availabilities)) {
             options.categories[date] = {
                 id: date,
-                name: luxon.DateTime.fromISO(date).toLocaleString(luxon.DateTime.DATE_SHORT),
                 subCategories: {},
             };
             for (const slot of Object.values(slots)) {
@@ -698,16 +701,27 @@ export class SelfOrder extends Reactive {
     async initMobileData() {
         if (this.config.self_ordering_mode !== "qr_code") {
             if (
-                this.session &&
                 this.access_token &&
-                this.config.self_ordering_mode !== "consultation"
+                this.config.self_ordering_mode !== "consultation" &&
+                (this.session || this.models["pos.preset"].filter((p) => p.use_timing).length > 0)
             ) {
                 await this.getUserDataFromServer();
                 this.ordering = true;
-            }
-
-            if (!this.ordering) {
-                return;
+                if (!this.isSessionOpened) {
+                    this.dialog.add(InfoPopup, {
+                        text: _t(
+                            "The shop is currently closed but you can still place an order for later."
+                        ),
+                        buttons: [
+                            {
+                                text: _t("Close"),
+                                onClick: () => {
+                                    this.dialog.closeAll();
+                                },
+                            },
+                        ],
+                    });
+                }
             }
         }
     }
@@ -722,7 +736,10 @@ export class SelfOrder extends Reactive {
     isValidSelection(slot, partner) {
         const preset = this.currentOrder.preset_id || {};
         const { id, name, email, phone, street, city, country_id, zip } = partner || {};
-        const partnerInfo = name && phone && street && city && country_id && zip;
+        const partnerInfo = this.config._has_google_places_api_key
+            ? name && phone && street && city && country_id && zip
+            : name && phone && street;
+
         const selectedPartner = typeof id === "number" && !isNaN(id);
         const validPartnerInfos = partnerInfo || selectedPartner;
 
@@ -731,7 +748,7 @@ export class SelfOrder extends Reactive {
             (!preset.needsName || name) &&
             (!preset.needsEmail || selectedPartner || isValidEmail(email)) &&
             (!preset.needsPartner || validPartnerInfos) &&
-            (!phone || selectedPartner || isValidPhone(phone))
+            (!preset.needsPhone || selectedPartner || isValidPhone(phone))
         );
     }
 
@@ -932,6 +949,8 @@ export class SelfOrder extends Reactive {
                 access_token: this.access_token,
             });
             return;
+        } else if (typeof error === "string") {
+            message = error;
         }
 
         this.notification.add(message, {
@@ -1011,19 +1030,14 @@ export class SelfOrder extends Reactive {
     }
 
     getProductPriceInfo(productTemplate, product) {
-        const pricelist = this.currentOrder.preset_id?.pricelist_id || this.config.pricelist_id;
-        const price = productTemplate.getPrice(pricelist, 1, 0, false, product);
-
-        if (!product) {
-            product = productTemplate;
-        }
-
-        // Taxes computation.
         const order = this.currentOrder;
-        const taxesData = product.getTaxDetails({
+        const pricelist = order.preset_id?.pricelist_id || this.config.pricelist_id;
+        const productVariant = product || productTemplate.product_variant_ids[0];
+        const price = productTemplate.getPrice(pricelist, 1, 0, false, productVariant);
+        const taxesData = (productVariant || productTemplate).getTaxDetails({
             overridedValues: {
                 price,
-                fiscalPosition: order?.fiscal_position_id || false,
+                fiscalPosition: order.fiscal_position_id || false,
             },
         });
         return { pricelist_price: price, ...taxesData };

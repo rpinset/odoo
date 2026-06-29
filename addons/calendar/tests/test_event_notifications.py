@@ -105,16 +105,19 @@ class TestCalendarMail(CalendarMailCommon):
                 'email': self.customers[0].email_normalized,
                 'name': self.customers[0].name,
                 'partner_id': self.customers[0].id,
+                'recipient_type': 'to',
             }, {  # wrong email suggested, can be corrected ?
                 'create_values': {},
                 'email': self.customers[1].email_normalized,
                 'name': self.customers[1].name,
                 'partner_id': self.customers[1].id,
+                'recipient_type': 'to',
             }, {
                 'create_values': {},
                 'email': self.user_employee_2.partner_id.email_normalized,
                 'name': self.user_employee_2.partner_id.name,
                 'partner_id': self.user_employee_2.partner_id.id,
+                'recipient_type': 'to',
             },
         ], 'Correctly filters out robodoo and aliases')
 
@@ -209,6 +212,22 @@ class TestEventNotifications(CalendarMailCommon):
     def test_message_datetime_changed(self):
         self.event.partner_ids = self.partner
         "Invitation to Presentation of the new Calendar"
+        with self.assertSinglePostNotifications([{'partner': self.partner, 'type': 'inbox'}], {
+            'message_type': 'user_notification',
+            'subtype': 'mail.mt_note',
+        }):
+            self.event.start = fields.Datetime.now() + relativedelta(days=1)
+
+    @freeze_time('2018')  # class event has hardcoded dates
+    def test_message_datetime_changed_with_activity(self):
+        self.env['mail.activity'].create({
+            'activity_type_id': self.env.ref('mail.mail_activity_data_meeting').id,
+            'calendar_event_id': self.event.id,
+            'res_model_id': self.env['ir.model']._get_id('res.partner'),
+            'res_id': self.customers[0].id,
+        })
+        self.event.partner_ids = self.partner
+
         with self.assertSinglePostNotifications([{'partner': self.partner, 'type': 'inbox'}], {
             'message_type': 'user_notification',
             'subtype': 'mail.mt_note',

@@ -4,7 +4,7 @@ from odoo.tests import tagged
 
 
 @tagged('post_install_l10n', 'post_install', '-at_install', *TestUblBis3Common.extra_tags)
-class TestUblExportBis3InvoiceSelfBillingBE(TestUblBis3Common, TestUblCiiBECommon):
+class TestUblExportBis3SelfInvoiceBE(TestUblBis3Common, TestUblCiiBECommon):
 
     @classmethod
     def setUpClass(cls):
@@ -48,7 +48,7 @@ class TestUblExportBis3InvoiceSelfBillingBE(TestUblBis3Common, TestUblCiiBECommo
     def test_invoice_selfbilling_reverse_charge(self):
         # We add a VAT number so that the reverse-charge tax is correctly given TaxCategoryCode K (intra-community supply)
         self.partner_lu_dig.write({
-            'peppol_endpoint': 'LU12345613',
+            'routing_identifier': '9938:LU12345613',
             'vat': 'LU12345613',
         })
         tax_21_reverse_charge = self.percent_tax(

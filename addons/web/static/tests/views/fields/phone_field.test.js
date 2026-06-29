@@ -16,6 +16,8 @@ import { browser } from "@web/core/browser/browser";
 
 class Partner extends models.Model {
     foo = fields.Char({ default: "My little Foo Value", trim: true });
+    foo_formatted = fields.Char();
+    foo_sanitized = fields.Char();
     name = fields.Char();
 
     _records = [{ foo: "yop" }, { foo: "blip" }];
@@ -95,7 +97,7 @@ test("PhoneField in editable list view on normal screens", async () => {
     });
     expect("tbody td:not(.o_list_record_selector).o_data_cell").toHaveCount(2);
     expect("tbody td:not(.o_list_record_selector) span:first-child:eq(0)").toHaveText("yop");
-    expect(".o_field_widget .o_phone_form_link").toHaveCount(2);
+    expect(".o_field_widget .o_phone_form_link").toHaveCount(0);
 
     // Edit a line and check the result
     const cell = queryFirst("tbody td:not(.o_list_record_selector)");
@@ -112,7 +114,7 @@ test("PhoneField in editable list view on normal screens", async () => {
 
     expect(".o_selected_row").toHaveCount(0);
     expect("tbody td:not(.o_list_record_selector) span:first-child:eq(0)").toHaveText("new");
-    expect(".o_field_widget .o_phone_form_link").toHaveCount(2);
+    expect(".o_field_widget .o_phone_form_link").toHaveCount(0);
 });
 
 test("use TAB to navigate to a PhoneField", async () => {
@@ -207,6 +209,31 @@ test("url is correctly called in readonly", async () => {
     await assertUrl(`.o_field_widget .o_phone_form_link`, "tel:+12345678900");
 });
 
+test("url uses sanitized field while displaying formatted value in readonly", async () => {
+    Partner._records[0].foo = "2025550124";
+    Partner._records[0].foo_formatted = "+1 202-555-0124";
+    Partner._records[0].foo_sanitized = "+12025550124";
+    await mountView({
+        type: "form",
+        resModel: "partner",
+        readonly: true,
+        arch: /* xml */ `
+            <form>
+                <sheet>
+                    <group>
+                        <field name="foo_formatted" invisible="1"/>
+                        <field name="foo_sanitized" invisible="1"/>
+                        <field name="foo" widget="phone"/>
+                    </group>
+                </sheet>
+            </form>`,
+        resId: 1,
+    });
+
+    expect(".o_field_phone span:first-child").toHaveText("+1 202-555-0124");
+    await assertUrl(`.o_field_widget .o_phone_form_link`, "tel:+12025550124");
+});
+
 test("New record, fill in phone field, then click on call icon and save", async () => {
     await mountView({
         type: "form",
@@ -234,4 +261,18 @@ test("New record, fill in phone field, then click on call icon and save", async 
     expect(".o_field_widget[name=name] input").toHaveValue("TEST");
     expect(".o_field_widget[name=foo] input").toHaveValue("+12345678900");
     expect(`.o_form_status_indicator_buttons`).toHaveClass("invisible");
+});
+
+test("action buttons are form-only: a list cell shows the number with no buttons", async () => {
+    onRpc("has_group", () => true);
+    await mountView({
+        type: "list",
+        resModel: "partner",
+        arch: `<list><field name="foo" widget="phone"/></list>`,
+    });
+    // The (formatted) value is still rendered...
+    expect("tbody td:not(.o_list_record_selector) span:first-child:eq(0)").toHaveText("yop");
+    // ...but no Call/SMS/WhatsApp button and no overflow dropdown (form-only).
+    expect(".o_field_widget .o_phone_form_link").toHaveCount(0);
+    expect(".o_field_widget .fa-ellipsis-v").toHaveCount(0);
 });

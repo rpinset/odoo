@@ -901,7 +901,7 @@ class TestUi(TestPointOfSaleHttpCommon):
         self.env.ref('loyalty.gift_card_product_50').product_tmpl_id.write({'active': True})
         # Create gift card program
         self.create_programs([('arbitrary_name', 'gift_card')])
-        self.start_pos_tour("GiftCardWithRefundtTour")
+        self.start_pos_tour("GiftCardWithRefundTour")
 
     def test_loyalty_program_specific_product(self):
         #create a loyalty program with a rules of minimum 2 qty that applies on produt A and B and reward 5 points. The reward is 10$ per order in exchange of 2 points on product A and B
@@ -3433,6 +3433,46 @@ class TestUi(TestPointOfSaleHttpCommon):
     def test_customer_display_loyalty_points(self):
         self.start_tour(f"/pos_customer_display/{self.main_pos_config.id}/{self.main_pos_config.access_token}?access_token={self.main_pos_config.access_token}", 'test_customer_display_loyalty_points', login="pos_user")
 
+    def test_refund_order_deduct_loyalty_points(self):
+        """
+        Test workflow for refunding orders and deducting loyalty points.
+
+        Workflow:
+        ├── Setup & Award Points: Create program, customer, and simulate purchase (3.2 points awarded)
+        └── Refund & Verify: Execute refund and verify points deducted (0.0 points remaining)
+
+        This test verifies the complete lifecycle of loyalty point management during order refunds
+        in POS systems, ensuring points are correctly awarded on purchase and deducted on refund.
+        """
+        LoyaltyProgram = self.env['loyalty.program']
+        (LoyaltyProgram.search([])).write({'pos_ok': False})
+        loyalty_program = self.create_programs([('arbitrary_name', 'loyalty')])['arbitrary_name']
+        self.env['res.partner'].create({'name': 'AA Partner'})
+
+        self.start_pos_tour("PosOrderAwardLoyaltyPointsToCustomer")
+        coupon_ids = loyalty_program.coupon_ids
+        self.assertEqual(len(coupon_ids), 1, "Single coupon generated after first order.")
+        first_order_loyalty_card = coupon_ids[0]
+        self.assertEqual(
+            first_order_loyalty_card.points,
+            3.2,
+            "3.2 Loyalty points should have been awarded after first order."
+        )
+
+        self.start_pos_tour("PosOrderRefundLoyaltyPoints")
+        self.assertEqual(len(coupon_ids), 1, "Single coupon available after refund order.")
+        refund_order_loyalty_card = coupon_ids[0]
+        self.assertEqual(
+            first_order_loyalty_card.id,
+            refund_order_loyalty_card.id,
+            "Both sell order and refund order are linked to the same loyalty card."
+        )
+        self.assertEqual(
+            refund_order_loyalty_card.points,
+            0.0,
+            "Loyalty points were deducted correctly after refunding the order."
+        )
+
     def test_confirm_coupon_programs_one_by_one(self):
         """
         Sync from UI is now syncing orders one by one.
@@ -3601,3 +3641,37 @@ class TestUi(TestPointOfSaleHttpCommon):
             login="pos_user",
         )
         self.assertEqual(len(gift_card_program.coupon_ids), 2)
+
+    def test_discount_count_sale_report(self):
+        """ This test make sure that discount from loyalty rewards are correctly counted in the sales report """
+        LoyaltyProgram = self.env['loyalty.program']
+        (LoyaltyProgram.search([])).write({'pos_ok': False})
+
+        self.env['loyalty.program'].create({
+            'name': 'Auto Promo Program - Cheapest Product',
+            'program_type': 'promotion',
+            'trigger': 'auto',
+            'rule_ids': [(0, 0, {})],
+            'reward_ids': [(0, 0, {
+                'reward_type': 'discount',
+                'discount': 50,
+                'discount_mode': 'percent',
+                'discount_applicability': 'order',
+            })]
+        })
+
+        self.product = self.env["product.product"].create(
+            {
+                "name": "Test Product 1",
+                "is_storable": True,
+                "list_price": 100,
+                "available_in_pos": True,
+            }
+        )
+        self.main_pos_config.open_ui()
+        self.start_pos_tour("test_discount_count_sale_report")
+        session = self.main_pos_config.current_session_id
+        session.action_pos_session_closing_control()
+        report = self.env['report.point_of_sale.report_saledetails'].get_sale_details(session_ids=[session.id])
+        self.assertEqual(report['discount_number'], 2)
+        self.assertEqual(report['discount_amount'], 60.38)

@@ -12,17 +12,16 @@ import { _t } from "@web/core/l10n/translation";
 
 export class ActivityMenu extends Component {
     static components = { Dropdown };
-    static props = [];
     static template = "mail.ActivityMenu";
 
     setup() {
         super.setup();
-        this.discussSystray = useDiscussSystray();
         this.store = useService("mail.store");
         this.action = useService("action");
         this.userId = user.userId;
         this.ui = useService("ui");
         this.dropdown = useDropdownState();
+        this.discussSystray = useDiscussSystray(this.dropdown);
         useCommand(_t("Activity"), () => this.store.scheduleActivity(false, false), {
             category: "activity",
             hotkey: "alt+shift+a",
@@ -37,6 +36,14 @@ export class ActivityMenu extends Component {
 
     onBeforeOpen() {
         this.store.fetchStoreData("systray_get_activities");
+    }
+
+    openUnassignedRoleActivities(newWindow) {
+        this.dropdown.close();
+        this.action.doAction("mail.mail_activity_action_to_assign", {
+            newWindow,
+            clearBreadcrumbs: true,
+        });
     }
 
     availableViews(group) {

@@ -20,6 +20,8 @@ ERROR_MESSAGES = {
     ),
     'closed_feature': _lt("The SMS Service is currently unavailable for new users and new accounts registrations are suspended."),
     'banned_account': _lt("This phone number/account has been banned from our service."),
+    'country_not_supported': _lt("Your country is not supported due to sender registration legislation"),
+    'not_active_db': _lt("Your database is not activated"),
 
     # Errors that could occur while verifying the code
     'invalid_code': _lt("The verification code is incorrect."),
@@ -58,8 +60,8 @@ class SmsApi(SmsApiBase):  # TODO RIGR in master: rename SmsApi to SmsApiIAP, an
     PROVIDER_TO_SMS_FAILURE_TYPE = SmsApiBase.PROVIDER_TO_SMS_FAILURE_TYPE | {
         'country_not_supported': 'sms_country_not_supported',
         'insufficient_credit': 'sms_credit',
-        'unregistered': 'sms_acc',
         'not_active_db': 'sms_database_non_active',
+        'unregistered': 'sms_acc',
     }
 
     def __init__(self, env, account=None):

@@ -1,5 +1,8 @@
-import { Component, signal, useEffect } from "@odoo/owl";
-import { useAutofocus, useForwardRefToParent } from "@web/core/utils/hooks";
+import { SearchState } from "@mail/utils/common/hooks";
+
+import { Component, props, signal, t, useEffect } from "@odoo/owl";
+
+import { autofocusParamsType, useAutofocus } from "@web/core/utils/hooks";
 
 let nextId = 0;
 
@@ -13,37 +16,24 @@ let nextId = 0;
  * not own the hook so parents can read `searchTerm`/`results`/`loading` from
  * their own JS (filters, getters, callbacks) without a forwarding indirection.
  *
- * @typedef {Object} Props
- * @property {ReturnType<typeof import("@mail/utils/common/hooks").useSearch>} search
- * @property {string} [placeholder]
- * @property {boolean | Parameters<typeof useAutofocus>} [autofocus]
- *  When truthy, focuses the input on mount via `useAutofocus`. Pass an object
- *  to forward `mobile`/`selectAll` options.
- * @property {import("@web/core/utils/hooks").Ref} [inputRef] A ref returned by
- *  `useChildRef`, to expose the `<input>` element to the parent (e.g. for popover anchoring).
- * @property {(ev: KeyboardEvent) => void} [onKeydown]
- * @property {string} [classNames] Extra classes for the outer wrapper.
- * @property {number} [loadingDelay=200] Milliseconds the spinner waits before
- *  replacing the search icon. Suppresses flicker on fast local filters.
- * @extends {Component<Props, Env>}
  */
 export class SearchInput extends Component {
     static template = "mail.SearchInput";
-    static props = {
-        search: { type: Object },
-        accesskey: { type: String, optional: true },
-        autofocus: { type: [Boolean, Object], optional: true },
-        classNames: { type: String, optional: true },
-        inputRef: { type: Function, optional: true },
-        loadingDelay: { type: Number, optional: true },
-        onClear: { type: Function, optional: true },
-        onKeydown: { type: Function, optional: true },
-        placeholder: { type: String, optional: true },
-    };
-    static defaultProps = { autofocus: false, loadingDelay: 200 };
 
     setup() {
         super.setup();
+        this.props = props({
+            accesskey: t.string().optional(),
+            /** @type {boolean | Parameters<typeof useAutofocus>[0]} */
+            autofocus: t.or([t.boolean(), autofocusParamsType]).optional(false),
+            classNames: t.string().optional(),
+            inputRef: t.signal(t.instanceOf(HTMLElement)).optional(() => signal.ref()),
+            loadingDelay: t.number().optional(200),
+            onClear: t.function([t.instanceOf(MouseEvent)]).optional(),
+            onKeydown: t.function([t.instanceOf(KeyboardEvent)]).optional(),
+            placeholder: t.string().optional(),
+            search: t.instanceOf(SearchState),
+        });
         this.uniqueId = `mail.SearchInput.${nextId++}`;
         this.spinner = signal(false);
         useEffect(() => {
@@ -54,10 +44,9 @@ export class SearchInput extends Component {
             const timer = setTimeout(() => this.spinner.set(true), this.props.loadingDelay);
             return () => clearTimeout(timer);
         });
-        this.inputRef = useForwardRefToParent("inputRef");
         if (this.props.autofocus) {
             const opts = typeof this.props.autofocus === "object" ? this.props.autofocus : {};
-            useAutofocus({ ...opts, refName: "inputRef" });
+            useAutofocus({ ...opts, ref: this.props.inputRef });
         }
     }
 }

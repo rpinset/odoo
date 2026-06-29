@@ -21,8 +21,8 @@ $o-base-color-palette: map-merge($o-base-color-palette, (
     'footer-custom': null,
     'copyright': null,
     'copyright-custom': null,
-    'portal-card': null,
-    "portal-card-custom":null,
+    'portal-card': 2,
+    'portal-card-custom': null,
     'portal-gradient': null,
     'portal-card-border-color': null,
     'breadcrumb': 1, // o_cc1
@@ -81,7 +81,11 @@ $o-color-palettes: map-merge($o-color-palettes,
         'default-6':  o-make-palette(#3DD5F3),
         'default-7':  o-make-palette(#6EA8FE, #474973),
         'default-8':  o-make-palette(#0AA2C0),
-        'default-9':  o-make-palette(#0A58CA),
+        'default-9':  o-make-palette(#0A58CA, null, (
+            'body': 'o-color-5',
+            'o-cc1-bg': 'o-color-5',
+            'o-cc1-text': 'o-color-4',
+        )),
         'default-10': o-make-palette(#6610F2, #C97064),
         'default-11': o-make-palette(#6F42C1, #114B5F),
         'default-12': o-make-palette(#A370F7, #504746),
@@ -2199,6 +2203,7 @@ $o-base-website-values-palette: (
     'portal-card-border-width': null,  // Portal width
     'portal-card-border-radius': null,  // Portal Radius
     'portal-card-border-style': solid,  // portal style
+    'portal-card-gap': 0.5rem,
 
     'footer-template': 'default',
     'footer-effect': null, // null / 'slideout_slide_hover' / 'slideout_shadow'

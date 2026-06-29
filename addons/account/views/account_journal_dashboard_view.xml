@@ -281,7 +281,7 @@
                                     </a>
                                 </div>
                                 <div class="col-auto text-end">
-                                    <span><t t-out="dashboard.outstanding_pay_account_balance"/></span>
+                                    <span dir="ltr"><t t-out="dashboard.outstanding_pay_account_balance"/></span>
                                 </div>
                             </div>
                             <div class="row" t-if="dashboard.nb_misc_operations > 0" groups="account.group_account_readonly">
@@ -321,7 +321,7 @@
                                     </div>
                                 </div>
                                 <div t-else="">
-                                    <widget name="account_file_uploader" btnClass="btn btn-primary oe_kanban_action"/>
+                                    <widget name="account_file_uploader" btnClass="btn btn-primary oe_kanban_action d-none d-md-inline-block"/>
                                     <widget name="bill_upload_guide"/>
                                 </div>
                             </t>

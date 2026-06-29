@@ -4104,10 +4104,18 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
 
         (valid_invoice + invalid_invoice_1 + invalid_invoice_2).auto_post = 'at_date'
 
-        with self.enter_registry_test_mode():
+        with (
+            self.enter_registry_test_mode(),
+            patch('odoo.addons.base.models.ir_cron.IrCron._reschedule_asap') as reschedule_asap,
+        ):
             self.env.ref('account.ir_cron_auto_post_draft_entry').method_direct_trigger()
+            # No retries for batches with failed moves
+            reschedule_asap.assert_not_called()
+
         self.assertEqual(valid_invoice.state, 'posted')
         self.assertEqual(invalid_invoice_1.state, 'draft')
+        self.assertEqual(invalid_invoice_1.auto_post, 'no')
+        self.assertEqual(invalid_invoice_2.auto_post, 'no')
 
         self.assertTrue(any(
             message.body == (
@@ -5167,3 +5175,18 @@ class TestAccountMoveOutInvoiceOnchanges(AccountTestInvoicingCommon):
             1000.00,
             msg="Price should be tax included"
         )
+
+    def test_catalog_with_same_product_on_multiple_lines(self):
+        pack_of_6 = self.env.ref('uom.product_uom_pack_6')
+        move = self.env["account.move"].create({
+            'move_type': 'out_invoice',
+            'partner_id': self.partner_a.id,
+            'invoice_line_ids': [
+                Command.create({'product_id': self.product_a.id, 'quantity': 1, 'product_uom_id': pack_of_6.id}),
+                Command.create({'product_id': self.product_a.id, 'quantity': 6}),
+            ],
+        })
+        data = move.invoice_line_ids._get_product_catalog_lines_data()
+        if self.env['res.groups']._is_feature_enabled('uom.group_uom'):
+            self.assertEqual(data['uomDisplayName'], 'Pack of 6')
+        self.assertEqual(data['quantity'], 2)

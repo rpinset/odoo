@@ -84,22 +84,17 @@ class PaymentToken(models.Model):
         return dict()
 
     def write(self, vals):
-        """Prevent unarchiving tokens and handle their archiving.
-
-        :return: The result of the call to the parent method.
-        :rtype: bool
-        :raise UserError: If at least one token is being unarchived.
-        """
         if "active" in vals:
+            # Prevent unarchiving tokens linked to archived payment methods or providers.
             if vals["active"]:
                 if any(
-                    not token.payment_method_id.active or token.provider_id.state == "disabled"
+                    not token.payment_method_id.active or not token.provider_id.active
                     for token in self
                 ):
                     raise UserError(
                         self.env._(
                             "You can't unarchive tokens linked to inactive payment methods or"
-                            " disabled providers."
+                            " archived providers."
                         )
                     )
             else:
@@ -128,32 +123,6 @@ class PaymentToken(models.Model):
         return
 
     # === BUSINESS METHODS === #
-
-    def _get_available_tokens(self, providers_ids, partner_id, is_validation=False, **_kwargs):
-        """Return the available tokens linked to the given providers and partner.
-
-        For a module to retrieve the available tokens, it must override this method and add
-        information in the kwargs to define the context of the request.
-
-        :param list providers_ids: The ids of the providers available for the transaction.
-        :param int partner_id: The id of the partner.
-        :param bool is_validation: Whether the transaction is a validation operation.
-        :param dict _kwargs: Locally unused keywords arguments.
-        :return: The available tokens.
-        :rtype: payment.token
-        """
-        if not is_validation:
-            return self.env["payment.token"].search([
-                ("provider_id", "in", providers_ids),
-                ("partner_id", "=", partner_id),
-            ])
-
-        # Get all the tokens of the partner and of their commercial partner, regardless of
-        # whether the providers are available.
-        partner = self.env["res.partner"].browse(partner_id)
-        return self.env["payment.token"].search([
-            ("partner_id", "in", [partner.id, partner.commercial_partner_id.id])
-        ])
 
     def _build_display_name(self, *_args, max_length=34, should_pad=True, **_kwargs):
         """Build a token name of the desired maximum length with the format `•••• 1234`.

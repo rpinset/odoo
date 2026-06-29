@@ -255,8 +255,9 @@ class TestSaleOrder(SaleCommon):
                 "product_no_variant_attribute_value_ids": ptav1.ids,
             }),
             Command.create({"product_id": product_with_desc.id}),
+            Command.create({"name": "Productless SOL\nsub description", "price_unit": 12.0}),
         ]
-        sol1, sol2, sol3, sol4, sol5, sol6 = self.sale_order.order_line
+        sol1, sol2, sol3, sol4, sol5, sol6, sol7 = self.sale_order.order_line
         sol1.name += "\nOK THANK YOU\nGOOD BYE"
 
         self.assertEqual(
@@ -289,6 +290,11 @@ class TestSaleOrder(SaleCommon):
             sol6.display_name,
             f"{self.sale_order.name} - {product_with_desc.display_name} ({self.partner.name})",
             "Product lines with standard sales description should display the product name",
+        )
+        self.assertEqual(
+            sol7.display_name,
+            f"{self.sale_order.name} - Productless SOL ({self.partner.name})",
+            "Product lines without product should display the SOL name",
         )
 
     def test_state_changes(self):
@@ -496,7 +502,7 @@ class TestSaleOrder(SaleCommon):
             patched.assert_not_called()
 
     def test_so_company_empty(self):
-        """Check emptying company on SO form"""
+        """Check emptying company on SO form."""
         self.env["res.company"].create({  # activate multi company for the form view
             "name": "Company 2"
         })
@@ -815,7 +821,10 @@ class TestSaleOrderInvoicing(AccountTestInvoicingCommon, SaleCommon):
         'invoiced' (and not 'upselling')."""
         sale_order = self.env["sale.order"].create({
             "partner_id": self.partner.id,
-            "order_line": [(0, 0, {"product_id": self.product.id, "product_uom_qty": -1})],
+            "order_line": [
+                Command.create({"product_id": self.product.id, "product_uom_qty": -1}),
+                Command.create({"name": "Productless SOL", "product_uom_qty": -1}),
+            ],
         })
         sale_order.action_confirm()
         sale_order._create_invoices(final=True)
@@ -892,6 +901,33 @@ class TestSaleOrderInvoicing(AccountTestInvoicingCommon, SaleCommon):
         (sale_order_1 | sale_order_2).action_reopen_order()
         self.assertFalse(sale_order_1.invoicing_closed)
         self.assertFalse(sale_order_2.invoicing_closed)
+
+    def test_sol_invoice_policy(self):
+        """SOL invoice policy should come from the product when available,
+        otherwise fallback on the company policy.
+        """
+        self.env.company.sale_invoice_policy = "delivery"
+        self.product.invoice_policy = "order"
+
+        sale_order = self.env["sale.order"].create({
+            "partner_id": self.partner.id,
+            "order_line": [
+                Command.create({"product_id": self.product.id, "product_uom_qty": 4}),
+                Command.create({"name": "Productless SOL", "product_uom_qty": 5, "price_unit": 42}),
+            ],
+        })
+
+        product_line, productless_line = sale_order.order_line
+        sale_order.action_confirm()
+
+        self.assertEqual(product_line.invoice_policy, "order")
+        self.assertEqual(product_line.qty_to_invoice, 4)
+
+        self.assertEqual(productless_line.invoice_policy, "delivery")
+        self.assertEqual(productless_line.qty_to_invoice, 0)
+
+        productless_line.qty_delivered = 3
+        self.assertEqual(productless_line.qty_to_invoice, 3)
 
 
 @tagged("post_install", "-at_install")
@@ -1242,7 +1278,7 @@ class TestSalesTeam(SaleCommon):
 
         # Setting a partner with the same fpos shouldn't recompute taxes.
         with patch(
-            'odoo.addons.sale.models.sale_order_line.SaleOrderLine._compute_tax_ids'
+            "odoo.addons.sale.models.sale_order_line.SaleOrderLine._compute_tax_ids"
         ) as patched:
             order_form.partner_id = partner_fpos_a_2
             form_order = order_form.save()
@@ -1304,7 +1340,7 @@ class TestSaleMailComposerUI(MailCommon, HttpCase):
         ]
 
         iterator = self.quotation._notify_get_classified_recipients_iterator(
-            message=self.message, recipients_data=recipients_data, msg_vals={"model": "sale.order"}
+            message=self.message, recipients_data=recipients_data
         )
         results = {lang: group for lang, render_values, group in iterator}
 

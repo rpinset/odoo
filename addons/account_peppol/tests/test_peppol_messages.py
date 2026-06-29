@@ -1,3 +1,4 @@
+import json
 from lxml import etree
 from unittest.mock import patch
 
@@ -11,6 +12,7 @@ from odoo.addons.account_peppol.tests.common import (
     mock_lookup_not_found,
     mock_lookup_success,
     mock_send_document,
+    mock_send_response,
 )
 from odoo.addons.mail.tests.common import MailCommon
 
@@ -27,8 +29,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
 
         cls.env.company.write({
             'country_id': cls.env.ref('base.be').id,
-            'peppol_eas': '0208',
-            'peppol_endpoint': '0477472701',
+            'routing_identifier': '0208:0477472701',
             'account_peppol_proxy_state': 'receiver',
         })
 
@@ -50,21 +51,18 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             'name': 'Wintermute',
             'city': 'Charleroi',
             'country_id': cls.env.ref('base.be').id,
-            'peppol_eas': '0208',
-            'peppol_endpoint': '3141592654',
+            'routing_identifier': '0208:0403019261',
         }, {
             'name': 'Molly',
             'city': 'Namur',
             'email': 'Namur@company.com',
             'country_id': cls.env.ref('base.be').id,
-            'peppol_eas': '0208',
-            'peppol_endpoint': '2718281828',
+            'routing_identifier': '0208:0428759497',
         }, {
             'name': 'SupplierOfficialName Ltd',
-            'vat': 'GB123456782',
+            'vat': 'GB353868127',
             'country_id': cls.env.ref('base.uk').id,
-            'peppol_eas': '0088',
-            'peppol_endpoint': '9482348239847239874',
+            'routing_identifier': '0088:9780471117094',
         }])
 
         cls.env['res.partner.bank'].create({
@@ -105,7 +103,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         move.invoice_line_ids[0].product_id = product_a
         move.action_post()
 
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, sending_methods=['peppol'])
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
 
@@ -113,12 +111,12 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             wizard.action_send_and_print()
         self.assertEqual(self._get_mail_message(move).preview, 'The invoice has been sent to the Peppol Access Point. The following attachments were sent with the XML:')
 
-    @mock_lookup_success('0208:2718281828')
+    @mock_lookup_success('0208:0428759497')
     def test_attachment_placeholders(self):
         move = self.create_move(self.valid_partner)
         move.action_post()
 
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, default=True)
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
 
@@ -148,7 +146,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
 
         with self.mock_mail_gateway(), self.mock_mail_app():
             with (
-                mock_lookup_not_found('0208:3141592654'),
+                mock_lookup_not_found('0208:0403019261'),
                 mock_lookup_not_found('9925:be3141592654'),
             ):
                 wizard = self.create_send_and_print(move, default=True)
@@ -174,7 +172,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         move = self.create_move(self.valid_partner)
         move.action_post()
         with (
-            mock_lookup_success('0208:2718281828', services=[]),
+            mock_lookup_success('0208:0428759497', services=[]),
             mock_lookup_not_found('9925:be2718281828'),
         ):
             wizard = self.create_send_and_print(move, sending_methods=['peppol'])
@@ -187,9 +185,9 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         """If there's already account_edi_ubl_cii_configure_partner, the warning should not appear."""
         move = self.create_move(self.invalid_partner)
         move.action_post()
-        self.invalid_partner.peppol_endpoint = False
+        self.invalid_partner.routing_identifier = False
         with (
-            mock_lookup_not_found('0208:3141592654'),
+            mock_lookup_not_found('0208:0403019261'),
             mock_lookup_not_found('9925:be3141592654'),
         ):
             wizard = self.create_send_and_print(move, default=True)
@@ -204,7 +202,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         move = self.create_move(self.valid_partner)
         move.action_post()
 
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, default=True)
 
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
@@ -223,7 +221,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
 
         # we can't send the ubl document again unless we regenerate the pdf
         move.invoice_pdf_report_id.unlink()
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, default=True)
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
         self.assertTrue(wizard.sending_methods and 'peppol' in wizard.sending_methods)
@@ -242,7 +240,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         move = self.create_move(self.valid_partner)
         move.action_post()
 
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, default=True)
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
         self.assertTrue(wizard.sending_methods and 'peppol' in wizard.sending_methods)
@@ -265,7 +263,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
 
         move = self.create_move(self.valid_partner)
         move.action_post()
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, default=True)
         self.assertTrue('peppol' not in wizard.sending_method_checkboxes)
 
@@ -343,37 +341,34 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         self.assertRecordValues(
             new_partner, [{
                 'peppol_verification_state': 'not_verified',
-                'peppol_eas': '0208',
-                'peppol_endpoint': False,
+                'routing_identifier': False,
             }])
 
-        new_partner.peppol_endpoint = '0477472701'
+        new_partner.routing_identifier = '0208:0477472701'
         with mock_lookup_success('0208:0477472701'):
             new_partner.button_account_peppol_check_partner_endpoint()
         self.assertRecordValues(
             new_partner, [{
                 'peppol_verification_state': 'valid',
-                'peppol_eas': '0208',
-                'peppol_endpoint': '0477472701',
+                'routing_identifier': '0208:0477472701',
             }])
 
-        new_partner.peppol_endpoint = '3141592654'
+        new_partner.routing_identifier = '0208:0403019261'
         with (
-            mock_lookup_not_found('0208:3141592654'),
+            mock_lookup_not_found('0208:0403019261'),
             mock_lookup_not_found('9925:be3141592654'),
         ):
             new_partner.button_account_peppol_check_partner_endpoint()
         self.assertRecordValues(
             new_partner, [{
                 'peppol_verification_state': 'not_valid',
-                'peppol_eas': '0208',
-                'peppol_endpoint': '3141592654',
+                'routing_identifier': '0208:0403019261',
             }])
 
         # the participant exists on the network but cannot receive XRechnung
         new_partner.write({
             'invoice_edi_format': 'xrechnung',
-            'peppol_endpoint': '0477472701',
+            'routing_identifier': '0208:0477472701',
         })
         with (
             mock_lookup_success('0208:0477472701'),
@@ -383,15 +378,13 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             self.assertRecordValues(
                 new_partner, [{
                     'peppol_verification_state': 'not_valid_format',
-                    'peppol_eas': '0208',
-                    'peppol_endpoint': '0477472701',
+                    'routing_identifier': '0208:0477472701',
                 }])
 
     def test_peppol_send_multi_async(self):
         company_2 = self.setup_other_company()['company']
         company_2.write({
-            'peppol_eas': '0230',
-            'peppol_endpoint': 'C2584563200',
+            'routing_identifier': '0230:C2584563200',
             'country_id': self.env.ref('base.be').id,
         })
         with mock_lookup_success('0208:0477472701'):
@@ -399,15 +392,14 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
                 'name': 'Deanna Troi',
                 'city': 'Namur',
                 'country_id': self.env.ref('base.be').id,
-                'peppol_endpoint': '0477472701',
+                'routing_identifier': '0208:0477472701',
                 'invoice_edi_format': 'ubl_bis3',
             })
 
         # partner is valid for company 1
         self.assertRecordValues(new_partner, [{
             'peppol_verification_state': 'valid',
-            'peppol_eas': '0208',
-            'peppol_endpoint': '0477472701',
+            'routing_identifier': '0208:0477472701',
             'invoice_edi_format': 'ubl_bis3',
         }])
         # but not valid for company 2
@@ -419,8 +411,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             new_partner.button_account_peppol_check_partner_endpoint(company=company_2)
         self.assertRecordValues(new_partner.with_company(company_2), [{
             'peppol_verification_state': 'not_valid_format',
-            'peppol_eas': '0208',
-            'peppol_endpoint': '0477472701',
+            'routing_identifier': '0208:0477472701',
             'invoice_edi_format': 'nlcius',
         }])
         move_1 = self.create_move(new_partner)
@@ -449,42 +440,6 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             {'peppol_move_state': False, 'is_move_sent': True},  # only sent by email
         ])
 
-    def test_peppol_send_multi_async_mixed(self):
-        """Try to send invoices to partners with multiple sending methods each. """
-        peppol_partner = self.env['res.partner'].create({
-            'name': 'Peppol partner',
-            'country_id': self.env.ref('base.be').id,
-            'additional_identifiers': {'BE_EN': '0477472701'},
-        })
-        self.assertRecordValues(peppol_partner, [{
-            'peppol_verification_state': 'not_verified',
-            'peppol_eas': '0208',
-            'peppol_endpoint': '0477472701',
-        }])
-        not_peppol_partner = self.env['res.partner'].create({
-            'name': 'Not Peppol partner',
-            'country_id': self.env.ref('base.us').id,
-        })
-        self.assertEqual(not_peppol_partner.peppol_verification_state, 'not_verified')
-        move_1 = self.create_move(peppol_partner)
-        move_2 = self.create_move(not_peppol_partner)
-        (move_1 + move_2).action_post()
-        with mock_lookup_success('0208:0477472701'):
-            wizard = self.create_send_and_print(move_1 + move_2)
-        self.assertEqual(peppol_partner.peppol_verification_state, 'valid')
-        self.assertEqual(not_peppol_partner.peppol_verification_state, 'not_verified')
-        wizard.action_send_and_print()
-        self.assertEqual((move_1 + move_2).mapped('is_being_sent'), [True, True])
-        with (
-            self.enter_registry_test_mode(),
-            mock_send_document(),
-        ):
-            self.env.ref('account.ir_cron_account_move_send').method_direct_trigger()
-        self.assertRecordValues((move_1 + move_2), [
-            {'peppol_move_state': 'processing', 'is_move_sent': True},
-            {'peppol_move_state': False, 'is_move_sent': True},  # only sent by email
-        ])
-
     def test_available_peppol_sending_methods(self):
         company_us = self.setup_other_company()['company']  # not a valid Peppol country
         self.assertTrue('peppol' in self.valid_partner.with_company(self.env.company).available_peppol_sending_methods)
@@ -505,7 +460,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
 
         move = self.create_move(self.valid_partner)
         move.action_post()
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move, default=True)
         self.assertTrue(wizard.sending_methods and 'peppol' in wizard.sending_methods)
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
@@ -525,7 +480,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         move_2 = self.create_move(self.valid_partner)
         moves = (move_1 + move_2)
         moves.action_post()
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(moves, default=True)
         self.assertEqual(wizard.summary_data, {
             'email': {'count': 2, 'label': 'by Email'},
@@ -545,7 +500,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         """When in multi/async mode, the generation of XML can fail silently (without raising).
         This needs to be reflected as an error and put the move in Peppol Error state.
         """
-        def mocked_export_invoice_constraints(self, invoice, vals):
+        def mocked_export_document_node_constraints(self, vals):
             return {'test_error_key': 'test_error_description'}
 
         self.valid_partner.invoice_edi_format = 'ubl_bis3'
@@ -553,13 +508,13 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         move_2 = self.create_move(self.valid_partner)
         (move_1 + move_2).action_post()
 
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(move_1 + move_2)
         wizard.action_send_and_print()
         with (
             patch(
-                'odoo.addons.account_edi_ubl_cii.models.account_edi_xml_ubl_20.AccountEdiXmlUBL20._export_invoice_constraints',
-                mocked_export_invoice_constraints,
+                'odoo.addons.account_edi_ubl_cii.models.account_edi_ubl.AccountEdiUBL._export_document_node_constraints',
+                mocked_export_document_node_constraints,
             ),
             self.enter_registry_test_mode(),
         ):
@@ -572,21 +527,19 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
                 'name': 'BE Spoiled Kid',
                 'country_id': self.env.ref('base.be').id,
                 'parent_id': self.env.company.id,
-                'peppol_eas': '0208',
-                'peppol_endpoint': '0477472701',
+                'routing_identifier': '0208:0477472701',
                 'account_peppol_proxy_state': 'receiver',
             },
             {
                 'name': 'BE Independent Kid',
                 'country_id': self.env.ref('base.be').id,
                 'parent_id': self.env.company.id,
-                'peppol_eas': '0208',
-                'peppol_endpoint': '0477471111',
+                'routing_identifier': '0208:0403019261',
                 'account_peppol_proxy_state': 'receiver',
             },
         ])
         self.cr.precommit.run()  # load the COA
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             self.valid_partner.button_account_peppol_check_partner_endpoint()
         self.env['account_edi_proxy_client.user'].create([
             {
@@ -608,15 +561,26 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
                 'refresh_token': '00000000-beef-4dad-0000-000000000000',
             }
         ])
+        branch_user = self.env['res.users'].create({
+            'name': 'User With Unprivileged Branch',
+            'login': 'branch_user',
+            'company_ids': [branch_spoiled.id],
+            'company_id': branch_spoiled.id,
+            'group_ids': self.get_default_groups().ids,
+        })
 
         # Branch uses parent's active peppol connection
-        spoiled_move = self.create_move(self.valid_partner, company=branch_spoiled)
-        spoiled_move.action_post()
-        with mock_lookup_success('0208:2718281828'):
-            wizard = self.create_send_and_print(spoiled_move, sending_methods=['peppol'])
-        with mock_send_document():
-            wizard.action_send_and_print()
-        self.assertEqual(spoiled_move.peppol_move_state, 'processing')
+        with self.with_user(branch_user.login):
+            spoiled_move = self.create_move(self.valid_partner, company=branch_spoiled)
+            spoiled_move.action_post()
+            with mock_lookup_success('0208:0428759497'):
+                spoiled_move.action_send_and_print()
+                wizard = self.env['account.move.send.wizard']\
+                    .with_context(active_model='account.move', active_ids=spoiled_move.ids)\
+                    .create({'sending_methods': ['peppol']})
+            with mock_send_document():
+                wizard.action_send_and_print()
+            self.assertEqual(spoiled_move.peppol_move_state, 'processing')
 
         # Check that the supplier is the parent company in the xml (and not the branch company)
         tree = etree.fromstring(spoiled_move.ubl_cii_xml_id.raw.content)
@@ -625,12 +589,12 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             'cbc': "urn:oasis:names:specification:ubl:schema:xsd:CommonBasicComponents-2"
         }
         supplier_name = tree.xpath('//cac:AccountingSupplierParty/cac:Party/cac:PartyName/cbc:Name/text()', namespaces=namespaces)
-        self.assertEqual(supplier_name[0], self.env.company.name)
+        self.assertEqual(supplier_name[0], branch_spoiled.parent_id.name)
 
         # Branch uses peppol configuration independent of their parent
         independent_move = self.create_move(self.valid_partner, company=branch_independent)
         independent_move.action_post()
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(independent_move, sending_methods=['peppol'])
 
         with mock_send_document():
@@ -642,17 +606,17 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         supplier_name_independent = tree_independent.xpath('//cac:AccountingSupplierParty/cac:Party/cac:PartyName/cbc:Name/text()', namespaces=namespaces)
         self.assertEqual(supplier_name_independent[0], branch_independent.name)
 
-    def test_compute_available_peppol_eas_multi_partner(self):
-        """Check _compute_available_peppol_eas works with multiple partners"""
+    def test_compute_available_routing_schemes(self):
+        """Check _compute_available_routing_schemes works with multiple partners"""
 
         # Create multiple partners
         partners = self.env['res.partner'].create([
             {'name': 'Partner A'},
             {'name': 'Partner B'},
         ])
-        partners._compute_available_peppol_eas()
+        partners._compute_available_routing_schemes()
         for partner in partners:
-            self.assertFalse('odemo' in partner.available_peppol_eas)
+            self.assertFalse('odemo' in partner.available_routing_schemes)
 
     def test_send_self_billed_invoice_via_peppol(self):
         """Test sending a self-billed invoice (vendor bill) via Peppol.
@@ -695,7 +659,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         self.assertTrue(vendor_bill._is_exportable_as_self_invoice())
 
         # Create and configure the send wizard
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard = self.create_send_and_print(vendor_bill, default=True)
         self.assertEqual(wizard.invoice_edi_format, 'ubl_bis3')
         self.assertTrue(wizard.sending_methods and 'peppol' in wizard.sending_methods)
@@ -744,7 +708,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
 
         # Verify the bill is exportable as self-invoice
         self.assertTrue(vendor_bill._is_exportable_as_self_invoice())
-        with mock_lookup_success('0208:2718281828') as (mocked_lookup, _mocked_service_groups):
+        with mock_lookup_success('0208:0428759497') as (mocked_lookup, _mocked_service_groups):
             # Test that the constraint 'not_sale_document' is removed for self-billed invoices
             wizard = self.create_send_and_print(vendor_bill, default=True)
             response_module_installed = self.env['ir.module.module']._get('account_peppol_response').state == 'installed'
@@ -829,18 +793,19 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             })
         self.env.user.group_ids |= self.env.ref('sales_team.group_sale_salesman')
 
-        self.env['ir.config_parameter'].sudo().set_bool('sale.automatic_invoice', True)
+        self.env.company.sale_automatic_invoice = True
         so = self._create_sale_order_one_line(product_id=product, partner_id=partner)
-
-        payment_method = self.env.ref('payment.payment_method_unknown')
 
         dummy_provider = self.env['payment.provider'].create({
             'name': "Dummy Provider",
             'code': 'none',
-            'state': 'test',
             'is_published': True,
-            'payment_method_ids': [Command.set(payment_method.ids)],
             'allow_tokenization': True,
+        })
+        payment_method = self.env["payment.method"].create({
+            "name": "Payment method",
+            "code": "unknown",
+            "provider_id": dummy_provider.id,
         })
         self._create_dummy_payment_method_for_provider(
             provider=dummy_provider,
@@ -857,7 +822,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
             'sale_order_ids': [Command.set(so.ids)],
         })
         with mock_send_document():
-            transaction.sudo()._post_process()
+            transaction.sudo().with_context(payment_safe_write=True)._post_process()
 
         self.assertRecordValues(partner, [{'peppol_verification_state': 'valid'}])
 
@@ -868,12 +833,12 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         """
         move = self.create_move(self.valid_partner)
         move.action_post()
-        with mock_lookup_not_found('0208:2718281828'), mock_lookup_not_found('9925:be2718281828'):
+        with mock_lookup_not_found('0208:0428759497'), mock_lookup_not_found('9925:be2718281828'):
             wizard_email = self.create_send_and_print(move, sending_methods=['email'])
         wizard_email.action_send_and_print()
         self.assertTrue(move.invoice_pdf_report_id, "PDF should be generated after sending by email")
 
-        with mock_lookup_success('0208:2718281828'):
+        with mock_lookup_success('0208:0428759497'):
             wizard_peppol = self.create_send_and_print(move, sending_methods=['peppol'])
         self.assertEqual(wizard_peppol.invoice_edi_format, 'ubl_bis3')
         with mock_send_document(messages=[{'message_uuid': self.MESSAGE_UUID}]):
@@ -900,8 +865,7 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         other_company.write(
             {
                 "country_id": self.env.ref("base.be").id,
-                "peppol_eas": "0208",
-                "peppol_endpoint": "0477472701",
+                "routing_identifier": "0208:0477472701",
                 "account_peppol_proxy_state": "receiver",
             }
         )
@@ -929,3 +893,116 @@ class TestPeppolMessage(TestAccountMoveSendCommon, MailCommon):
         self.assertEqual(len(moves.company_id), 2)
         self.assertEqual(len(moves.line_ids), 4)
         self.assertEqual(set(moves.mapped("move_type")), {"out_invoice"})
+
+    def test_accept_response_peppol(self):
+        """ Tests a basic flow of receiving a bill and accept it with the Business Level Response """
+        with mock_documents_retrieval([{'uuid': self.MESSAGE_UUID, 'direction': 'incoming'}]), mock_ack():
+            self.env['account_edi_proxy_client.user']._cron_peppol_get_new_documents()
+
+        move = self.env['account.move'].search([('peppol_message_uuid', '=', self.MESSAGE_UUID)])
+        self.assertRecordValues(
+            move, [{
+                'peppol_move_state': 'done',
+                'move_type': 'in_invoice',
+                'state': 'draft',
+            }],
+        )
+
+        self.assertRecordValues(
+            move.peppol_response_ids, [{
+                'peppol_state': 'processing',
+                'response_code': 'AB',
+            }],
+        )
+        with mock_documents_retrieval([{'uuid': move.peppol_response_ids.peppol_message_uuid, 'document_type': 'ApplicationResponse'}]), mock_ack():
+            self.env['account_edi_proxy_client.user']._cron_peppol_get_message_status()
+        self.assertEqual(move.peppol_response_ids.peppol_state, 'done')
+        self.assertEqual(move.peppol_move_state, 'AB')
+
+        move.currency_id.active = True
+        # Posting the bill should send an approval response
+        with mock_send_response():
+            move.action_post()
+        peppol_accept_response = move.peppol_response_ids.filtered(lambda r: r.response_code == 'AP')
+        self.assertRecordValues(
+            peppol_accept_response, [{
+                'peppol_state': 'processing',
+                'response_code': 'AP',
+            }],
+        )
+        with mock_documents_retrieval([{'uuid': peppol_accept_response.peppol_message_uuid, 'document_type': 'ApplicationResponse'}]), mock_ack():
+            self.env['account_edi_proxy_client.user']._cron_peppol_get_message_status()
+        self.assertEqual(move.peppol_move_state, 'AP')
+
+    def test_reject_response_peppol(self):
+        """ Tests a basic flow of receiving a bill and accept it with the Business Level Response """
+        with mock_documents_retrieval([{'uuid': self.MESSAGE_UUID, 'direction': 'incoming'}]), mock_ack():
+            self.env['account_edi_proxy_client.user']._cron_peppol_get_new_documents()
+
+        move = self.env['account.move'].search([('peppol_message_uuid', '=', self.MESSAGE_UUID)])
+        self.assertRecordValues(
+            move, [{
+                'peppol_move_state': 'done',
+                'move_type': 'in_invoice',
+                'state': 'draft',
+            }],
+        )
+
+        self.assertRecordValues(
+            move.peppol_response_ids, [{
+                'peppol_state': 'processing',
+                'response_code': 'AB',
+            }],
+        )
+        with mock_documents_retrieval([{'uuid': move.peppol_response_ids.peppol_message_uuid, 'document_type': 'ApplicationResponse'}]), mock_ack():
+            self.env['account_edi_proxy_client.user']._cron_peppol_get_message_status()
+        self.assertEqual(move.peppol_move_state, 'AB')
+
+        # Canceling the bill should return an action to open the rejection wizard
+        res = move.button_cancel()
+        self.assertEqual(res['res_model'], 'account.peppol.rejection.wizard')
+
+        rejection_wizard = self.env[res['res_model']].browse(res['res_id'])
+        with mock_send_response():
+            rejection_wizard.button_send()
+        peppol_reject_response = move.peppol_response_ids.filtered(lambda r: r.response_code == 'RE')
+        self.assertRecordValues(
+            peppol_reject_response, [{
+                'peppol_state': 'processing',
+                'response_code': 'RE',
+            }],
+        )
+        with mock_documents_retrieval([{'uuid': peppol_reject_response.peppol_message_uuid, 'document_type': 'ApplicationResponse'}]), mock_ack():
+            self.env['account_edi_proxy_client.user']._cron_peppol_get_message_status()
+        self.assertEqual(move.peppol_move_state, 'RE')
+
+    def test_receive_response_to_inexisting_invoices(self):
+        """ Tests the case where we receive responses to invoices that we don't have in DB.
+            This can happen if a user send invoices from somewhere else than its receiver endpoint.
+            We should just ack it, but not bind it to a wrong invoice.
+        """
+        self.create_move(self.valid_partner)
+        imported_move_vals = {'uuid': self.MESSAGE_UUID, 'direction': 'incoming'}
+        ap_response_vals = {
+            'uuid': '22222222-2222-4222-8222-222222222222',
+            'filename': 'response_document',
+            'state': 'done',
+            'direction': 'incoming',
+            'document_type': 'ApplicationResponse',
+            'origin_message_uuid': 'move_uuid_that_does_not_exist_on_user_db',
+        }
+        with mock_documents_retrieval([imported_move_vals, ap_response_vals]):
+            with mock_ack() as mocked_ack:
+                self.env['account_edi_proxy_client.user']._cron_peppol_get_new_documents()
+                mocked_ack.assert_called_once()
+                mocked_body = json.loads(mocked_ack.calls[0].body)
+                self.assertEqual(len(mocked_body.get('params', {}).get('message_uuids', [])), 2)
+
+        # Even with an existing move and an imported move, the only response expected to exist at this point is the AB response
+        # sent automatically at reception of the imported move.
+        imported_move = self.env['account.move'].search([('peppol_message_uuid', '!=', False)])
+        self.assertEqual(len(imported_move.peppol_response_ids), 1)
+        self.assertEqual(imported_move.peppol_response_ids.response_code, 'AB')
+
+        all_peppol_responses = self.env['account.peppol.response'].search([])
+        self.assertEqual(len(all_peppol_responses), 1)

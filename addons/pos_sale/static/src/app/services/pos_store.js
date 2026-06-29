@@ -72,12 +72,23 @@ patch(PosStore.prototype, {
             id,
             this.config.id,
         ]);
-        return result["sale.order"][0];
+        const sale_order = result["sale.order"][0];
+        const customValueIds = (sale_order.order_line || []).flatMap(
+            (l) => l.raw.product_custom_attribute_value_ids || []
+        );
+        if (customValueIds.length) {
+            await this.data.read("product.attribute.custom.value", customValueIds);
+        }
+        return sale_order;
     },
     getConvertedQuantityFromSaleOrderline(convertedLine, soLine) {
-        const type = convertedLine.product_id.type;
+        const type = soLine.product_id.type;
         const sOrder = soLine.order_id;
-        if (type === "service" && !["sent", "draft"].includes(sOrder.state)) {
+        if (
+            soLine.product_id.id !== this.config.default_product_id.id &&
+            type === "service" &&
+            !["sent", "draft"].includes(sOrder.state)
+        ) {
             return convertedLine.qty_to_invoice;
         } else {
             return (
@@ -109,6 +120,8 @@ patch(PosStore.prototype, {
 
             if (line.is_downpayment) {
                 line.product_id = this.config.down_payment_product_id;
+            } else if (!line.display_type && !line.product_id) {
+                line.product_id = this.config.default_product_id;
             }
 
             const taxes = orderFiscalPos?.getTaxesAfterFiscalPosition(line.tax_ids) || line.tax_ids;
@@ -124,16 +137,25 @@ patch(PosStore.prototype, {
                 customer_note: line.customer_note,
                 description: line.name,
                 order_id: this.getOrder(),
-                custom_attribute_value_ids: Object.values(
-                    line.product_custom_attribute_value_ids || {}
-                ).map((value_line) => [
-                    "create",
-                    {
-                        custom_product_template_attribute_value_id:
-                            value_line.custom_product_template_attribute_value_id,
-                        custom_value: value_line.custom_value,
-                    },
-                ]),
+                attribute_value_ids: [
+                    ...(line.product_no_variant_attribute_value_ids || [])
+                        .filter((ptav) => !ptav.is_custom)
+                        .map((ptav) => ["link", ptav]),
+                    ...(line.product_custom_attribute_value_ids || []).flatMap(
+                        ({ custom_product_template_attribute_value_id: ptav }) =>
+                            ptav ? [["link", ptav]] : []
+                    ),
+                ],
+                custom_attribute_value_ids: (line.product_custom_attribute_value_ids || []).map(
+                    (cav) => [
+                        "create",
+                        {
+                            custom_product_template_attribute_value_id:
+                                cav.custom_product_template_attribute_value_id,
+                            custom_value: cav.custom_value,
+                        },
+                    ]
+                ),
             };
             if (["line_section", "line_subsection"].includes(line.display_type)) {
                 continue;
@@ -251,6 +273,9 @@ patch(PosStore.prototype, {
         const saleOrderLines = saleOrder.order_line.filter((soLine) => !soLine.display_type);
         const baseLines = [];
         for (const saleOrderLine of saleOrderLines) {
+            if (saleOrderLine.is_downpayment) {
+                saleOrderLine.product_uom_qty = -1;
+            }
             baseLines.push(
                 accountTaxHelpers.prepare_base_line_for_taxes_computation(
                     saleOrderLine,

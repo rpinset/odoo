@@ -63,13 +63,13 @@ def _mock_pdp_register_receiver(func, self):
 
 
 def _mock_pdp_annuaire_lookup_participant(func, self, edi_identification):
-    peppol_eas = edi_identification.partition(":")[0]
-    return {'in_annuaire': peppol_eas == '0225'}
+    routing_scheme = edi_identification.partition(":")[0]
+    return {'in_annuaire': routing_scheme == '0225'}
 
 
-def _mock_get_peppol_verification_state(func, self, peppol_endpoint, peppol_eas, invoice_edi_format, process_type='billing'):
-    if peppol_eas != '0225':
-        return func(self, peppol_endpoint, peppol_eas, invoice_edi_format, process_type=process_type)
+def _mock_get_peppol_verification_state(func, self, routing_identifier, invoice_edi_format, process_type='billing', partner=None):
+    if (routing_identifier or '').partition(':')[0] != '0225':
+        return func(self, routing_identifier, invoice_edi_format, process_type=process_type)
     if not invoice_edi_format:
         return 'not_valid'
     if invoice_edi_format != 'ubl_21_fr':
@@ -80,8 +80,8 @@ def _mock_get_peppol_verification_state(func, self, peppol_endpoint, peppol_eas,
 def _mock_button_verify_partner_endpoint(func, self, company=None):
     self.ensure_one()
     company = company or self.env.company
-    endpoint, eas, edi_format = self.peppol_endpoint, self.peppol_eas, self._get_peppol_edi_format()
-    state = _mock_get_peppol_verification_state(ResPartner._get_peppol_verification_state, self, endpoint, eas, edi_format)
+    edi_format = self._get_peppol_edi_format()
+    state = _mock_get_peppol_verification_state(ResPartner._get_peppol_verification_state, self, self.routing_identifier, edi_format)
     self.with_company(company).peppol_verification_state = state
 
 
@@ -93,6 +93,11 @@ def _mock_l10n_fr_pdp_update_pilot_phase(func, self, value):
         self.sudo().l10n_fr_pdp_annuaire_start_date = fields.Date.to_date('2026-09-01')
 
 
+def _mock_button_trigger_authentication(func, self):
+    self.pdp_kyc_status = 'success'
+    return self._action_open_pdp_form()
+
+
 _demo_behaviour = {
     'button_account_peppol_check_partner_endpoint': _mock_button_verify_partner_endpoint,
     '_register_proxy_user': _mock_register_proxy_user,  # account_edi_proxy_client.user
@@ -101,6 +106,7 @@ _demo_behaviour = {
     '_pdp_annuaire_lookup_participant': _mock_pdp_annuaire_lookup_participant,  # res.partner
     '_get_peppol_verification_state': _mock_get_peppol_verification_state,  # res.partner
     '_l10n_fr_pdp_update_pilot_phase': _mock_l10n_fr_pdp_update_pilot_phase,  # res.company
+    'button_trigger_authentication': _mock_button_trigger_authentication,  # pdp.registration
 }
 
 # -------------------------------------------------------------------------

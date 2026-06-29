@@ -1,4 +1,4 @@
-import { useComponent, useLayoutEffect, useRef, useState, useSubEnv } from "@web/owl2/utils";
+import { useComponent, useLayoutEffect, useRef, useSubEnv } from "@web/owl2/utils";
 import { _t } from "@web/core/l10n/translation";
 import { hasTouch } from "@web/core/browser/feature_detection";
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
@@ -29,7 +29,10 @@ import { STATIC_ACTIONS_GROUP_NUMBER } from "@web/search/action_menus/action_men
 import { ButtonBox } from "./button_box/button_box";
 import { FormCompiler } from "./form_compiler";
 import { FormErrorDialog } from "./form_error_dialog/form_error_dialog";
-import { FormStatusIndicator } from "./form_status_indicator/form_status_indicator";
+import {
+    FormStatusIndicator,
+    useStatusIndicator,
+} from "./form_status_indicator/form_status_indicator";
 import { FormCogMenu } from "./form_cog_menu/form_cog_menu";
 
 import {
@@ -39,7 +42,9 @@ import {
     onMounted,
     onWillDestroy,
     onWillUnmount,
+    props,
     proxy,
+    t,
 } from "@odoo/owl";
 import { FetchRecordError } from "@web/model/relational_model/errors";
 
@@ -118,6 +123,26 @@ export function useFormViewInDialog() {
 }
 // -----------------------------------------------------------------------------
 
+export const formControllerProps = {
+    ...standardViewProps,
+    discardRecord: t.function().optional(),
+    readonly: t.boolean().optional(false),
+    saveRecord: t.function().optional(),
+    removeRecord: t.function().optional(),
+    Model: t.function(),
+    Renderer: t.function(),
+    Compiler: t.function(),
+    archInfo: t.object(),
+    buttonTemplate: t.string(),
+    buttonDialogTemplate: t.string(),
+    preventCreate: t.boolean().optional(false),
+    preventEdit: t.boolean().optional(false),
+    onDiscard: t.function().optional(),
+    onSave: t.function().optional(() => () => {}),
+    offlineId: t.string().optional(),
+    updateActionState: t.function().optional(() => () => {}),
+};
+
 export class FormController extends Component {
     static template = `web.FormView`;
     static components = {
@@ -130,31 +155,7 @@ export class FormController extends Component {
         Widget,
     };
 
-    static props = {
-        ...standardViewProps,
-        discardRecord: { type: Function, optional: true },
-        readonly: { type: Boolean, optional: true },
-        saveRecord: { type: Function, optional: true },
-        removeRecord: { type: Function, optional: true },
-        Model: Function,
-        Renderer: Function,
-        Compiler: Function,
-        archInfo: Object,
-        buttonTemplate: String,
-        buttonDialogTemplate: String,
-        preventCreate: { type: Boolean, optional: true },
-        preventEdit: { type: Boolean, optional: true },
-        onDiscard: { type: Function, optional: true },
-        onSave: { type: Function, optional: true },
-        offlineId: { type: String, optional: true },
-    };
-    static defaultProps = {
-        onSave: () => {},
-        preventCreate: false,
-        preventEdit: false,
-        readonly: false,
-        updateActionState: () => {},
-    };
+    props = props(formControllerProps);
 
     setup() {
         this.evaluateBooleanExpr = evaluateBooleanExpr;
@@ -338,10 +339,15 @@ export class FormController extends Component {
 
         this.deleteRecordsWithConfirmation = useDeleteRecords(this.model);
 
-        this.propertiesState = useState({
+        this.propertiesState = proxy({
             editable: false,
         });
         useSubEnv({ propertiesState: this.propertiesState });
+
+        this.statusIndicator = useStatusIndicator(this.model, {
+            save: () => this.saveButtonClicked(),
+            discard: () => this.discard(),
+        });
     }
 
     get cogMenuProps() {
@@ -554,6 +560,9 @@ export class FormController extends Component {
     }
 
     async beforeUnload(ev) {
+        if (!this.model.root) {
+            return;
+        }
         const succeeded = await this.model.root.urgentSave();
         if (!succeeded) {
             ev.preventDefault();

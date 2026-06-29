@@ -4,8 +4,8 @@ import ast
 import re
 from collections import defaultdict
 
-from odoo import models, fields, api, _
-from odoo.exceptions import ValidationError, UserError
+from odoo import _, api, fields, models
+from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command, Domain
 
 FIGURE_TYPE_SELECTION_VALUES = [
@@ -180,6 +180,11 @@ class AccountReport(models.Model):
     filter_growth_comparison = fields.Boolean(
         string="Growth Comparison",
         compute=lambda x: x._compute_report_option_filter('filter_growth_comparison', True),
+        precompute=True, readonly=False, store=True, depends=['root_report_id', 'section_main_report_ids'],
+    )
+    filter_line_comparison = fields.Boolean(
+        string="Report Line Comparison",
+        compute=lambda x: x._compute_report_option_filter('filter_line_comparison', False),
         precompute=True, readonly=False, store=True, depends=['root_report_id', 'section_main_report_ids'],
     )
     filter_journals = fields.Boolean(
@@ -1026,6 +1031,7 @@ class AccountReportColumn(models.Model):
 
 class AccountReportExternalValue(models.Model):
     _name = 'account.report.external.value'
+    _inherit = ['res.currency.rate.consolidation.mixin']
     _description = 'Accounting Report External Value'
     _check_company_auto = True
     _order = 'date, id'

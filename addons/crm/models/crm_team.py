@@ -690,7 +690,7 @@ class CrmTeam(models.Model):
         for team, leads_to_assign_ids in leads_per_team.items():
             members_to_assign = list(team.crm_team_member_ids.filtered(lambda member:
                 member.assignment_max != 0 and quota_per_member.get(member, 0) > 0
-            ).sorted(key=lambda member: quota_per_member.get(member, 0), reverse=True))
+            ).sorted(key=lambda member: (quota_per_member.get(member, 0), random.random()), reverse=True))
             if not members_to_assign:
                 continue
             result_data.update({
@@ -768,7 +768,9 @@ class CrmTeam(models.Model):
         return action
 
     def action_open_unassigned_opportunities(self):
+        """Open opportunities action without the opportunity domain as users want to see anything unassigned."""
         action = self.action_open_opportunities()
+        action['domain'] = []
         context = self.env['crm.lead'].with_context(force_active_id=self.id)._evaluate_context_from_action(action)
         action['context'] = context | {'search_default_unassigned': True}
         return action

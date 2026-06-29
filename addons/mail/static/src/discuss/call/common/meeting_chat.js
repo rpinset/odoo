@@ -4,15 +4,11 @@ import { Thread } from "@mail/core/common/thread";
 import { ActionPanel } from "@mail/discuss/core/common/action_panel";
 import { Typing } from "@mail/discuss/typing/common/typing";
 
-import { Component, proxy } from "@odoo/owl";
+import { Component, props, proxy, signal, types } from "@odoo/owl";
 
 import { isMobileOS } from "@web/core/browser/feature_detection";
-import { useChildRef, useService } from "@web/core/utils/hooks";
+import { useService } from "@web/core/utils/hooks";
 
-/**
- * @typedef {Object} Props
- * @extends {Component<Props, Env>}
- */
 export class MeetingChat extends Component {
     static template = "mail.MeetingChat";
     static components = {
@@ -21,14 +17,14 @@ export class MeetingChat extends Component {
         Thread,
         Typing,
     };
-    static props = ["close?"];
 
     setup() {
+        this.props = props({ close: types.function([types.instanceOf(MouseEvent)]) });
         this.store = useService("mail.store");
         this.ui = useService("ui");
         this.rtc = useService("discuss.rtc");
         this.state = proxy({ jumpPresent: 0 });
-        this.panelContentRef = useChildRef();
+        this.panelContentRef = signal.ref();
         this.isMobileOS = isMobileOS();
         useSubEnv({ inMeetingChat: true });
     }

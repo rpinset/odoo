@@ -165,16 +165,16 @@
                     <field name="effective_hours" widget="timesheet_uom" sum="Effective Hours" optional="show" invisible="effective_hours == 0" groups="hr_timesheet.group_hr_timesheet_user" column_invisible="not context.get('allow_timesheets', True) or context.get('template_project')"/>
                     <field name="subtask_effective_hours" widget="timesheet_uom" sum="Time Spent on Sub-Tasks" optional="hide" groups="hr_timesheet.group_hr_timesheet_user" column_invisible="not context.get('allow_timesheets', True) or context.get('template_project')"/>
                     <field name="total_hours_spent" widget="timesheet_uom" sum="Total Time Spent" optional="hide" groups="hr_timesheet.group_hr_timesheet_user" column_invisible="not context.get('allow_timesheets', True) or context.get('template_project')"/>
-                    <field name="remaining_hours" widget="timesheet_uom" sum="Time Remaining on SO" optional="hide" decoration-danger="progress &gt;= 1" decoration-warning="progress &gt;= 0.8 and progress &lt; 1" invisible="allocated_hours == 0" groups="hr_timesheet.group_hr_timesheet_user" column_invisible="not context.get('allow_timesheets', True) or context.get('template_project')"/>
+                    <field name="remaining_hours" widget="timesheet_uom" sum="Time Remaining on SO" optional="hide" decoration-danger="progress &gt;= 1" decoration-warning="progress &gt;= 0.8 and progress &lt; 1" groups="hr_timesheet.group_hr_timesheet_user" column_invisible="not context.get('allow_timesheets', True) or context.get('template_project')"/>
                     <field name="progress" widget="project_task_progressbar" avg="Average of Progress" optional="show" groups="hr_timesheet.group_hr_timesheet_user" invisible="allocated_hours == 0" decoration-danger="progress > 1" column_invisible="not context.get('allow_timesheets', True) or context.get('template_project')"/>
                 </field>
             </field>
         </record>
 
-        <record id="view_task_kanban_inherited_progress" model="ir.ui.view">
-            <field name="name">project.task.timesheet.kanban.inherited.progress</field>
+        <record id="view_task_card_inherited_progress" model="ir.ui.view">
+            <field name="name">project.task.timesheet.card.inherited.progress</field>
             <field name="model">project.task</field>
-            <field name="inherit_id" ref="project.view_task_kanban"/>
+            <field name="inherit_id" ref="project.view_task_card"/>
             <field name="arch" type="xml">
                 <templates position="before">
                     <field name="progress" />

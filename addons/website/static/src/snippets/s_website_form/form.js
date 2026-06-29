@@ -283,21 +283,9 @@ export class Form extends Interaction {
 
                 // In general, we want the data-for and prefill values to
                 // take priority over set default values. The 'email_to'
-                // field is however treated as an exception at the moment
-                // so that values set by users are always used.
-                if (
-                    name === "email_to" &&
-                    fieldEl.value &&
-                    // The following value is the default value that
-                    // is set if the form is edited in any way. (see the
-                    // @website/js/form_editor_registry module in editor
-                    // assets bundle).
-                    // TODO that value should probably never be forced
-                    // unless explicitely manipulated by the user or on
-                    // custom form addition but that seems risky to
-                    // change as a stable fix.
-                    fieldEl.value !== "info@yourcompany.example.com"
-                ) {
+                // field is however treated as an exception so that values
+                // explicitly set by users are always used.
+                if (name === "email_to" && fieldEl.value) {
                     continue;
                 }
 
@@ -829,7 +817,7 @@ export class Form extends Interaction {
      * Compares the value with the comparable (and the between) with
      * comparator as a means to compare
      *
-     * @param {string} comparator The way that $value and $comparable have
+     * @param {string} comparator The way that value and comparable have
      *      to be compared
      * @param {string} [value] The value of the field
      * @param {string} [comparable] The value to compare
@@ -963,11 +951,13 @@ export class Form extends Interaction {
             `.s_website_form_input[name="${dependencyName}"]`
         );
         const visibilityCondition = fieldEl.dataset.visibilityCondition;
+        const containerEl = dependencyEl.closest(".s_website_form_field");
 
         const isMultiValueDependency =
             ["contains", "!contains"].includes(comparator) &&
             (["checkbox", "radio"].includes(dependencyEl.type) ||
-                dependencyEl.nodeName === "SELECT");
+                dependencyEl.nodeName === "SELECT" ||
+                containerEl?.dataset.type === "record");
 
         return () => {
             // To be visible, at least one field with the dependency name must be visible.

@@ -1292,9 +1292,9 @@ class TestSinglePicking(TestStockCommon):
             self.assertNotEqual(move.quantity, move.product_uom_qty, 'Initial demand shouldn\'t be modified')
 
     def test_recheck_availability_1(self):
-        """ Check the good behavior of check availability. I create a DO for 2 unit with
-        only one in stock. After the first check availability, I should have 1 reserved
-        product with one move line. After adding a second unit in stock and recheck availability.
+        """ Check the good behavior of the 'Reserve' button. I create a DO for 2 unit with
+        only one in stock. After the first reservation, I should have 1 reserved
+        product with one move line. After adding a second unit in stock and re-reserve.
         The DO should have 2 reserved unit, be in available state and have only one move line.
         """
         self.env['stock.quant']._update_available_quantity(self.productA, self.stock_location, 1.0)
@@ -2094,7 +2094,7 @@ class TestSinglePicking(TestStockCommon):
 
     def test_additional_move_1(self):
         """ On a planned trasfer, add a stock move when the picking is already ready. Check that
-        the check availability button appears and work.
+        the reserve button appears and works.
         """
         # Make some stock for productA and productB.
         receipt = self.env['stock.picking'].create({
@@ -2167,7 +2167,7 @@ class TestSinglePicking(TestStockCommon):
 
     def test_additional_move_2(self):
         """ On an immediate trasfer, add a stock move when the picking is already ready. Check that
-        the check availability button doest not appear.
+        the reserve button does not appear.
         """
         # Create a delivery for 1 productA, check the picking is ready
         delivery_order = self.env['stock.picking'].create({
@@ -3476,3 +3476,60 @@ class TestPickShipBackorder(TestStockCommon):
         backorder.action_assign()
         backorder.button_validate()
         self.assertEqual(backorder.state, "done")
+
+    def test_no_internal_note_as_picking_description(self):
+        """ This is to make sure that if a product has an internal note but no description for
+        delivery/receipt/internal pickings, the internal note does not get used as a fallback. """
+        self.productA.write({
+            'description': "THIS SHOULD NEVER APPEAR ON A PICKING",
+            'description_pickingin': "",
+        })
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': self.picking_type_in.id,
+            'location_id': self.supplier_location.id,
+            'location_dest_id': self.stock_location.id,
+            'partner_id': self.partner_1.id,
+            'move_ids': [Command.create({
+                'product_id': self.productA.id,
+                'product_uom_qty': 1,
+                'uom_id': self.productA.uom_id.id,
+                'location_id': self.supplier_location.id,
+                'location_dest_id': self.stock_location.id,
+            })]
+        })
+        self.assertEqual(picking.move_ids.description_picking, self.productA.display_name)
+
+    def test_store_picking_description(self):
+        """ The picking description on each stock move should only be stored in one of 2 conditions:
+        - the picking is done
+        - the description was manually added """
+        self.productA.description_pickingout = "DELIVERY"
+        picking = self.env['stock.picking'].create({
+            'picking_type_id': self.picking_type_out.id,
+            'location_id': self.stock_location.id,
+            'location_dest_id': self.customer_location.id,
+            'partner_id': self.partner_1.id,
+            'move_ids': [Command.create({
+                'product_id': self.productA.id,
+                'product_uom_qty': 1,
+                'uom_id': self.productA.uom_id.id,
+                'location_id': self.stock_location.id,
+                'location_dest_id': self.customer_location.id,
+            }), Command.create({
+                'product_id': self.productA.id,
+                'product_uom_qty': 1,
+                'uom_id': self.productA.uom_id.id,
+                'location_id': self.stock_location.id,
+                'location_dest_id': self.customer_location.id,
+                'description_picking': "EXTRA DELIVERY",
+            })]
+        })
+        self.assertFalse(picking.move_ids[0].description_picking_manual)
+        self.assertEqual(picking.move_ids[1].description_picking_manual, "EXTRA DELIVERY")
+        picking.action_confirm()
+        self.assertFalse(picking.move_ids[0].description_picking_manual)
+        self.assertEqual(picking.move_ids[1].description_picking_manual, "EXTRA DELIVERY")
+        picking.move_ids.quantity = 1
+        picking.button_validate()
+        self.assertEqual(picking.move_ids[0].description_picking_manual, "DELIVERY")
+        self.assertEqual(picking.move_ids[1].description_picking_manual, "EXTRA DELIVERY")

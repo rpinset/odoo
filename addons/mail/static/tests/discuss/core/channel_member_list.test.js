@@ -158,9 +158,7 @@ test("Avatar card shows local timezone", async () => {
     await contains(".o-discuss-ChannelMemberList");
     // Case 1: correspondent tz !== self tz
     await click(".o-discuss-ChannelMember:has(:text('Demo'))");
-    changeTzResolver = Promise.withResolvers();
     await waitStoreFetch(["avatar_card"]);
-    await changeTzResolver.promise;
     await animationFrame();
     await contains(".o-mail-avatar-card-name:text('Demo')");
     await contains(".o-mail-avatar-card-localtime:contains('17:30 local time')");
@@ -238,7 +236,7 @@ test("Channel member count update after user joined", async () => {
     await openDiscuss(channelId);
     await contains(".o-discuss-ChannelMemberList"); // wait for auto-open of this panel
     await contains(".o-discuss-ChannelMemberList h6:text('Online - 1')");
-    await click("[title='Invite People']");
+    await click("[title='Add People']");
     await click(".o-discuss-ChannelInvitation-selectable:has(:text('Harry'))");
     await click(".o-discuss-ChannelInvitation [title='Invite']:enabled");
     await contains(".o-discuss-ChannelInvitation", { count: 0 });
@@ -425,10 +423,15 @@ test("Members are partitioned by online/offline", async () => {
     });
 });
 
-test("Shows owner / admin in members panel + member actions", async () => {
+test("Shows owner / admin in members panel + member actions for channel owner", async () => {
     const pyEnv = await startServer();
-    const [demoPid, johnPid] = pyEnv["res.partner"].create([{ name: "Demo" }, { name: "John" }]);
+    const [ownerPid, demoPid, johnPid] = pyEnv["res.partner"].create([
+        { name: "Owner" },
+        { name: "Demo" },
+        { name: "John" },
+    ]);
     pyEnv["res.users"].create([
+        { partner_id: ownerPid, login: "batman", password: "alfred", active: true },
         { partner_id: demoPid, active: true },
         { partner_id: johnPid, active: true },
     ]);
@@ -436,35 +439,30 @@ test("Shows owner / admin in members panel + member actions", async () => {
     const channelId = pyEnv["discuss.channel"].create({
         name: "TestChannel",
         channel_member_ids: [
-            Command.create({ partner_id: serverState.partnerId, channel_role: "owner" }),
+            Command.create({ partner_id: ownerPid, channel_role: "owner" }),
             Command.create({ partner_id: demoPid, channel_role: "admin" }),
             Command.create({ partner_id: johnPid }),
             Command.create({ guest_id: marioGid }),
         ],
         channel_type: "channel",
     });
-    await start();
+    await start({ authenticateAs: { login: "batman", password: "alfred" } });
     await openDiscuss(channelId);
     await contains(".o-discuss-ChannelMember", { count: 4 });
-    await contains(`.o-discuss-ChannelMember:has(:text(${serverState.partnerName}))`);
+    await contains(".o-discuss-ChannelMember:has(:text(Owner))");
     await contains(".o-discuss-ChannelMember:has(:text(Demo))");
     await contains(".o-discuss-ChannelMember:has(:text(John))");
     await contains(".o-discuss-ChannelMember:has(:text(Mario))");
     await contains(
-        ".o-discuss-ChannelMember:text('" +
-            serverState.partnerName +
-            "') .fa-star.text-warning[title='Channel Owner']"
+        ".o-discuss-ChannelMember:text('Owner') .fa-star.text-warning[title='Channel Owner']"
     );
     await contains(
         ".o-discuss-ChannelMember:text('Demo') .fa-star.text-primary[title='Channel Admin']"
     );
-    await click(
-        ".o-discuss-ChannelMember:text('" + serverState.partnerName + "') [title='Member Actions']"
-    );
-    await contains(".o-dropdown-item", { count: 3 });
+    await click(".o-discuss-ChannelMember:text('Owner') [title='Member Actions']");
+    await contains(".o-dropdown-item", { count: 2 });
     await contains(".o-dropdown-item:eq(0):has(:text(Set Admin))");
     await contains(".o-dropdown-item:eq(1):has(:text(Remove Owner))");
-    await contains(".o-dropdown-item:eq(2):has(:text(Remove Member))");
     await click(".o-mail-Thread");
     await contains(".o-dropdown-item", { count: 0 });
     await click(".o-discuss-ChannelMember:text('Demo') [title='Member Actions']");

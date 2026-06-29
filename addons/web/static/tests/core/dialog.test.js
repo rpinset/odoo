@@ -1,10 +1,20 @@
-import { useState } from "@web/owl2/utils";
-import { destroy, expect, mockTouch, mockUserAgent, test } from "@odoo/hoot";
-import { keyDown, keyUp, press, queryAllTexts, queryOne, resize } from "@odoo/hoot-dom";
-import { animationFrame } from "@odoo/hoot-mock";
-import { Component, onMounted, xml } from "@odoo/owl";
+import {
+    animationFrame,
+    expect,
+    keyDown,
+    keyUp,
+    mockTouch,
+    mockUserAgent,
+    press,
+    queryAllTexts,
+    queryOne,
+    resize,
+    test,
+} from "@odoo/hoot";
+import { Component, onMounted, proxy, xml } from "@odoo/owl";
 import {
     contains,
+    destroyApp,
     getService,
     makeDialogMockEnv,
     mountWithCleanup,
@@ -109,7 +119,7 @@ test("hotkey control+enter on input triggers blur event before clicking dialog b
         static template = xml`
             <Dialog title="'Test Dialog'">
                 <input type="text" t-on-blur="this.onInputBlur" class="test_input"/>
-                
+
                 <t t-set-slot="footer">
                     <button t-on-click="this.onConfirm">Confirm</button>
                 </t>
@@ -118,7 +128,7 @@ test("hotkey control+enter on input triggers blur event before clicking dialog b
         static props = ["*"];
 
         setup() {
-            this.state = useState({ value: "" });
+            this.state = proxy({ value: "" });
         }
 
         onInputBlur(ev) {
@@ -140,10 +150,7 @@ test("hotkey control+enter on input triggers blur event before clicking dialog b
 
     await press("control+enter");
 
-    expect.verifySteps([
-        "inputBlur: new value",
-        "confirmed with value: new value"
-    ]);
+    expect.verifySteps(["inputBlur: new value", "confirmed with value: new value"]);
 });
 
 test("simple rendering with two dialogs", async () => {
@@ -248,7 +255,7 @@ test("render custom footer buttons is possible", async () => {
         static components = { SimpleButtonsDialog };
         setup() {
             super.setup();
-            this.state = useState({
+            this.state = proxy({
                 displayDialog: true,
             });
         }
@@ -368,8 +375,8 @@ test("can be the UI active element", async () => {
         }
     }
     await makeDialogMockEnv();
-    const parent = await mountWithCleanup(Parent);
-    destroy(parent);
+    await mountWithCleanup(Parent);
+    destroyApp();
     await Promise.resolve();
     expect(getService("ui").activeElement).toBe(document, {
         message: "UI owner should be reset to the default (document)",

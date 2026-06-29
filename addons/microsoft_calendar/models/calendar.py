@@ -433,7 +433,9 @@ class CalendarEvent(models.Model):
         elif self.env.user.partner_id.email not in emails:
             commands_attendee += [(0, 0, {'state': 'accepted', 'partner_id': self.env.user.partner_id.id})]
             commands_partner += [(4, self.env.user.partner_id.id)]
-        partners = self.env['mail.thread']._partner_find_from_emails_single(emails, no_create=False)
+        partners = self.env['mail.thread'].with_context(
+            mail_create_log_from_calendar_sync=True,
+        )._partner_find_from_emails_single(emails, no_create=False)
         attendees_by_emails = {a.email: a for a in existing_attendees}
         partners_by_emails = {p.email_normalized: p for p in partners}
         for email, attendee_info in zip(emails, microsoft_attendees):
@@ -623,7 +625,7 @@ class CalendarEvent(models.Model):
                     }.items() if weekday]
                 pattern['firstDayOfWeek'] = 'sunday'
 
-            if recurrence.rrule_type == 'monthly' and recurrence.month_by == 'day':
+            if recurrence.rrule_type in ('monthly', 'yearly') and recurrence.month_by == 'day':
                 byday_selection = {
                     '1': 'first',
                     '2': 'second',
@@ -632,6 +634,9 @@ class CalendarEvent(models.Model):
                     '-1': 'last',
                 }
                 pattern['index'] = byday_selection[recurrence.byday]
+
+            if recurrence.rrule_type == 'yearly':
+                pattern['month'] = (recurrence.dtstart or recurrence.create_date or fields.Datetime.now()).month
 
             dtstart = recurrence.dtstart or fields.Datetime.now()
             rule_range = {

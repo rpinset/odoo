@@ -255,8 +255,14 @@ export function customerIsSelected(name) {
     return [
         clickReview(),
         {
+            isActive: ["desktop"],
             content: `customer '${name}' is selected`,
             trigger: `.product-screen .set-partner:contains("${name}")`,
+        },
+        {
+            isActive: ["mobile"],
+            content: `customer is selected`,
+            trigger: `.product-screen .set-partner.btn-outline-secondary.active`,
         },
     ];
 }
@@ -453,7 +459,6 @@ export function checkFiscalPosition(name) {
         {
             content: `check fiscal position '${name}' is selected`,
             trigger: `.o_fiscal_position_button:contains("${name}")`,
-            run: () => {},
         },
         Dialog.cancel(),
     ];

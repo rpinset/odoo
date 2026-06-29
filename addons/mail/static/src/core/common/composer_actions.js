@@ -9,6 +9,7 @@ import { markEventHandled } from "@web/core/utils/misc";
 import { Action, ACTION_TAGS, useAction, UseActions } from "@mail/core/common/action";
 import { useService } from "@web/core/utils/hooks";
 import { usePopover } from "@web/core/popover/popover_hook";
+import { SUGGESTION_DELIMITERS } from "@mail/core/common/suggestion_hook";
 
 export const composerActionsRegistry = registry.category("mail.composer/actions");
 
@@ -141,7 +142,7 @@ registerComposerAction("add-canned-response", {
         composer.targetThread &&
         store.env.services["mail.suggestion"]
             .getSupportedDelimiters(composer.targetThread)
-            .find(([delimiter]) => delimiter === "::"),
+            .find(([delimiter]) => delimiter === SUGGESTION_DELIMITERS.CANNED_RESPONSE),
     icon: "fa fa-file-text-o",
     name: _t("Insert a Canned response"),
     onSelected: ({ owner }, ev) => owner.onClickInsertCannedResponse(ev),
@@ -156,8 +157,13 @@ registerComposerAction("start-poll", {
         }
         return ["channel", "group"].includes(composer.targetThread?.channel?.channel_type);
     },
-    onSelected: ({ composer, owner }) =>
-        owner.dialogService.add(CreatePollDialog, { thread: composer.targetThread }),
+    onSelected: ({ action, composer, owner }) => {
+        owner.dialogService.add(
+            CreatePollDialog,
+            { thread: composer.targetThread },
+            { rootRef: action.actionRef }
+        );
+    },
     setup: ({ owner }) => {
         owner.dialogService = useService("dialog");
     },
@@ -198,12 +204,12 @@ class UseComposerActions extends UseActions {
 }
 
 /**
- * @param {Object} [params0={}]
- * @param {Composer|() => Composer} params0.composer
+ * @param {import("@mail/core/common/action").ActionRootRefParam & {composer?: Composer|() => Composer}} [params0={}]
  * @returns {UseComposerActions_Def}
  */
-export function useComposerActions({ composer } = {}) {
+export function useComposerActions({ composer, rootRef } = {}) {
     return useAction(composerActionsRegistry, UseComposerActions, ComposerAction, {
         composer,
+        rootRef,
     });
 }

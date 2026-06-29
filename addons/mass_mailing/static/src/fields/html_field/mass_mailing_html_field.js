@@ -1,18 +1,19 @@
-import { useExternalListener, useLayoutEffect, useRef } from "@web/owl2/utils";
+import { useLayoutEffect, useRef } from "@web/owl2/utils";
 import { DYNAMIC_FIELD_PLUGINS } from "@html_editor/backend/dynamic_field/dynamic_field_plugin";
-import { htmlField, HtmlField } from "@html_editor/fields/html_field";
+import { htmlField, HtmlField, htmlFieldProps } from "@html_editor/fields/html_field";
 import { LocalOverlayContainer } from "@html_editor/local_overlay_container";
 import { MAIN_PLUGINS as MAIN_EDITOR_PLUGINS } from "@html_editor/plugin_sets";
 import { normalizeHTML, parseHTML } from "@html_editor/utils/html";
 import { MassMailingIframe } from "@mass_mailing/iframe/mass_mailing_iframe";
 import { ThemeSelectorIframe } from "@mass_mailing/themes/theme_selector/theme_selector_iframe";
-import { onWillUpdateProps, status, toRaw, useEffect } from "@odoo/owl";
+import { onWillUpdateProps, props, status, toRaw, t, useEffect, useListener } from "@odoo/owl";
 import { loadBundle } from "@web/core/assets";
 import { Domain } from "@web/core/domain";
 import { registry } from "@web/core/registry";
 import { useChildRef, useService } from "@web/core/utils/hooks";
 import { useEmailHtmlConverter } from "@mail/convert_inline/hooks";
 import { fixInvalidHTML } from "@html_editor/utils/sanitize";
+import { useRecordObserver } from "@web/model/relational_model/utils";
 
 export class MassMailingHtmlField extends HtmlField {
     static template = "mass_mailing.HtmlField";
@@ -22,11 +23,11 @@ export class MassMailingHtmlField extends HtmlField {
         MassMailingIframe,
         ThemeSelectorIframe,
     };
-    static props = {
-        ...HtmlField.props,
-        inlineField: { type: String },
-        filterTemplates: { type: Boolean, optional: true },
-    };
+    props = props({
+        ...htmlFieldProps,
+        inlineField: t.string(),
+        filterTemplates: t.boolean().optional(),
+    });
 
     setup() {
         // Keep track of the next props before other `onWillUpdateProps`
@@ -48,6 +49,7 @@ export class MassMailingHtmlField extends HtmlField {
         Object.assign(this.state, {
             showThemeSelector: this.props.record.isNew,
             activeTheme: undefined,
+            isNewlySelectedTheme: false,
         });
 
         if (this.state.showThemeSelector) {
@@ -56,6 +58,13 @@ export class MassMailingHtmlField extends HtmlField {
             // Theme Selector, no need to wait for the user selection.
             loadBundle("mass_mailing.assets_builder");
         }
+        let resId = this.props.record.resId;
+        useRecordObserver((record) => {
+            if (record.resId !== resId) {
+                this.state.isNewlySelectedTheme = false;
+                resId = record.resId;
+            }
+        });
 
         // useRecordObserver's callback now runs during setup() (via Owl's
         // reactive effect), before this component's setup() continues. This
@@ -111,7 +120,7 @@ export class MassMailingHtmlField extends HtmlField {
             () => [this.codeViewRef.el]
         );
 
-        useExternalListener(window, "pointerdown", this.onPointerDown.bind(this));
+        useListener(window, "pointerdown", this.onPointerDown.bind(this));
     }
 
     get withBuilder() {
@@ -171,7 +180,10 @@ export class MassMailingHtmlField extends HtmlField {
             readonly: this.props.readonly,
             showThemeSelector: this.state.showThemeSelector,
             showCodeView: this.state.showCodeView,
+            showFullscreen: this.state.isNewlySelectedTheme && this.withBuilder,
             withBuilder: this.withBuilder,
+            saveRecord: this.saveRecord.bind(this),
+            discardRecord: this.discardRecord.bind(this),
         };
         if (this.env.debug) {
             Object.assign(props, {
@@ -179,6 +191,21 @@ export class MassMailingHtmlField extends HtmlField {
             });
         }
         return props;
+    }
+
+    async saveRecord() {
+        if (await this.props.record.checkValidity({ displayNotification: false })) {
+            await this.props.record.save();
+        } else {
+            await this.commitChanges();
+        }
+    }
+
+    async discardRecord() {
+        if (this.isDirty || (await this.props.record.isDirty())) {
+            this.state.isNewlySelectedTheme = false;
+            await this.props.record.discard();
+        }
     }
 
     /**
@@ -280,6 +307,7 @@ export class MassMailingHtmlField extends HtmlField {
                                     "FIELD_IS_DIRTY",
                                     this.lastChangeId !== changeId
                                 );
+                                this.state.isNewlySelectedTheme = true;
                             },
                             () => {}
                         );

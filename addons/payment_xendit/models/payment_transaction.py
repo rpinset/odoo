@@ -141,9 +141,11 @@ class PaymentTransaction(models.Model):
                 "POST", "credit_card_charges", json=payload
             )
         except ValidationError as error:
-            self._set_error(str(error))
+            self.with_context(
+                payment_safe_write=True  # API request failed; safe to replay
+            )._set_error(str(error))
         else:
-            self._process("xendit", charge_payment_data)
+            self._record(charge_payment_data)
 
     def _get_rounded_amount(self):
         decimal_places = const.CURRENCY_DECIMALS.get(
@@ -164,7 +166,8 @@ class PaymentTransaction(models.Model):
             return super()._apply_updates(payment_data)
 
         # Update the provider reference.
-        self.provider_reference = payment_data.get("id")
+        if provider_reference := payment_data.get("id"):
+            self.provider_reference = provider_reference
 
         # Update payment method.
         # If it's one of FPX Methods, assign the payment method as FPX automatically
@@ -172,7 +175,7 @@ class PaymentTransaction(models.Model):
         if payment_method_code in const.FPX_METHODS:
             payment_method_code = "fpx"
 
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             payment_method_code, mapping=const.PAYMENT_METHODS_MAPPING
         )
         self.payment_method_id = payment_method or self.payment_method_id

@@ -1,10 +1,10 @@
-import { useState } from "@web/owl2/utils";
-import { Component, onWillStart } from "@odoo/owl";
+import { Component, onWillStart, props, proxy, t } from "@odoo/owl";
 import { useService, useOwnedDialogs } from "@web/core/utils/hooks";
 import { Dropdown } from "@web/core/dropdown/dropdown";
 import { DropdownItem } from "@web/core/dropdown/dropdown_item";
 import { _t } from "@web/core/l10n/translation";
 import { SelectCreateDialog } from "@web/views/view_dialogs/select_create_dialog";
+import { user } from "@web/core/user";
 
 import { ProjectTemplateButtons } from "./project_template_buttons";
 
@@ -16,32 +16,16 @@ export class ProjectTaskTemplateDropdown extends Component {
         ProjectTemplateButtons,
     };
 
-    static props = {
-        archInfo: {
-            type: Object,
-            optional: true,
-        },
-        hotkey: {
-            type: String,
-            optional: true,
-        },
-        newButtonClasses: String,
-        onCreate: Function,
+    props = props({
+        archInfo: t.object().optional(),
+        hotkey: t.string().optional("c"),
+        newButtonClasses: t.string(),
+        onCreate: t.function(),
         // Can be a number, false (in to-do) or undefined
-        projectId: {
-            type: [Number, Boolean],
-            optional: true,
-        },
-        context: Object,
-        getAdditionalContext: {
-            type: Function,
-            optional: true,
-        },
-    };
-    static defaultProps = {
-        hotkey: "c",
-        projectId: null,
-    };
+        projectId: t.or([t.number(), t.boolean()]).optional(false),
+        context: t.object(),
+        getAdditionalContext: t.function().optional(),
+    });
 
     setup() {
         this.action = useService("action");
@@ -49,7 +33,8 @@ export class ProjectTaskTemplateDropdown extends Component {
         this.offlineService = useService("offline");
         this.addDialog = useOwnedDialogs();
         this.displayTasksLimit = 10;
-        this.state = useState({ taskTemplates: [] });
+        this.state = proxy({ taskTemplates: [] });
+        this.isProjectManager = false;
         onWillStart(this.onWillStart);
     }
 
@@ -61,19 +46,20 @@ export class ProjectTaskTemplateDropdown extends Component {
         return this.state.taskTemplates.slice(0, this.displayTasksLimit);
     }
 
+    get taskTemplateButtonClasses() {
+        let classes = 'btn btn-link o-dropdopwn-item-indent o-task-template d-flex align-items-center';
+        if (this.isProjectManager) {
+            classes += ' pe-0';
+        }
+        return classes;
+    }
+
     async onWillStart() {
         if (this.props.projectId) {
-            this.state.taskTemplates = await this.orm
-                .cache({
-                    type: "disk",
-                    update: "always",
-                    callback: (result, hasChanged) => {
-                        if (hasChanged) {
-                            this.state.taskTemplates = result;
-                        }
-                    },
-                })
-                .call("project.project", "get_template_tasks", [this.props.projectId]);
+            await Promise.all([
+                    user.hasGroup("project.group_project_manager").then((res) => (this.isProjectManager = res)),
+                    this._fetchTasktemplates(),
+                ]);
         }
     }
 
@@ -97,6 +83,20 @@ export class ProjectTaskTemplateDropdown extends Component {
             return this.offlineService.isAvailableOffline(actionId, "form", false);
         }
         return false;
+    }
+
+    async _fetchTasktemplates() {
+        this.state.taskTemplates = await this.orm
+            .cache({
+                type: "disk",
+                update: "always",
+                callback: (result, hasChanged) => {
+                    if (hasChanged) {
+                        this.state.taskTemplates = result;
+                    }
+                },
+            })
+            .call("project.project", "get_template_tasks", [this.props.projectId]);
     }
 
     async createTaskFromTemplate(templateId) {

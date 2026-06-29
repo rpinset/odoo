@@ -54,7 +54,9 @@ class LoyaltyRule(models.Model):
     product_domain = fields.Char(default="[]")
 
     product_ids = fields.Many2many(string="Products", comodel_name="product.product")
-    product_category_id = fields.Many2one(string="Categories", comodel_name="product.category")
+    product_category_id = fields.Many2one(
+        string="Categories", comodel_name="product.category", check_company=True
+    )
     product_tag_id = fields.Many2one(string="Product Tag", comodel_name="product.tag")
 
     reward_point_amount = fields.Float(string="Reward", default=1)
@@ -163,7 +165,5 @@ class LoyaltyRule(models.Model):
     def _compute_amount(self, currency_to):
         self.ensure_one()
         return self.currency_id._convert(
-            self.minimum_amount,
-            currency_to,
-            self.company_id or self.env.company,
+            self.minimum_amount, currency_to, self.company_id or self.env.company
         )

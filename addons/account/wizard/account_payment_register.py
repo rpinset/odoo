@@ -1208,7 +1208,7 @@ class AccountPaymentRegister(models.TransientModel):
                 if payment.currency_id != lines.currency_id:
                     liquidity_lines, counterpart_lines, writeoff_lines = payment._seek_for_lines()
                     source_balance = abs(sum(lines.mapped('amount_residual')))
-                    if liquidity_lines[0].balance:
+                    if liquidity_lines[:1].balance:
                         payment_rate = liquidity_lines[0].amount_currency / liquidity_lines[0].balance
                     else:
                         payment_rate = 0.0
@@ -1284,7 +1284,7 @@ class AccountPaymentRegister(models.TransientModel):
                         ('reconciled', '=', False),
                     ])\
                     .reconcile()
-            lines.move_id.matched_payment_ids += payment
+            lines.move_id.matched_payment_ids = [Command.link(payment.id)]
 
     def _create_payments(self):
         self.ensure_one()

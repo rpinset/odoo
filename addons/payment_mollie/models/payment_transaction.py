@@ -124,15 +124,24 @@ class PaymentTransaction(models.Model):
         :rtype: dict
         """
         given_name, family_name = payment_utils.split_partner_name(self.partner_name)
-        return {
+        billing_address = {
             "givenName": given_name,
             "familyName": family_name,
-            "streetAndNumber": self.partner_address or "",
-            "postalCode": self.partner_zip or "",
-            "city": self.partner_city or "",
-            "country": self.partner_country_id.code or "",
             "email": self.partner_email or "",
         }
+        if all((
+            self.partner_address,
+            self.partner_zip,
+            self.partner_city,
+            self.partner_country_id,
+        )):
+            billing_address |= {
+                "streetAndNumber": self.partner_address,
+                "postalCode": self.partner_zip,
+                "city": self.partner_city,
+                "country": self.partner_country_id.code,
+            }
+        return billing_address
 
     def _send_payment_request(self):
         """Override of `payment` to send a token payment request to Mollie."""
@@ -141,7 +150,7 @@ class PaymentTransaction(models.Model):
 
         payload = self._mollie_prepare_payment_request_payload()
         payment_data = self._send_api_request("POST", "/payments", json=payload)
-        self._process("mollie", payment_data)
+        self._record(payment_data)
 
     @api.model
     def _extract_reference(self, provider_code, payment_data):
@@ -163,7 +172,7 @@ class PaymentTransaction(models.Model):
         payment_method_type = payment_data.get("method", "")
         if payment_method_type == "creditcard":
             payment_method_type = payment_data.get("details", {}).get("cardLabel", "").lower()
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             payment_method_type, mapping=const.PAYMENT_METHODS_MAPPING
         )
         self.payment_method_id = payment_method or self.payment_method_id

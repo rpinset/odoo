@@ -16,7 +16,6 @@ import {
     T_NULL,
     TestReporting,
     batch,
-    destroy,
     ensureArray,
     ensureError,
     formatHumanReadable,
@@ -138,12 +137,12 @@ const $now = performance.now.bind(performance);
 //-----------------------------------------------------------------------------
 
 const T_PRESET = t.object({
-    "icon?": t.string(),
+    icon: t.string().optional(),
     label: t.string(),
-    "platform?": T_PLATFORM,
-    "size?": t.tuple([t.number(), t.number()]),
-    "tags?": t.array(t.string()),
-    "touch?": t.boolean(),
+    platform: T_PLATFORM.optional(),
+    size: t.tuple([t.number(), t.number()]).optional(),
+    tags: t.array(t.string()).optional(),
+    touch: t.boolean().optional(),
 });
 
 //-----------------------------------------------------------------------------
@@ -2032,7 +2031,6 @@ export class Runner {
                     _window,
                     {
                         __debug__: this,
-                        destroy,
                         getFixture: this.fixture.getFixture,
                     }
                 );

@@ -1,18 +1,20 @@
-import { useRef, useState } from "@web/owl2/utils";
-import { Component, onMounted, xml } from "@odoo/owl";
-import { ACTIVE_ELEMENT_CLASS, Navigator, useNavigation } from "@web/core/navigation/navigation";
-import { useAutofocus } from "@web/core/utils/hooks";
-import { describe, destroy, expect, test } from "@odoo/hoot";
 import {
-    hover,
-    press,
+    animationFrame,
     click,
+    describe,
+    expect,
+    hover,
+    manuallyDispatchProgrammaticEvent,
+    press,
     queryAllTexts,
     queryOne,
-    manuallyDispatchProgrammaticEvent,
-} from "@odoo/hoot-dom";
-import { animationFrame } from "@odoo/hoot-mock";
-import { mountWithCleanup, patchWithCleanup } from "@web/../tests/web_test_helpers";
+    test,
+} from "@odoo/hoot";
+import { Component, onMounted, proxy, xml } from "@odoo/owl";
+import { destroyApp, mountWithCleanup, patchWithCleanup } from "@web/../tests/web_test_helpers";
+import { ACTIVE_ELEMENT_CLASS, Navigator, useNavigation } from "@web/core/navigation/navigation";
+import { useAutofocus } from "@web/core/utils/hooks";
+import { useRef } from "@web/owl2/utils";
 
 class BasicHookParent extends Component {
     static props = [];
@@ -211,9 +213,9 @@ test("navigation disabled when component is destroyed", async () => {
             super._destroy();
         },
     });
-    const component = await mountWithCleanup(BasicHookParent);
+    await mountWithCleanup(BasicHookParent);
     await expect.waitForSteps(["enable"]);
-    destroy(component);
+    destroyApp();
     await expect.waitForSteps(["disable"]);
 });
 
@@ -230,7 +232,7 @@ test("insert item before current", async () => {
 
         setup() {
             this.navigation = useNavigation("containerRef");
-            this.state = useState({ items: [1, 2, 3] });
+            this.state = proxy({ items: [1, 2, 3] });
             onMounted(() => this.navigation.items[0].setActive());
         }
     }
@@ -297,7 +299,7 @@ test("non-navigable dom update does NOT cause re-focus", async () => {
         setup() {
             this.navigation = useNavigation("containerRef");
             onMounted(() => this.navigation.items[0]?.setActive());
-            this.state = useState({ show: false });
+            this.state = proxy({ show: false });
         }
     }
 
@@ -469,7 +471,7 @@ test("focus not stolen from search input during typing, hovering, and clearing",
         setup() {
             this.containerRef = useRef("container");
             this.inputRef = useRef("inputRef");
-            this.state = useState({
+            this.state = proxy({
                 searchFilter: "",
                 allItems: Array.from({ length: 10 }, (_, i) => `Item ${i + 1}`),
             });

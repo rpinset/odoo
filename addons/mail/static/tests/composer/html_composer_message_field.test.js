@@ -1,4 +1,4 @@
-import { setSelection } from "@html_editor/../tests/_helpers/selection";
+import { getContent, setSelection } from "@html_editor/../tests/_helpers/selection";
 import { insertText } from "@html_editor/../tests/_helpers/user_actions";
 import { FileSelector } from "@html_editor/main/media/media_dialog/file_selector";
 import { uploadService } from "@html_editor/main/media/media_dialog/upload_progress_toast/upload_service";
@@ -19,7 +19,6 @@ import {
     makeMockServer,
     mockService,
     mountView,
-    mountViewInDialog,
     onRpc,
     patchWithCleanup,
     serverState,
@@ -35,6 +34,7 @@ import {
     start,
     startServer,
 } from "../mail_test_helpers";
+import { htmlInsertText } from "../mail_test_helpers_html";
 
 // Need this hack to use the arch in mountView(...)
 mailModels.MailComposeMessage._views = {};
@@ -168,10 +168,9 @@ test("mention a partner", async () => {
         res_id: composerId,
         views: [["mail.compose.message,false,form", "form"]],
     });
-    const anchorNode = queryOne(`.odoo-editor-editable p`);
-    setSelection({ anchorNode, anchorOffset: 0 });
-    await insertText(htmlEditor, "@");
-    await animationFrame();
+    const editable = queryOne(`.odoo-editor-editable`);
+    setSelection({ anchorNode: editable.firstChild, anchorOffset: 0 });
+    await htmlInsertText(htmlEditor, "@");
     expect(".overlay .o-mail-MentionList input[placeholder='Search for a user...']").toBeFocused();
     expect(".overlay .o-mail-NavigableList .o-mail-NavigableList-item").toHaveCount(0);
 
@@ -183,36 +182,10 @@ test("mention a partner", async () => {
     expect.verifySteps(["get_mention_suggestions: a"]);
 
     await press("enter");
-    expect("[name='body'] .odoo-editor-editable").toHaveInnerHTML(`
-    <p>
-        <a href="/odoo/res.partner/17" class="o_mail_redirect" data-oe-id="17" data-oe-model="res.partner" target="_blank" contenteditable="false">
-            @Mitchell Admin
-        </a>
-    </p>`);
-});
-
-test("mention a channel", async () => {
-    onRpc("discuss.channel", "get_mention_suggestions", ({ kwargs }) => {
-        expect.step(`get_mention_suggestions: ${kwargs.search}`);
-    });
-    await mountViewInDialog({
-        type: "form",
-        resModel: "mail.compose.message",
-        arch: `
-        <form>
-            <field name="body" type="html" widget="html_composer_message"/>
-        </form>`,
-    });
-    const anchorNode = queryOne(`[name='body'] .odoo-editor-editable div.o-paragraph`);
-    setSelection({ anchorNode, anchorOffset: 0 });
-    await insertText(htmlEditor, "#");
     await animationFrame();
-    expect(".overlay .o-mail-MentionList input[placeholder='Search for a channel...']").toBeFocused();
-    expect(".overlay .o-mail-NavigableList .o-mail-NavigableList-item").toHaveCount(0);
-
-    await press("a");
-    await animationFrame();
-    expect.verifySteps(["get_mention_suggestions: a"]);
+    expect(getContent(editable)).toBe(
+        `<p>\uFEFF<a href="/odoo/res.partner/${serverState.partnerId}" class="o_mail_redirect" data-oe-id="${serverState.partnerId}" data-oe-model="res.partner" target="_blank" contenteditable="false">@Mitchell Admin</a>\uFEFF[]</p>`
+    );
 });
 
 describe("Remove attachments", () => {

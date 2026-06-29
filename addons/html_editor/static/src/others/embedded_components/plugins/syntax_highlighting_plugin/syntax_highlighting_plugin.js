@@ -9,6 +9,8 @@ import {
 import { removeInvisibleWhitespace } from "@html_editor/utils/dom";
 import { getActiveHotkey } from "@web/core/hotkeys/hotkey_service";
 import { closestBlock } from "@html_editor/utils/blocks";
+import { DISABLED_NAMESPACE } from "@html_editor/main/toolbar/toolbar_plugin";
+import { closestElement } from "@html_editor/utils/dom_traversal";
 
 const CODE_BLOCK_CLASS = "o_syntax_highlighting";
 const CODE_BLOCK_SELECTOR = `div.${CODE_BLOCK_CLASS}`;
@@ -40,12 +42,24 @@ export class SyntaxHighlightingPlugin extends Plugin {
         on_will_mount_component_handlers: this.setupNewCodeBlock.bind(this),
         on_history_commit_undone_handlers: () => this.addCodeBlocks(this.editable, true),
         on_history_commit_redone_handlers: () => this.addCodeBlocks(this.editable, true),
-        on_will_set_tag_handlers: (el, newTagName, cursors) => {
-            if (newTagName.toLowerCase() === "pre") {
+        on_will_set_tag_handlers: (params) => {
+            const { block, tagName, cursors } = params;
+            if (tagName.toLowerCase() === "pre") {
                 // Remove invisible whitespace that would become visible in a `<pre>` element.
-                removeInvisibleWhitespace(el, cursors);
+                removeInvisibleWhitespace(params.block, cursors);
+            }
+            if (block.nodeName === "TEXTAREA" && block.classList.contains("o_prism_source")) {
+                params.block = this.convertToParagraph(block);
             }
         },
+        toolbar_namespace_providers: withSequence(70, (targetedNodes) => {
+            if (
+                targetedNodes.length &&
+                targetedNodes.every((node) => closestElement(node, ".o_syntax_highlighting"))
+            ) {
+                return DISABLED_NAMESPACE;
+            }
+        }),
 
         /** Processors */
         clean_for_save_processors: withSequence(0, (root) => this.cleanForSave(root)),
@@ -123,6 +137,7 @@ export class SyntaxHighlightingPlugin extends Plugin {
             pre.textContent = value;
             newlinesToLineBreaks(pre);
         }
+        return root;
     }
 
     /**
@@ -178,6 +193,7 @@ export class SyntaxHighlightingPlugin extends Plugin {
             }
             pre.remove();
         }
+        return root;
     }
 
     setupNewCodeBlock({ name, props }) {
@@ -185,20 +201,25 @@ export class SyntaxHighlightingPlugin extends Plugin {
             Object.assign(props, {
                 onTextareaFocus: () => this.dependencies.selection.stageFocus(),
                 convertToParagraph: ({ target }) => {
-                    this.dependencies.selection.stageSelection();
-                    const component = target.closest(`[data-embedded='${name}']`);
-                    const embeddedProps = getEmbeddedProps(component);
-                    const baseContainer = this.dependencies.baseContainer.createBaseContainer({
-                        children: [this.document.createTextNode(embeddedProps.value)],
-                    });
-                    component.replaceWith(baseContainer);
-                    newlinesToLineBreaks(baseContainer);
-                    this.dependencies.selection.setCursorStart(baseContainer);
+                    this.convertToParagraph(target);
                     this.dependencies.history.commit();
                 },
                 setSelection: (selection) => this.dependencies.selection.setSelection(selection),
             });
             props.host.removeAttribute("data-syntax-highlighting-autofocus");
         }
+    }
+
+    convertToParagraph(target) {
+        this.dependencies.selection.stageSelection();
+        const component = target.closest(`[data-embedded]`);
+        const embeddedProps = getEmbeddedProps(component);
+        const baseContainer = this.dependencies.baseContainer.createBaseContainer({
+            children: [this.document.createTextNode(embeddedProps.value)],
+        });
+        component.replaceWith(baseContainer);
+        newlinesToLineBreaks(baseContainer);
+        this.dependencies.selection.setCursorStart(baseContainer);
+        return baseContainer;
     }
 }

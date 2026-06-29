@@ -39,9 +39,17 @@ class PaymentProvider(models.Model):
         groups="base.group_system",
     )
     paymob_hmac_key = fields.Char(
-        string="Paymob HMAC Key", required_if_provider="paymob", copy=False
+        string="Paymob HMAC Key",
+        required_if_provider="paymob",
+        copy=False,
+        groups="base.group_system",
     )
-    paymob_api_key = fields.Char(string="Paymob API Key", required_if_provider="paymob", copy=False)
+    paymob_api_key = fields.Char(
+        string="Paymob API Key",
+        required_if_provider="paymob",
+        copy=False,
+        groups="base.group_system",
+    )
 
     # === CONSTRAINT METHODS === #
 
@@ -98,7 +106,7 @@ class PaymentProvider(models.Model):
             "page_size": 500,
             "is_deprecated": "false",
             "is_standalone": "false",
-            "is_live": self.state == "enabled",
+            "is_live": self.is_live,
         }
         paymob_gateways_data = self._send_api_request(
             "GET", "/api/ecommerce/integrations", params=params
@@ -190,13 +198,11 @@ class PaymentProvider(models.Model):
         for gateway_data in matched_gateways_data:
             payment_method_code = const.PAYMENT_METHODS_MAPPING[gateway_data["gateway_type"]]
             if payment_method_code == "card" and gateway_data.get("installments"):
-                installment_payment_method = self.env["payment.method"].search(
-                    [("code", "=", "installments_eg")], limit=1
-                )
+                installment_payment_method = self._get_pm_from_code("installments_eg")
                 if not installment_payment_method:
                     continue
                 payment_method_code = "installments_eg"
-            environment = "live" if self.state == "enabled" else "test"
+            environment = "live" if self.is_live else "test"
             payload = {"integration_name": f"{payment_method_code.replace('_', '')}{environment}"}
             self._send_api_request(
                 "PUT", f"/api/ecommerce/integrations/{gateway_data['id']}", json=payload
@@ -219,6 +225,11 @@ class PaymentProvider(models.Model):
         :rtype: str
         """
         self.ensure_one()
+        if not self.paymob_account_country_id:
+            raise ValidationError(
+                self.env._("The account country is not set.")
+            )
+
         api_prefix = const.API_MAPPING[self.paymob_account_country_id.code]
         return f"https://{api_prefix}.paymob.com"
 

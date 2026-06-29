@@ -22,7 +22,7 @@ class StockMove(models.Model):
         help='Trigger a decrease of the delivered/received quantity in the associated Sale Order/Purchase Order')
     company_currency_id = fields.Many2one('res.currency', related='company_id.currency_id', string='Company Currency', readonly=True)
     value = fields.Monetary(
-        "Value", currency_field='company_currency_id',
+        "Value", currency_field='company_currency_id', copy=False,
         help="The current value of the move. It's zero if the move is not valued.")
     value_justification = fields.Text(
         "Value Description", compute="_compute_value_justification")
@@ -49,6 +49,7 @@ class StockMove(models.Model):
 
     analytic_account_line_ids = fields.Many2many('account.analytic.line', copy=False)
     account_move_id = fields.Many2one('account.move', 'stock_move_id', copy=False, index="btree_not_null")
+    invoice_line_ids = fields.One2many('account.move.line', 'stock_move_id', 'Invoice Line', index='btree_not_null')
 
     def search_remaining_qty(self, operator, value):
         if operator != '=' or not isinstance(value, bool) or value is not True:
@@ -260,12 +261,13 @@ class StockMove(models.Model):
 
         if len(self.product_id) > 1:
             return 0
-        total_qty = sum(m._get_valued_qty() for m in self)
+        total_qty = sum(m._get_valued_qty() * (-1 if m.is_in else 1) for m in self)
         valued_consigned_qty = self._get_valued_consigned_qty()
         total_valued_qty = total_qty + valued_consigned_qty
         if total_valued_qty and (self.product_id.cost_method == 'fifo' or valued_consigned_qty or
             (self.product_id.lot_valuated and self.product_id.cost_method == 'average')):
-            return sum(self.mapped('value')) / total_valued_qty
+            total_value = sum(m.value * (-1 if m.is_in else 1) for m in self)
+            return total_value / total_valued_qty
         else:
             return self.product_id.standard_price
 
@@ -467,14 +469,17 @@ class StockMove(models.Model):
         return dict(VALUATION_DICT)
 
     def _get_value_from_std_price(self, quantity, std_price=False, at_date=None):
-        std_price = std_price if std_price else self.product_id.standard_price
         if at_date and self.product_id.cost_method == 'standard':
-            std_price = std_price or self.product_id._get_standard_price_at_date(at_date)
+            std_price = std_price or self.product_id.standard_price or self.product_id._get_standard_price_at_date(at_date)
         # If multiple lots keep standard_price from product
         elif self.product_id.lot_valuated and len(self.lot_ids) == 1:
             std_price = self.lot_ids.standard_price
+        elif not std_price and at_date and self.product_id.cost_method == 'fifo':
+            valued_qty = self._get_valued_qty()
+            if valued_qty:
+                std_price = self.value / valued_qty
         return {
-            'value': std_price * quantity,
+            'value': (std_price or self.product_id.standard_price) * quantity,
             'quantity': quantity,
             'description': self.env._("%(quantity)s %(uom)s at product's cost",
                 quantity=quantity,
@@ -676,4 +681,9 @@ class StockMove(models.Model):
         return total_value / total_qty if total_qty else 0
 
     def _get_valued_consigned_qty(self):
-        return sum(self.move_line_ids.filtered(lambda l: l._is_consigned_valued_line()).mapped('quantity_product_uom'))
+        consigned_lines = self.move_line_ids.filtered(lambda l: l._is_consigned_valued_line())
+        consigned_qty = sum(
+            sml.quantity_product_uom * (-1 if sml.location_dest_id._should_be_valued() else 1)
+            for sml in consigned_lines
+        )
+        return consigned_qty

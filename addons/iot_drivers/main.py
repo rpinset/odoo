@@ -5,7 +5,6 @@ import socket
 import platform
 import requests
 import schedule
-import subprocess
 from threading import Thread
 import time
 
@@ -52,9 +51,10 @@ class Manager(Thread):
         """
         changed = False
 
-        current_devices = set(iot_devices.keys()) | set(unsupported_devices.keys())
-        previous_devices = set(self.previous_iot_devices.keys()) | set(self.previous_unsupported_devices.keys())
-        if current_devices != previous_devices:
+        if (
+            iot_devices.keys() != self.previous_iot_devices.keys()
+            or unsupported_devices.keys() != self.previous_unsupported_devices.keys()
+        ):
             self.previous_iot_devices = iot_devices.copy()
             self.previous_unsupported_devices = unsupported_devices.copy()
             changed = True
@@ -98,9 +98,7 @@ class Manager(Thread):
             devices_list[identifier] = {
                 'name': device.device_name,
                 'type': device.device_type,
-                'manufacturer': device.device_manufacturer,
                 'connection': device.device_connection,
-                'subtype': device.device_subtype if device.device_type == 'printer' else '',
             }
         devices_list.update(self.previous_unsupported_devices)
 
@@ -137,19 +135,14 @@ class Manager(Thread):
         """
         _logger.info("==== Starting Odoo IoT Box Service ====")
 
-        if system.IS_RPI:
-            # ensure that the root filesystem is writable retro compatibility (TODO: remove this in 19.0)
-            subprocess.run(["sudo", "mount", "-o", "remount,rw", "/"], check=False)
-            subprocess.run(["sudo", "mount", "-o", "remount,rw", "/root_bypass_ramdisks/"], check=False)
-
-            wifi.reconnect(system.get_conf('wifi_ssid'), system.get_conf('wifi_password'))
+        wifi.reconnect(system.get_conf('wifi_ssid'), system.get_conf('wifi_password'))
 
         system.start_nginx_server()
         _logger.info("IoT Box Image version: %s", system.get_version(detailed_version=True))
         if system.IS_WINDOWS:
             _logger.info("Windows version: %s", platform.platform())
 
-        if system.IS_RPI and helpers.get_odoo_server_url():
+        if helpers.get_odoo_server_url():
             system.generate_password()
 
         certificate.ensure_validity()
@@ -163,6 +156,10 @@ class Manager(Thread):
         last_check_time = time.time()
         schedule.every().day.at("00:00").do(certificate.ensure_validity)
         schedule.every().day.at("00:00").do(helpers.reset_log_level)
+        schedule.every().sunday.at("23:30").do(
+            system.update_conf,
+            {"actions": None, "general": None, "longpolling": None}, "devtools"
+        )
         schedule.every().monday.at("00:00").do(upgrade.check_git_branch)
 
         # Check every 3 seconds if the list of connected devices has changed and send the updated
@@ -171,7 +168,7 @@ class Manager(Thread):
             try:
                 if self._get_changes_to_send():
                     self._send_all_devices()
-                if system.IS_RPI and system.get_ip() != '10.11.12.1':
+                if system.get_ip() != '10.11.12.1':
                     wifi.reconnect(system.get_conf('wifi_ssid'), system.get_conf('wifi_password'))
                 time.sleep(3)
 

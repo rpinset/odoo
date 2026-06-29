@@ -35,6 +35,7 @@ class ProductProduct(models.Model):
     lst_price = fields.Float(
         'Sales Price',
         compute='_compute_product_lst_price',
+        inverse='_inverse_product_lst_price',
         min_display_digits='Product Price',
         readonly=False,
         store=True,
@@ -378,6 +379,12 @@ class ProductProduct(models.Model):
     def _compute_product_lst_price(self):
         for product in self:
             product.lst_price = product.list_price + product.price_extra
+
+    def _inverse_product_lst_price(self):
+        for product in self:
+            template = product.product_tmpl_id
+            if len(template.with_context(active_test=False).product_variant_ids) == 1 and not template.has_configurable_attributes:
+                product.list_price = product.lst_price
 
     @api.depends_context('partner_id')
     def _compute_product_code(self):
@@ -1133,6 +1140,17 @@ class ProductProduct(models.Model):
                             '&', ('res_model', '=', 'product.template'),
                             ('res_id', '=', self.product_tmpl_id.id)]
         return res
+
+    def action_open_packaging_barcodes(self):
+        self.ensure_one()
+        action = self.env['ir.actions.act_window']._for_xml_id('product.product_uom_action_view_list')
+        action['domain'] = [('product_id', '=', self.id)]
+        action['context'] = {
+            'create': True,
+            'default_product_id': self.id,
+            'product_ids': self.ids,
+        }
+        return action
 
     #=== BUSINESS METHODS ===#
 

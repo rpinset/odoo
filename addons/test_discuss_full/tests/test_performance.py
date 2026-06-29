@@ -22,7 +22,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #       - search res_users_settings_embedded_action (_format_settings)
     #       - fetch res_users_settings (_format_settings)
     #       - search res_users_settings_volumes (_format_settings)
-    #         [enterprise] fetch voip_provider
     #       - search res_lang_res_users_settings_rel (_format_settings)
     #       - search im_livechat_expertise_res_users_settings_rel (_format_settings)
     #   2: hasCannedResponses
@@ -33,7 +32,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #   2: show_livechat_category
     #       - search discuss_channel_member (is_self for ACL check)
     #       - search_count discuss_channel_member
-    #   10: store add odoobot:
+    #   11: store add odoobot:
     #       - fetch res_partner (_read_format)
     #         [enterprise] search ai_agent (_compute_im_status ai override)
     #       - search res_users (_compute_im_status)
@@ -41,11 +40,12 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #       - search presence (_compute_im_status)
     #       - fetch presence (_compute_im_status)
     #       - search employee (_store_im_status_fields)
+    #       - search employee (_store_im_status_fields company specific)
     #       - fetch res_users (_read_format)
     #       - search hr_employee_location (_store_im_status_fields hr_homeworking override)
     #       - fetch hr_employee (_compute_work_location_type)
     #       - search hr_leave (_compute_leave_status)
-    _query_count_init_store = 22
+    _query_count_init_store = 23
     # Queries for _query_count_init_messaging (in order):
     #   2: _search_is_member (for current user, first occurence _search_is_member for chathub given channel ids)
     #       - fetch res_users
@@ -57,11 +57,11 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #   2: _init_messaging (mail)
     #       - _get_needaction_count (inbox counter)
     #       - search mail_message (bookmark counter)
-    #   26: _process_request_for_all (discuss):
+    #   25: _process_request_for_all (discuss):
     #       - search_fetch discuss_channel (channels_domain)
     #       2: check permissions
     #       - fetch discuss_channel (chathub given channel ids, missing search_fetch)
-    #       22: store add channel:
+    #       21: store add channel:
     #           - read group member (prefetch _compute_self_member_id from _compute_is_member)
     #           - read group member (_compute_invited_member_ids)
     #           - search discuss_channel_rtc_session
@@ -76,7 +76,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #                   - search mail_presence (_compute_im_status)
     #                   - fetch mail_presence (_compute_im_status)
     #                   - search hr_employee (_store_im_status_fields override)
-    #                   - search hr_employee (_store_im_status_fields override, from `all_employee_ids`)
     #                   - search hr_employee_location (_store_im_status_fields override)
     #                   - fetch hr_employee (_compute_work_location_type)
     #                   - search hr_leave (_compute_leave_status)
@@ -88,14 +87,14 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #           - search discuss_channel_res_groups_rel (group_ids)
     #           - fetch res_groups (group_public_id)
     #           - select the current db snapshot
-    _query_count_init_messaging = 36
+    _query_count_init_messaging = 35
     # Queries for _query_count_discuss_channels (in order):
     #   3: _search_is_member (for current user, first occurence channels_as_member)
     #       - fetch res_users
     #       - search discuss_channel_member
     #       - search_fetch discuss_channel
     #   1: search_count discuss_channel_member (_add_has_unpinned_channels_to_store)
-    #   34: channel _to_store_defaults:
+    #   33: channel _to_store_defaults:
     #       - read group member (prefetch _compute_self_member_id from _compute_is_member)
     #       - read group member (_compute_invited_member_ids)
     #       - search discuss_channel_rtc_session
@@ -103,10 +102,10 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #       - search_fetch member (channel_member_ids)
     #       - search channel JOIN member (channel_name_member_ids)
     #       - fetch discuss_channel_member (manual prefetch)
-    #       17: member:
+    #       16: member:
     #           - search im_livechat_channel_member_history (livechat member type)
     #           - fetch im_livechat_channel_member_history (livechat member type)
-    #           13: partner:
+    #           12: partner:
     #               - fetch res_partner (partner)
     #                 [enterprise] search ai_agent (_compute_im_status ai override)
     #               - fetch res_users (_compute_im_status)
@@ -114,7 +113,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #               - search mail_presence (_compute_im_status)
     #               - fetch mail_presence (_compute_im_status)
     #               - search hr_employee (_store_im_status_fields override)
-    #               - search hr_employee (_store_im_status_fields override, from `all_employee_ids`)
     #               - search hr_employee_location (_store_im_status_fields override)
     #               - fetch hr_employee (_compute_work_location_type)
     #               - search hr_leave (_compute_leave_status)
@@ -162,7 +160,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
     #       - fetch user (author)
     #       - fetch discuss_call_history
     #       - select the current db snapshot
-    _query_count_discuss_channels = 63
+    _query_count_discuss_channels = 62
 
     def setUp(self):
         super().setUp()
@@ -256,7 +254,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
         self.channel_chat_3 = Channel._get_or_create_chat((self.users[0] + self.users[2]).partner_id.ids)
         self.channel_chat_4 = Channel._get_or_create_chat((self.users[0] + self.users[3]).partner_id.ids)
         # create groups
-        self.channel_group_1 = Channel._create_group((self.users[0] + self.users[12]).partner_id.ids)
+        self.channel_group_1 = Channel._create_group(self.users[0] + self.users[12])
         # create livechats
         self.im_livechat_channel = self.env['im_livechat.channel'].sudo().create({'name': 'support', 'user_ids': [Command.link(self.users[0].id)]})
         self.env['mail.presence']._update_presence(self.users[0])
@@ -424,12 +422,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
         partner_0 = user_0.partner_id
         return {
             "hr.employee": [
-                {
-                    "id": self.employees[0].id,
-                    "leave_date_to": False,
-                    "user_id": self.users[0].id,
-                    "work_location_type": False,
-                },
+                self._res_for_employee(self.employees[0]),
             ],
             "res.partner": self._filter_partners_fields(
                 {
@@ -461,7 +454,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             "res.users": self._filter_users_fields(
                 {
                     "all_employee_ids": [],
-                    "employee_ids": [],
                     "id": self.user_root.id,
                     "partner_id": self.partner_root.id,
                     "share": False,
@@ -473,7 +465,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                     "id": user_0.id,
                     "im_status": "online",
                     "im_status_access_token": user_0._get_im_status_access_token(),
-                    "employee_ids": [self.employees[0].id],
                     "is_admin": False,
                     "is_livechat_manager": False,
                     "notification_type": "inbox",
@@ -504,6 +495,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                     "livechat_expertise_ids": [],
                     "livechat_lang_ids": [],
                     "livechat_username": False,
+                    "microsoft_account_email": False,
                     "user_id": {"id": self.users[0].id},
                     "embedded_actions_config_ids": {},
                 },
@@ -708,6 +700,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
         last_interest_dt = fields.Datetime.to_string(channel.last_interest_dt)
         if channel == self.channel_general:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_type": "channel",
                 "create_uid": self.user_root.id,
@@ -731,6 +724,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             }
         if channel == self.channel_channel_public_1:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_type": "channel",
                 "create_uid": self.env.user.id,
@@ -754,6 +748,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             }
         if channel == self.channel_channel_public_2:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_type": "channel",
                 "create_uid": self.env.user.id,
@@ -777,6 +772,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             }
         if channel == self.channel_channel_group_1:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_type": "channel",
                 "create_uid": self.env.user.id,
@@ -803,6 +799,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             }
         if channel == self.channel_channel_group_2:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_type": "channel",
                 "create_uid": self.env.user.id,
@@ -826,6 +823,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             }
         if channel == self.channel_channel_group_4:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_type": "channel",
                 "create_uid": self.env.user.id,
@@ -849,6 +847,7 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
             }
         if channel == self.channel_group_1:
             return {
+                "avatar_128_access_token": channel._get_avatar_128_access_token(),
                 "avatar_cache_key": channel.avatar_cache_key,
                 "channel_name_member_ids": [member_0.id, member_12.id],
                 "channel_type": "group",
@@ -1997,7 +1996,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "online",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2008,7 +2006,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "offline",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2023,7 +2020,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                     "id": user.id,
                     "im_status": "offline",
                     "im_status_access_token": user._get_im_status_access_token(),
-                    "employee_ids": user.employee_ids.ids,
                     "should_display_in_call_im_status": False,
                     "partner_id": partner.id,
                 }
@@ -2033,7 +2029,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "offline",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2045,7 +2040,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "offline",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2057,7 +2051,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "offline",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2069,7 +2062,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "offline",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2081,7 +2073,6 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
                 "id": user.id,
                 "im_status": "offline",
                 "im_status_access_token": user._get_im_status_access_token(),
-                "employee_ids": user.employee_ids.ids,
                 "should_display_in_call_im_status": False,
                 "partner_id": partner.id,
                 "share": False,
@@ -2096,6 +2087,8 @@ class TestDiscussFullPerformance(HttpCase, MailCommon):
 
     def _res_for_employee(self, employee):
         return {
+            "active": employee.active,
+            "company_id": employee.company_id.id,
             "id": employee.id,
             "leave_date_to": False,
             "user_id": employee.user_id.id,

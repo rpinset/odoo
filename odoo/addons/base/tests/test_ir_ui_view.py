@@ -1,4 +1,3 @@
-# -*- coding: utf-8 -*-
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
 import logging
 import re
@@ -17,7 +16,6 @@ from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.tests import common, tagged
 from odoo.addons.base.tests.common import TransactionCaseWithUserDemo
 from odoo.tools import mute_logger, view_validation, safe_eval
-from odoo.tools.cache import get_cache_key_counter
 from odoo.addons.base.models import ir_ui_view
 
 _logger = logging.getLogger(__name__)
@@ -317,17 +315,17 @@ class TestViewInheritance(ViewCase):
         # fetch an extra field on views. You better fetch that extra field with
         # the query of _get_inheriting_views() and manually feed the cache.
         self.env.invalidate_all()
-        with self.assertQueryCount(3):
+        with self.assertQueryCount(2):
             # 1: browse([self.view_ids['A']])
             # 2: _get_inheriting_views: id, inherit_id, mode, groups
-            # 3: _combine: arch_db
             self.view_ids['A'].get_combined_arch()
 
     def test_view_validate_button_action_query_count(self):
+        from odoo.orm.cache import get_cache_key_counter  # noqa: PLC0415
         _, _, counter = get_cache_key_counter(self.env['ir.model.data']._xmlid_lookup, 'base.action_ui_view')
         hit, miss = counter.hit, counter.miss
 
-        with self.assertQueryCount(10):
+        with self.assertQueryCount(6):
             base_view = self.assertValid("""
                 <form string="View">
                     <header>
@@ -349,10 +347,11 @@ class TestViewInheritance(ViewCase):
         self.assertEqual(counter.miss, miss + 2)
 
     def test_view_validate_attrs_groups_query_count(self):
+        from odoo.orm.cache import get_cache_key_counter  # noqa: PLC0415
         _, _, counter = get_cache_key_counter(self.env['ir.model.data']._xmlid_lookup, 'base.group_system')
         hit, miss = counter.hit, counter.miss
 
-        with self.assertQueryCount(6):
+        with self.assertQueryCount(2):
             base_view = self.assertValid("""
                 <form string="View">
                     <field name="name" groups="base.group_system"/>
@@ -4851,7 +4850,6 @@ class TestInvisibleField(TransactionCaseWithUserDemo):
             'account_disallowed_expenses',
             'account_edi',
             'account_edi_proxy_client',
-            'account_edi_ubl_cii',
             'account_external_tax',
             'account_fleet',
             'account_followup',
@@ -4892,7 +4890,6 @@ class TestInvisibleField(TransactionCaseWithUserDemo):
             'delivery_easypost',
             'delivery_fedex',
             'delivery_iot',
-            'delivery_mondialrelay',
             'delivery_sendcloud',
             'delivery_shiprocket',
             'delivery_starshipit',
@@ -4903,7 +4900,6 @@ class TestInvisibleField(TransactionCaseWithUserDemo):
             'documents',
             'documents_account',
             'documents_approvals',
-            'documents_fleet',
             'documents_spreadsheet',
             'event',
             'event_booth',
@@ -4952,7 +4948,6 @@ class TestInvisibleField(TransactionCaseWithUserDemo):
             'hr_timesheet',
             'hr_work_entry',
             'im_livechat',
-            'iot',
             'knowledge',
             'l10n_ae_hr_payroll',
             'l10n_ar',

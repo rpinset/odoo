@@ -1,31 +1,32 @@
 import { useLayoutEffect, useRef } from "@web/owl2/utils";
 import { ScheduledMessage } from "@mail/chatter/web/scheduled_message";
-import { Activity } from "@mail/core/web/activity";
-import { AttachmentList } from "@mail/core/common/attachment_list";
-import { MessageCardList } from "@mail/core/common/message_card_list";
 import { Chatter } from "@mail/chatter/web_portal_project/chatter";
-import { FollowerList } from "@mail/core/web/follower_list";
-import { assignGetter, isDragSourceExternalFile } from "@mail/utils/common/misc";
+import { AttachmentList } from "@mail/core/common/attachment_list";
 import { useAttachmentUploader } from "@mail/core/common/attachment_uploader_hook";
-import { useCustomDropzone } from "@web/core/dropzone/dropzone_hook";
-import { useHover } from "@mail/utils/common/hooks";
+import { usePopoutAttachment } from "@mail/core/common/attachment_view";
 import { MailAttachmentDropzone } from "@mail/core/common/mail_attachment_dropzone";
+import { MessageCardList } from "@mail/core/common/message_card_list";
+import { useMessageSearch } from "@mail/core/common/message_search_hook";
 import { SearchMessageInput } from "@mail/core/common/search_message_input";
 import { SearchMessageResult } from "@mail/core/common/search_message_result";
-import { KeepLast } from "@web/core/utils/concurrency";
-import { status } from "@odoo/owl";
+import { Activity } from "@mail/core/web/activity";
+import { FollowerList } from "@mail/core/web/follower_list";
+import { useHover, useOnChange } from "@mail/utils/common/hooks";
+import { assignGetter, isDragSourceExternalFile } from "@mail/utils/common/misc";
 
-import { _t } from "@web/core/l10n/translation";
+import { props, status, t } from "@odoo/owl";
+
 import { browser } from "@web/core/browser/browser";
 import { Dropdown } from "@web/core/dropdown/dropdown";
-import { FileUploader } from "@web/views/fields/file_handler";
-import { patch } from "@web/core/utils/patch";
 import { useDropdownState } from "@web/core/dropdown/dropdown_hooks";
-import { useService } from "@web/core/utils/hooks";
-import { useMessageSearch } from "@mail/core/common/message_search_hook";
-import { usePopoutAttachment } from "@mail/core/common/attachment_view";
+import { useCustomDropzone } from "@web/core/dropzone/dropzone_hook";
+import { _t } from "@web/core/l10n/translation";
 import { rpc } from "@web/core/network/rpc";
-import { useRecordObserver } from "@web/model/relational_model/utils";
+import { KeepLast } from "@web/core/utils/concurrency";
+import { useService } from "@web/core/utils/hooks";
+import { patch } from "@web/core/utils/patch";
+import { Record } from "@web/model/relational_model/record";
+import { FileUploader } from "@web/views/fields/file_handler";
 
 export const DELAY_FOR_SPINNER = 1000;
 
@@ -41,33 +42,6 @@ Object.assign(Chatter.components, {
     SearchMessageResult,
 });
 
-Chatter.props.push(
-    "close?",
-    "has_activities?",
-    "hasAttachmentPreview?",
-    "hasParentReloadOnActivityChanged?",
-    "hasParentReloadOnAttachmentsChanged?",
-    "hasParentReloadOnFollowersUpdate?",
-    "hasParentReloadOnMessagePosted?",
-    "isAttachmentBoxVisibleInitially?",
-    "isChatterAside?",
-    "isInFormSheetBg?",
-    "saveRecord?",
-    "record?"
-);
-
-Object.assign(Chatter.defaultProps, {
-    has_activities: true,
-    hasAttachmentPreview: false,
-    hasParentReloadOnActivityChanged: false,
-    hasParentReloadOnAttachmentsChanged: false,
-    hasParentReloadOnFollowersUpdate: false,
-    hasParentReloadOnMessagePosted: false,
-    isAttachmentBoxVisibleInitially: false,
-    isChatterAside: false,
-    isInFormSheetBg: true,
-});
-
 /**
  * @type {import("@mail/chatter/web_portal_project/chatter").Chatter }
  * @typedef {Object} Props
@@ -76,13 +50,37 @@ Object.assign(Chatter.defaultProps, {
 const chatterPatch = {
     setup() {
         super.setup(...arguments);
+        this.webChatterProps = props({
+            close: t.function([]).optional(),
+            has_activities: t.boolean().optional(true),
+            hasAttachmentPreview: t.boolean().optional(false),
+            hasParentReloadOnActivityChanged: t.boolean().optional(false),
+            hasParentReloadOnAttachmentsChanged: t.boolean().optional(false),
+            hasParentReloadOnFollowersUpdate: t.boolean().optional(false),
+            hasParentReloadOnMessagePosted: t.boolean().optional(false),
+            isAttachmentBoxVisibleInitially: t.boolean().optional(false),
+            isChatterAside: t.boolean().optional(false),
+            isInFormSheetBg: t.boolean().optional(true),
+            record: t.instanceOf(Record).optional(),
+            saveRecord: t.function([]).optional(),
+        });
         this.orm = useService("orm");
         this.keepLastSuggestedRecipientsUpdate = new KeepLast();
-        useRecordObserver((record) => this.updateRecipients(record));
+        useOnChange(
+            () => {
+                const record = this.webChatterProps.record;
+                // Track the record identity + all of its field changes.
+                if (record?.data) {
+                    Object.keys(record.data).forEach((field) => record.data[field]);
+                }
+                return [record];
+            },
+            (record) => this.updateRecipients(record)
+        );
         this.attachmentPopout = usePopoutAttachment();
         Object.assign(this.state, {
             composerType: false,
-            isAttachmentBoxOpened: this.props.isAttachmentBoxVisibleInitially,
+            isAttachmentBoxOpened: this.webChatterProps.isAttachmentBoxVisibleInitially,
             isSearchOpen: false,
             showActivities: true,
             showAttachmentLoading: false,
@@ -116,7 +114,7 @@ const chatterPatch = {
                     if (isDragSourceExternalFile(ev.dataTransfer)) {
                         const files = [...ev.dataTransfer.files];
                         if (!this.state.thread.id) {
-                            const saved = await this.props.saveRecord?.();
+                            const saved = await this.webChatterProps.saveRecord?.();
                             if (!saved) {
                                 return;
                             }
@@ -124,7 +122,7 @@ const chatterPatch = {
                         Promise.all(
                             files.map((file) => this.attachmentUploader.uploadFile(file))
                         ).then(() => {
-                            if (this.props.hasParentReloadOnAttachmentsChanged) {
+                            if (this.webChatterProps.hasParentReloadOnAttachmentsChanged) {
                                 this.reloadParentView();
                             }
                         });
@@ -151,7 +149,8 @@ const chatterPatch = {
                     this.state.showAttachmentLoading = false;
                     this.state.isAttachmentBoxOpened =
                         this.state.isAttachmentBoxOpened ||
-                        (this.props.isAttachmentBoxVisibleInitially && this.attachments.length > 0);
+                        (this.webChatterProps.isAttachmentBoxVisibleInitially &&
+                            this.attachments.length > 0);
                 }
                 return () => browser.clearTimeout(this.loadingAttachmentTimeout);
             },
@@ -171,8 +170,6 @@ const chatterPatch = {
         if (!record) {
             return;
         }
-        // Hack: Make the useRecordObserver subscribe to the record changes
-        Object.keys(record.data).forEach((field) => record.data[field]);
         const partnerIds = []; // Ensure that we don't have duplicates
         let email;
         (this.state.thread?.partner_fields ?? []).forEach((field) => {
@@ -207,6 +204,7 @@ const chatterPatch = {
             email: result.email,
             partner_id: result.partner_id,
             name: result.name || result.email,
+            recipient_type: result.recipient_type,
         }));
         this.state.thread.additionalRecipients = this.state.thread.additionalRecipients.filter(
             (additionalRecipient) =>
@@ -240,7 +238,7 @@ const chatterPatch = {
 
     get childSubEnv() {
         const res = super.childSubEnv;
-        assignGetter(res.inChatter, { aside: () => this.props.isChatterAside });
+        assignGetter(res.inChatter, { aside: () => this.webChatterProps.isChatterAside });
         Object.assign(res.inChatter, { toggleComposer: this.toggleComposer.bind(this) });
         return res;
     },
@@ -262,10 +260,6 @@ const chatterPatch = {
      */
     get isDisabled() {
         return !this.state.thread.id || !this.state.thread?.hasReadAccess;
-    },
-
-    get onCloseFullComposerRequestList() {
-        return [...super.onCloseFullComposerRequestList, "scheduledMessages"];
     },
 
     get requestList() {
@@ -313,22 +307,22 @@ const chatterPatch = {
     /** @override */
     async load(thread, requestList) {
         await super.load(...arguments);
-        if (!thread.id || !this.state.thread?.eq(thread)) {
+        if (!thread?.id || !this.state.thread?.eq(thread)) {
             return;
         }
-        this.updateRecipients(this.props.record);
+        this.updateRecipients(this.webChatterProps.record);
     },
 
     onActivityChanged(thread) {
         this.load(thread, [...this.requestList, "messages"]);
-        if (this.props.hasParentReloadOnActivityChanged) {
+        if (this.webChatterProps.hasParentReloadOnActivityChanged) {
             this.reloadParentView();
         }
     },
 
     onAddFollowers() {
         this.load(this.state.thread, ["followers", "suggestedRecipients"]);
-        if (this.props.hasParentReloadOnFollowersUpdate) {
+        if (this.webChatterProps.hasParentReloadOnFollowersUpdate) {
             this.reloadParentView();
         }
     },
@@ -339,7 +333,7 @@ const chatterPatch = {
         }
         this.state.isAttachmentBoxOpened = !this.state.isAttachmentBoxOpened;
         if (this.state.isAttachmentBoxOpened) {
-            this.rootRef.el.scrollTop = 0;
+            this.rootRef().scrollTop = 0;
             this.state.thread.scrollTop = "bottom";
         }
     },
@@ -348,7 +342,7 @@ const chatterPatch = {
         if (this.state.thread.id) {
             return;
         }
-        const saved = await this.props.saveRecord?.();
+        const saved = await this.webChatterProps.saveRecord?.();
         if (!saved) {
             return false;
         }
@@ -372,19 +366,23 @@ const chatterPatch = {
         }
     },
 
-    onFollowerChanged() {
+    /** @param {import("models").Thread} thread */
+    onFollowerChanged(thread) {
         document.body.click(); // hack to close dropdown
-        this.reloadParentView();
+        if (thread?.eq(this.state.thread)) {
+            this.reloadParentView();
+        }
     },
 
     onPostCallback() {
-        if (this.props.hasParentReloadOnMessagePosted) {
+        if (this.webChatterProps.hasParentReloadOnMessagePosted) {
             this.reloadParentView();
         }
         this.toggleComposer();
         super.onPostCallback();
     },
 
+    /** @param {import("models").Thread} thread */
     onScheduledMessageChanged(thread) {
         // reload messages as well as a scheduled message could have been sent
         this.load(thread, ["scheduledMessages", "messages"]);
@@ -407,12 +405,12 @@ const chatterPatch = {
                     if (!thread.eq(self.state.thread)) {
                         return;
                     }
-                    if (self.props.hasParentReloadOnAttachmentsChanged) {
+                    if (self.webChatterProps.hasParentReloadOnAttachmentsChanged) {
                         self.reloadParentView();
                     }
                     self.state.isAttachmentBoxOpened = true;
-                    if (self.rootRef.el) {
-                        self.rootRef.el.scrollTop = 0;
+                    if (self.rootRef()) {
+                        self.rootRef().scrollTop = 0;
                     }
                     self.state.thread.scrollTop = "bottom";
                 } finally {
@@ -424,9 +422,9 @@ const chatterPatch = {
     },
 
     async reloadParentView() {
-        await this.props.saveRecord?.();
-        if (this.props.record) {
-            await this.props.record.load();
+        await this.webChatterProps.saveRecord?.();
+        if (this.webChatterProps.record) {
+            await this.webChatterProps.record.load();
         }
     },
 
@@ -435,7 +433,7 @@ const chatterPatch = {
         const schedule = async (thread) => {
             await this.store.scheduleActivity(thread.model, [thread.id]);
             this.load(thread, ["activities", "messages"]);
-            if (this.props.hasParentReloadOnActivityChanged) {
+            if (this.webChatterProps.hasParentReloadOnActivityChanged) {
                 await this.reloadParentView();
             }
         };
@@ -443,7 +441,7 @@ const chatterPatch = {
             schedule(this.state.thread);
         } else {
             this.onThreadCreated = schedule;
-            this.props.saveRecord?.();
+            this.webChatterProps.saveRecord?.();
         }
     },
 
@@ -458,7 +456,7 @@ const chatterPatch = {
                 this.state.composerType = false;
             } else {
                 if (mode === "message") {
-                    await this.updateRecipients(this.props.record, mode);
+                    await this.updateRecipients(this.webChatterProps.record, mode);
                 }
                 this.state.composerType = mode;
             }
@@ -467,7 +465,7 @@ const chatterPatch = {
             toggle();
         } else {
             this.onThreadCreated = toggle;
-            this.props.saveRecord?.();
+            this.webChatterProps.saveRecord?.();
         }
     },
 
@@ -477,7 +475,7 @@ const chatterPatch = {
 
     async unlinkAttachment(attachment) {
         await this.attachmentUploader.unlink(attachment);
-        if (this.props.hasParentReloadOnAttachmentsChanged) {
+        if (this.webChatterProps.hasParentReloadOnAttachmentsChanged) {
             this.reloadParentView();
         }
     },

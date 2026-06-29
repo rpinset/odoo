@@ -87,9 +87,6 @@ def determine(needle, records: BaseModel, *args):
     raise TypeError("Determination requires a callable or method name")
 
 
-_global_seq = itertools.count()
-
-
 class Field[T]:
     """The field descriptor contains the field definition, and manages accesses
     and assignments of the corresponding field on records. The following
@@ -258,7 +255,8 @@ class Field[T]:
     is_text: bool = False               # whether the field is a text type in the database
     falsy_value: T | None = None        # falsy value for comparisons (optional)
 
-    write_sequence: int = 0             # field ordering for write()
+    # Used in _fields_update_order__ to order field updates and inverses.
+    write_sequence: int = 0
     # Database column type (ident, spec) for non-company-dependent fields.
     # Company-dependent fields are stored as jsonb (see column_type).
     _column_type: tuple[str, str] | None = None
@@ -267,11 +265,10 @@ class Field[T]:
     _module: str | None = None          # the field's module name
     _modules: tuple[str, ...] = ()      # modules that define this field
     _setup_done = True                  # whether the field is completely set up
-    _sequence: int                      # absolute ordering of the field
     _base_fields__: tuple[Self, ...] = ()  # the fields defining self, in override order
     _extra_keys__: tuple[str, ...] = ()  # unknown attributes set on the field
-    _direct: bool = False               # whether self may be used directly (shared)
-    _toplevel: bool = False             # whether self is on the model's registry class
+    _shareable: bool = True             # whether self can be shared across registries
+                                        # developers should never override a non shareable field to shareable
 
     inherited: bool = False             # whether the field is inherited (_inherits)
     inherited_field: Field | None = None  # the corresponding inherited field
@@ -319,7 +316,6 @@ class Field[T]:
 
     def __init__(self, string: str | Sentinel = SENTINEL, **kwargs):
         kwargs['string'] = string
-        self._sequence = next(_global_seq)
         self._args__ = frozendict({key: val for key, val in kwargs.items() if val is not SENTINEL})
 
     def __str__(self):
@@ -328,9 +324,7 @@ class Field[T]:
         return "%s.%s" % (self.model_name, self.name)
 
     def __repr__(self):
-        if not self.name:
-            return f"{'<%s.%s>'!r}" % (__name__, type(self).__name__)
-        return f"{'%s.%s'!r}" % (self.model_name, self.name)
+        return repr(str(self))
 
     def __init_subclass__(cls):
         super().__init_subclass__()
@@ -384,7 +378,7 @@ class Field[T]:
     # and are always recreated as toplevel fields.  On those fields, the base
     # setup is useless, because only field._args__ is used for setting up other
     # fields.  We therefore skip the base setup for those fields.  The only
-    # attributes of those fields are: '_sequence', '_args__', 'model_name', 'name'
+    # attributes of those fields are: '_args__', 'model_name', 'name'
     # and '_module', which makes their __dict__'s size minimal.
 
     def __set_name__(self, owner: type[BaseModel], name: str) -> None:
@@ -400,20 +394,22 @@ class Field[T]:
         self.model_name = owner._name
         self.name = name
         if getattr(owner, 'pool', None) is None:  # models.is_model_definition(owner)
-            # only for fields on definition classes, not registry classes
+            assert '_base_fields__' not in self._args__
             self._module = owner._module
             owner._field_definitions.append(self)
-
-        if not self._args__.get('related'):
-            self._direct = True
-        if self._direct or self._toplevel:
+            if self._shareable and (self._args__.get('related') or not self._args__.get('_shareable', True)):
+                self._shareable = False
+            if self._shareable:
+                # non shareable field objects in model definition classes won't be in a model registry class,
+                # skipping setting attributes for them to save memory
+                self._setup_attrs__(owner, name)
+        else:  # model registry class
             self._setup_attrs__(owner, name)
-            if self._toplevel:
-                # free memory from stuff that is no longer useful
-                self.__dict__.pop('_args__', None)
-                if not self.related:
-                    # keep _base_fields__ on related fields for incremental model setup
-                    self.__dict__.pop('_base_fields__', None)
+            # free memory from stuff that is no longer useful
+            self.__dict__.pop('_args__', None)
+            if not self.related:
+                # keep _base_fields__ on related fields for incremental model setup
+                self.__dict__.pop('_base_fields__', None)
 
     #
     # Setup field parameter attributes
@@ -1285,15 +1281,25 @@ class Field[T]:
             raise ValueError(f"Cannot convert {self} to SQL because it is not stored")
         sql_field = SQL.identifier(table._alias, self.name, to_flush=self)
         if self.company_dependent:
-            fallback = self.get_company_dependent_fallback(model)
-            fallback = self.convert_to_column(self.convert_to_write(fallback, model), model)
+            company_id = model.env.context.get('sql_company_id')
+            if isinstance(company_id, SQL):
+                fallback = model.env['ir.default'].sudo()._search([
+                    ('field_id', '=', model.env['ir.model.fields']._get(self.model_name, self.name).id),
+                    ('user_id', 'in', (False, SUPERUSER_ID)),
+                    Domain.custom(to_sql=lambda table: SQL("(%s IS NULL OR %s = %s)", table.company_id, table.company_id, company_id)),
+                    ('condition', '=', False),
+                ], order="user_id.id, company_id.id, id", limit=1).subselect('json_value')
+            else:
+                company_id = str(model.env.company.id)
+                fallback = self.get_company_dependent_fallback(model)
+                fallback = self.convert_to_column(self.convert_to_write(fallback, model), model)
             # in _read_group_orderby the result of field to sql will be mogrified and split to
             # e.g SQL('COALESCE(%s->%s') and SQL('to_jsonb(%s))::boolean') as 2 orderby values
             # and concatenated by SQL(',') in the final result, which works in an unexpected way
             sql_field = SQL(
-                "COALESCE(%(column)s->%(company_id)s,to_jsonb(%(fallback)s::%(column_type)s))",
+                "COALESCE(%(column)s->(%(company_id)s::VARCHAR),to_jsonb(%(fallback)s::%(column_type)s))",
                 column=sql_field,
-                company_id=str(model.env.company.id),
+                company_id=company_id,
                 fallback=fallback,
                 column_type=self.sql_column_type,
             )
@@ -1595,6 +1601,7 @@ class Field[T]:
     # Cache management methods
     #
 
+    @typing.final
     def _get_cache(self, env: Environment) -> MutableMapping[IdType, typing.Any]:
         """ Return the field's cache, i.e., a mutable mapping from record id to
         a cache value.  The cache may be environment-specific.  This mapping is
@@ -1604,12 +1611,10 @@ class Field[T]:
         instance for a given environment, unless the transaction was entirely
         invalidated.
         """
-        try:
-            return env._field_cache_memo[self]
-        except KeyError:
-            field_cache = self._get_cache_impl(env)
-            env._field_cache_memo[self] = field_cache
-            return field_cache
+        field_cache = env._field_cache_memo.get(self)
+        if field_cache is None:
+            env._field_cache_memo[self] = field_cache = self._get_cache_impl(env)
+        return field_cache
 
     def _get_cache_impl(self, env: Environment) -> MutableMapping[IdType, typing.Any]:
         """ Implementation of :meth:`_get_cache`.  This method may provide a
@@ -1731,12 +1736,16 @@ class Field[T]:
             value = self.convert_to_cache(False, record, validate=False)
             return self.convert_to_record(value, record)
 
-        if self.compute and self.store:
+        if self.compute and self.store and env.transaction.tocompute.get(self):
             # process pending computations
             self.recompute(record)
 
+        try:
+            field_cache = env._field_cache_memo[self]
+        except KeyError:
+            field_cache = self._get_cache(env)
+
         record_id = record._ids[0]
-        field_cache = self._get_cache(env)
         try:
             value = field_cache[record_id]
             # convert to record may also throw a KeyError if the value is not

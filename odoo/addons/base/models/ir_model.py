@@ -17,7 +17,6 @@ from odoo import api, fields, models, tools
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.fields import Command, Domain
 from odoo.tools import BinaryBytes, frozendict, reset_cached_properties, split_every, sql, unique, OrderedSet, SQL
-from odoo.tools.func import deprecated
 from odoo.tools.safe_eval import expr_eval, safe_eval, datetime, dateutil, time
 from odoo.tools.translate import FIELD_TRANSLATE, LazyTranslate, _
 
@@ -233,8 +232,7 @@ class IrModel(models.Model):
     inherited_model_ids = fields.Many2many('ir.model', compute='_inherited_models', string="Inherited models",
                                            help="The list of models that extends the current model.")
     state = fields.Selection([('manual', 'Custom'), ('base', 'Base')], string='Type', default='manual', readonly=True)
-    access_ids = fields.One2many('ir.model.access', 'model_id', string='Access')
-    rule_ids = fields.One2many('ir.rule', 'model_id', string='Record Rules')
+    access_ids = fields.One2many('ir.access', 'model_id', string='Access')
     abstract = fields.Boolean(string="Abstract Model")
     transient = fields.Boolean(string="Transient Model")
     modules = fields.Char(compute='_in_modules', string='In Apps', help='List of modules in which the object is defined or inherited')
@@ -323,7 +321,7 @@ class IrModel(models.Model):
         model_id = self._get_id(name) if name else False
         return self.sudo().browse(model_id)
 
-    @tools.ormcache('name', cache='stable')
+    @api.ormcache('name', cache='stable')
     def _get_id(self, name):
         self.env.cr.execute("SELECT id FROM ir_model WHERE model=%s", (name,))
         result = self.env.cr.fetchone()
@@ -435,8 +433,8 @@ class IrModel(models.Model):
             # incremental setup will reload custom models
             self.pool._setup_models__(self.env.cr, [])
         if 'rule_ids' in vals or 'access_ids' in vals:
-            # for env['ir.model.access']._get_all_access_groups
-            self.env.registry.clear_cache('stable')
+            # for env['ir.access']._get_all_access
+            self.env.transaction.invalidate_ormcache('stable')
         return res
 
     @api.model_create_multi
@@ -453,8 +451,8 @@ class IrModel(models.Model):
             # update database schema
             self.pool.init_models(self.env.cr, manual_models, dict(self.env.context, update_custom_fields=True))
         if res:
-            # for env['ir.model.access']._get_all_access_groups
-            self.env.registry.clear_cache('stable')
+            # for env['ir.access']._get_all_access
+            self.env.transaction.invalidate_ormcache('stable')
         return res
 
     @api.model
@@ -902,7 +900,7 @@ class IrModelFields(models.Model):
         field_id = model_name and name and self._get_ids(model_name).get(name)
         return self.sudo().browse(field_id)
 
-    @tools.ormcache('model_name', cache='stable')
+    @api.ormcache('model_name', cache='stable')
     def _get_ids(self, model_name):
         cr = self.env.cr
         cr.execute("SELECT name, id FROM ir_model_fields WHERE model=%s", [model_name])
@@ -1048,6 +1046,7 @@ class IrModelFields(models.Model):
                 pass
 
         # clean the registry from the fields to remove
+        assert self.env.registry is self.pool
         self.env.transaction.will_change_registry()
         self.pool._discard_fields(fields)
 
@@ -1096,9 +1095,10 @@ class IrModelFields(models.Model):
                     vals['model'] = model_from_id
 
         # for self._get_ids() in _update_selection()
-        self.env.registry.clear_cache('stable')
-
+        # we need to invalidate the cache before and after creation of the field
+        self.env.transaction.invalidate_ormcache('stable')
         res = super().create(vals_list)
+        self.env.transaction.invalidate_ormcache('stable')
         models = OrderedSet(res.mapped('model'))
 
         for vals in vals_list:
@@ -1334,7 +1334,7 @@ class IrModelFields(models.Model):
                 data_list.append({'xml_id': xml_id, 'record': record})
         self.env['ir.model.data']._update_xmlids(data_list)
 
-    @tools.ormcache(cache='stable')
+    @api.ormcache(cache='stable')
     def _all_manual_field_data(self):
         cr = self.env.cr
         # we cannot use self._fields to determine translated fields, as it has not been set up yet
@@ -1466,7 +1466,7 @@ class IrModelFields(models.Model):
         return self._get_fields_cached(model_name).get(field_name, {}).get('selection', [])
 
     @api.model
-    @tools.ormcache('model_name', 'self.env.lang', cache='stable')
+    @api.ormcache('model_name', 'self.env.lang', cache='stable')
     def _get_fields_cached(self, model_name):
         """ Return the translated information of all model field's in the context's language.
         Note that the result contains the available translations only.
@@ -2142,151 +2142,6 @@ class IrModelRelation(models.Model):
             cr.execute(query, (table, self.env.uid, self.env.uid, module, model._name))
 
 
-class IrModelAccess(models.Model):
-    _name = 'ir.model.access'
-    _description = 'Model Access'
-    _order = 'model_id,group_id,name,id'
-    _allow_sudo_commands = False
-
-    name = fields.Char(required=True, index=True)
-    active = fields.Boolean(default=True, help='If you uncheck the active field, it will disable the ACL without deleting it (if you delete a native ACL, it will be re-created when you reload the module).')
-    model_id = fields.Many2one('ir.model', string='Model', required=True, index=True, ondelete='cascade')
-    group_id = fields.Many2one('res.groups', string='Group', ondelete='restrict', index=True)
-    perm_read = fields.Boolean(string='Read Access')
-    perm_write = fields.Boolean(string='Write Access')
-    perm_create = fields.Boolean(string='Create Access')
-    perm_unlink = fields.Boolean(string='Delete Access')
-
-    @api.model
-    @tools.ormcache(cache='stable')
-    def _get_all_access_groups(self):
-        """ Return all active access permissions.
-
-        :return: Dict {mode: {model_name: [group_ids]}}
-        """
-        modes = ('read', 'write', 'create', 'unlink')
-        self.flush_model()
-        all_access = self.env.execute_query_dict(SQL(
-            """
-            SELECT m.model, a.group_id, a.perm_read, a.perm_write, a.perm_create, a.perm_unlink
-            FROM ir_model_access a
-            LEFT JOIN ir_model m
-            ON m.id = a.model_id
-            WHERE a.active IS TRUE
-            """
-        ))
-        access_by_mode = {
-            mode: tools.groupby((a for a in all_access if a[f'perm_{mode}']), itemgetter('model'))
-            for mode in modes
-        }
-        return frozendict({
-            mode: frozendict({
-                model: frozenset(a['group_id'] or False for a in model_access)
-                for model, model_access in mode_access
-            })
-            for mode, mode_access in access_by_mode.items()
-        })
-
-    # The context parameter is useful when the method translates error messages.
-    # But as the method raises an exception in that case,  the key 'lang' might
-    # not be really necessary as a cache key, unless the `ormcache`
-    # decorator catches the exception (it does not at the moment.)
-
-    @tools.ormcache('self.env.uid', 'mode')
-    def _get_allowed_models(self, mode='read'):
-        access_by_model = self._get_all_access_groups().get(mode)
-        if not access_by_model:
-            return frozenset()
-        # include False to catch global access rules
-        user_group_ids = {*self.env.user._get_group_ids(), False}
-        return frozenset(
-            model
-            for model, accesses in access_by_model.items()
-            if not user_group_ids.isdisjoint(accesses)
-        )
-
-    @api.model
-    @deprecated("Since 20.0, use Model.has_access")
-    def check(self, model, mode='read', raise_exception=True):
-        if self.env.su:
-            # User root have all accesses
-            return True
-
-        assert isinstance(model, str), 'Not a model name: %s' % (model,)
-
-        if model not in self.env:
-            _logger.error('Missing model %s', model)
-
-        has_access = model in self._get_allowed_models(mode)
-        if not has_access and raise_exception:
-            raise self._make_access_error(model, mode) from None
-        return has_access
-
-    def _make_access_error(self, model: str, mode: str):
-        """ Return the exception corresponding to an access error. """
-        _logger.info('Access Denied by ACLs for operation: %s, uid: %s, model: %s', mode, self.env.uid, model)
-
-        operation_error = str(ACCESS_ERROR_HEADER[mode]) % {
-            'document_kind': self.env['ir.model']._get(model).name or model,
-            'document_model': model,
-        }
-
-        lang = self.env.lang or 'en_US'
-        self.env.cr.execute(f"""
-            SELECT COALESCE(COALESCE(c.name->>%s, c.name->>'en_US') || '/', '') || COALESCE(g.name->>%s, g.name->>'en_US')
-              FROM ir_model_access a
-              JOIN ir_model m ON (a.model_id = m.id)
-              JOIN res_groups g ON (a.group_id = g.id)
-         LEFT JOIN res_groups_privilege c ON (c.id = g.privilege_id)
-             WHERE m.model = %s
-               AND a.active = TRUE
-               AND a.perm_{mode} = TRUE
-          ORDER BY c.name, g.name NULLS LAST
-        """, [lang, lang, model])
-        rows = self.env.cr.fetchall()
-        groups = "\n".join(f"\t- {g}" for (g,) in rows)
-        if groups:
-            group_info = str(ACCESS_ERROR_GROUPS) % {'groups_list': groups}
-        else:
-            group_info = str(ACCESS_ERROR_NOGROUP)
-
-        resolution_info = str(ACCESS_ERROR_RESOLUTION)
-
-        return AccessError(operation_error + "\n\n" + group_info + "\n\n" + resolution_info)
-
-    @api.model
-    def call_cache_clearing_methods(self):
-        self.env.invalidate_all()
-        # for this model caches and implies _get_allowed_models (default) too
-        self.env.registry.clear_cache('stable')
-
-    #
-    # Check rights on actions
-    #
-    @api.model_create_multi
-    def create(self, vals_list):
-        self.call_cache_clearing_methods()
-        for ima in vals_list:
-            if "group_id" in ima and not ima["group_id"] and any([
-                    ima.get("perm_read"),
-                    ima.get("perm_write"),
-                    ima.get("perm_create"),
-                    ima.get("perm_unlink")]):
-                _logger.warning("Rule %s has no group, this is a deprecated feature. Every access-granting rule should specify a group.", ima['name'])
-        return super().create(vals_list)
-
-    def write(self, vals):
-        if any(self._ids):
-            self.call_cache_clearing_methods()
-        return super().write(vals)
-
-    def unlink(self):
-        res = super().unlink()
-        if self:
-            self.call_cache_clearing_methods()
-        return res
-
-
 class IrModelData(models.Model):
     """Holds external identifier keys for records in the database.
        This has two main uses:
@@ -2342,7 +2197,7 @@ class IrModelData(models.Model):
 
     # NEW V8 API
     @api.model
-    @tools.ormcache('xmlid')
+    @api.ormcache('xmlid')
     def _xmlid_lookup(self, xmlid: str) -> tuple[str, int]:
         """Low level xmlid lookup
         Return (res_model, res_id) or raise ValueError if not found
@@ -2393,23 +2248,23 @@ class IrModelData(models.Model):
     def create(self, vals_list):
         res = super().create(vals_list)
         if any(vals.get('model') == 'res.groups' for vals in vals_list):
-            self.env.registry.clear_cache('groups')
+            self.env.transaction.invalidate_ormcache('groups')
         return res
 
     def write(self, vals):
-        self.env.registry.clear_cache()  # _xmlid_lookup
+        self.env.transaction.invalidate_ormcache()  # _xmlid_lookup
         res = super().write(vals)
         if vals.get('model') == 'res.groups' and any(self._ids):
-            self.env.registry.clear_cache('groups')
+            self.env.transaction.invalidate_ormcache('groups')
         return res
 
     def unlink(self):
         """ Regular unlink method, but make sure to clear the caches. """
         clear_groups = self and any(data.model == 'res.groups' for data in self.exists())
         res = super().unlink()
-        self.env.registry.clear_cache()  # _xmlid_lookup
+        self.env.transaction.invalidate_ormcache()  # _xmlid_lookup
         if clear_groups:
-            self.env.registry.clear_cache('groups')
+            self.env.transaction.invalidate_ormcache('groups')
         return res
 
     def _lookup_xmlids(self, xml_ids, model):
@@ -2448,6 +2303,7 @@ class IrModelData(models.Model):
         """
         if not data_list:
             return
+        self.flush_model()
 
         rows = tools.OrderedSet()
         for data in data_list:
@@ -2461,19 +2317,20 @@ class IrModelData(models.Model):
             query = self._build_update_xmlids_query(sub_rows, update)
             try:
                 self.env.cr.execute(query, [arg for row in sub_rows for arg in row])
-                result = self.env.cr.fetchall()
-                if result:
-                    for module, name, model, res_id, create_date, write_date in result:
-                        # small optimisation: during install a lot of xmlid are created/updated.
-                        # Instead of clearing the cache, set the correct value in the cache to avoid a bunch of query
-                        self._xmlid_lookup.__cache__.add_value(self, f"{module}.{name}", cache_value=(model, res_id))
-                        if create_date != write_date:
-                            # something was updated, notify other workers
-                            # it is possible that create_date and write_date
-                            # have the same value after an update if it was
-                            # created in the same transaction, no need to invalidate other worker cache
-                            # cache in this case.
-                            self.env.registry.cache_invalidated.add('default')
+                result = self.env.cr.dictfetchall()
+                for row in result:
+                    # small optimisation: during install a lot of xmlid are created/updated.
+                    # Instead of clearing the cache, set the correct value in the cache to avoid a bunch of query
+                    self._xmlid_lookup.__cache__.add_value(self, f"{row['module']}.{row['name']}", cache_value=(row['model'], row['res_id']))
+                    if row['create_date'] != row['write_date']:
+                        # something was updated, notify other workers
+                        # it is possible that create_date and write_date
+                        # have the same value after an update if it was
+                        # created in the same transaction, no need to invalidate other worker cache
+                        # cache in this case.
+                        self.env.transaction.invalidate_ormcache()
+                    id_ = row.pop('id')
+                    self.browse(id_)._update_cache(row)
 
             except Exception:
                 _logger.error("Failed to insert ir_model_data\n%s", "\n".join(str(row) for row in sub_rows))
@@ -2484,7 +2341,7 @@ class IrModelData(models.Model):
             self.pool.loaded_xmlids.update("%s.%s" % row[:2] for row in rows)
 
         if any(row[2] == 'res.groups' for row in rows):
-            self.env.registry.clear_cache('groups')
+            self.env.transaction.invalidate_ormcache('groups')
 
     # NOTE: this method is overriden in web_studio; if you need to make another
     #  override, make sure it is compatible with the one that is there.
@@ -2509,7 +2366,7 @@ class IrModelData(models.Model):
             DO UPDATE SET (model, res_id, write_date) =
                 (EXCLUDED.model, EXCLUDED.res_id, now() at time zone 'UTC')
                 WHERE (ir_model_data.res_id != EXCLUDED.res_id OR ir_model_data.model != EXCLUDED.model) {and_where}
-            RETURNING module, name, model, res_id, create_date, write_date
+            RETURNING id, module, name, model, res_id, create_date, write_date
         """.format(
             row_names=row_names,
             row_placeholder=row_placeholders,
@@ -2578,7 +2435,7 @@ class IrModelData(models.Model):
             if model is not None:
                 field = model._fields.get(ir_field.name)
                 if field is not None and field.prefetch:
-                    if field._toplevel:
+                    if not field._shareable:
                         # the field is specific to this registry
                         field.prefetch = False
                     else:

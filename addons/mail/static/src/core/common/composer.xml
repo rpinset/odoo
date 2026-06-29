@@ -54,7 +54,7 @@
                         'align-self-stretch' : this.extended,
                         'w-100': this.props.composer.message,
                     }"
-                    t-custom-ref="input-container"
+                    t-ref="this.inputContainerRef"
                 >
                     <div t-if="!this.extended" t-attf-class="{{ actionsContainerClass }}">
                         <t t-if="this.moreActions" t-call="mail.Composer.moreActions"/>
@@ -76,7 +76,7 @@
                                 t-on-focusout="this.onFocusout"
                                 t-on-click="(ev) => this.markEventHandled(ev, 'composer.onClickTextarea')"
                                 t-on-paste="this.onPaste"
-                                t-custom-model="this.props.composer.composerText"
+                                t-model.proxy="this.props.composer.composerText"
                                 t-on-input="(ev) => this.onInput(ev)"
                                 t-att-placeholder="this.placeholder"
                                 t-att-readOnly="!this.state.active or this.props.composer.restoredFromFullComposer"
@@ -206,17 +206,6 @@
             <t t-if="option.thread?.channel?.channel_type === 'channel'">Notify users with this role who have permission to view this channel</t>
             <t t-else="">Notify users with this role</t>
         </em>
-    </t>
-
-    <t t-name="mail.Composer.suggestionChannel">
-        <strong class="px-2 py-1 align-self-center flex-shrink-0 text-truncate">
-            <i t-attf-class="fa #{option.channel?.parent_channel_id ? 'fa-comments-o' : 'fa-hashtag'} me-2"/>
-            <t t-if="option.channel.parent_channel_id">
-                <t t-out="option.channel.parent_channel_id.displayName"/>
-                <i class="oi oi-chevron-right o-xsmaller mx-1"/>
-            </t>
-            <t t-out="option.channel.displayName"/>
-        </strong>
     </t>
 
     <t t-name="mail.Composer.suggestionChannelCommand">

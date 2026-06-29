@@ -166,7 +166,7 @@ class WebsiteVisitorTestsCommon(MockVisitor, HttpCaseWithUserDemo):
         return {
             'lang_id': self.env.ref('base.lang_en').id,
             'country_id': self.env.ref('base.be').id,
-            'website_id': self.ref('website.default_website'),
+            'website_id': self.ref('base.default_website'),
             'access_token': self.partner_admin.id,
             'website_track_ids': [(0, 0, {
                 'page_id': self.tracked_page.id,
@@ -178,7 +178,7 @@ class WebsiteVisitorTestsCommon(MockVisitor, HttpCaseWithUserDemo):
         return {
             'lang_id': self.env.ref('base.lang_en').id,
             'country_id': self.env.ref('base.be').id,
-            'website_id': self.ref('website.default_website'),
+            'website_id': self.ref('base.default_website'),
             'access_token': '%032x' % random.randrange(16**32),
             'website_track_ids': [(0, 0, {
                 'page_id': self.tracked_page_2.id,
@@ -411,13 +411,13 @@ class WebsiteVisitorTests(WebsiteVisitorTestsCommon):
         inactive_visitors = self.env['website.visitor'].create([{
             'lang_id': self.env.ref('base.lang_en').id,
             'country_id': self.env.ref('base.be').id,
-            'website_id': self.ref('website.default_website'),
+            'website_id': self.ref('base.default_website'),
             'last_connection_datetime': datetime.now() - timedelta(days=8),
             'access_token': 'f9d2b14b21be669518b14a9590cb62ed',
         }, {
             'lang_id': self.env.ref('base.lang_en').id,
             'country_id': self.env.ref('base.be').id,
-            'website_id': self.ref('website.default_website'),
+            'website_id': self.ref('base.default_website'),
             'last_connection_datetime': datetime.now() - timedelta(days=15),
             'access_token': 'f9d2d261a725da7f596574ca84e52f47',
         }])
@@ -425,13 +425,13 @@ class WebsiteVisitorTests(WebsiteVisitorTestsCommon):
         active_visitors = self.env['website.visitor'].create([{
             'lang_id': self.env.ref('base.lang_en').id,
             'country_id': self.env.ref('base.be').id,
-            'website_id': self.ref('website.default_website'),
+            'website_id': self.ref('base.default_website'),
             'last_connection_datetime': datetime.now() - timedelta(days=1),
             'access_token': 'f9d2526d9c15658bdc91d2119e54b554',
         }, {
             'lang_id': self.env.ref('base.lang_en').id,
             'country_id': self.env.ref('base.be').id,
-            'website_id': self.ref('website.default_website'),
+            'website_id': self.ref('base.default_website'),
             'partner_id': self.partner_demo.id,
             'last_connection_datetime': datetime.now() - timedelta(days=15),
             'access_token': self.partner_demo.id,
@@ -680,7 +680,7 @@ class TestPortalWizardMultiWebsites(HttpCase):
         partner_specific_current_website = self.env['res.partner'].create({
             'name': 'partner_specific_current_website',
             'email': self.email_address,
-            'website_id': self.env['website'].get_current_website().id,
+            'website_id': self.env.ref('base.default_website').id,
         })
         portal_user_specific_current_website = self._create_portal_user(partner_specific_current_website)
         portal_user_specific_current_website.action_grant_access()
@@ -693,5 +693,6 @@ class TestPortalWizardMultiWebsites(HttpCase):
         created
         """
         portal_wizard = self.env['portal.wizard'].with_context(
+            website_id=self.env.ref('base.default_website').id,
             active_ids=[partner.id]).create({})
         return portal_wizard.user_ids

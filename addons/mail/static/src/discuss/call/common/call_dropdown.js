@@ -1,8 +1,8 @@
 import { toggleFn } from "@mail/utils/common/signal";
 
-import { Component, signal } from "@odoo/owl";
+import { Component, props, signal, t, useListener } from "@odoo/owl";
 
-import { useExternalListener, useLayoutEffect, useRef, useSubEnv } from "@web/owl2/utils";
+import { useLayoutEffect, useRef, useSubEnv } from "@web/owl2/utils";
 import { useNavigation } from "@web/core/navigation/navigation";
 import { usePosition } from "@web/core/position/position_hook";
 import { getFirstElementOfNode } from "@web/core/dropdown/dropdown";
@@ -13,23 +13,15 @@ import { getFirstElementOfNode } from "@web/core/dropdown/dropdown";
  */
 export class CallDropdown extends Component {
     static template = "discuss.CallDropdown";
-    static props = {
-        position: { type: String, optional: true },
-        class: { type: String, optional: true },
-        menuClass: { type: String, optional: true },
-        slots: { optional: true },
-        openByDefault: { type: Boolean, optional: true },
-        state: { type: Object, optional: true },
-    };
-    static defaultProps = {
-        position: "bottom",
-        class: "",
-        menuClass: "",
-        openByDefault: false,
-    };
 
     setup() {
         super.setup();
+        this.props = props({
+            class: t.string().optional(""),
+            menuClass: t.string().optional(""),
+            openByDefault: t.boolean().optional(false),
+            position: t.string().optional("bottom"),
+        });
         this.menuRef = useRef("menu");
         this.isOpen = signal(this.props.openByDefault);
         usePosition("menu", () => this.triggerRef.el, {
@@ -37,8 +29,8 @@ export class CallDropdown extends Component {
             margin: 4,
             flip: true,
         });
-        useExternalListener(this.window, "click", this.onClickAway, { capture: true });
-        useExternalListener(this.window, "keydown", this.onKeydown);
+        useListener(this.window, "click", (ev) => this.onClickAway(ev), { capture: true });
+        useListener(this.window, "keydown", (ev) => this.onKeydown(ev));
         useSubEnv({ inCallDropdown: { close: () => this.close() } });
         this.navigation = useNavigation(this.menuRef, {
             isNavigationAvailable: () => this.isOpen(),

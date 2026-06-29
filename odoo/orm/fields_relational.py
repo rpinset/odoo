@@ -49,11 +49,14 @@ class _Relational(Field[BaseModel]):
         env.su or self in env._field_access_memo or records.check_field_access(self, 'read')
 
         # multi-record case
-        if self.compute and self.store:
+        if self.compute and self.store and env.transaction.tocompute.get(self):
             self.recompute(records)
 
         # get the cache
-        field_cache = self._get_cache(env)
+        try:
+            field_cache = env._field_cache_memo[self]
+        except KeyError:
+            field_cache = self._get_cache(env)
 
         # retrieve values in cache, and fetch missing ones
         vals = []
@@ -279,6 +282,8 @@ class Many2one(_Relational):
         #    this is considered a programming error.
         if not self.ondelete:
             comodel = model.env[self.comodel_name]
+            # Safe to update shared fields' attributes
+            # because _check_model_extension guarantees model_cls._transient is not overridable.
             if model.is_transient() and not comodel.is_transient():
                 # Many2one relations from TransientModel Model are annoying because
                 # they can block deletion due to foreign keys. So unless stated
@@ -409,6 +414,13 @@ class Many2one(_Relational):
 
         # discard the records that are not modified
         cache_value = self.convert_to_cache(value, records)
+
+        if self.bypass_search_access and not records.env.su:
+            try:
+                records.env[self.comodel_name].browse(cache_value).check_access('read')
+            except AccessError as e:
+                raise AccessError(records.env._("Failed to write field %s", self) + "\n" + str(e)) from e
+
         records = self._filter_not_equal(records, cache_value)
         if not records:
             return
@@ -522,7 +534,9 @@ class Many2one(_Relational):
                 sql = self._condition_to_sql_company(table, sql, field_expr, operator, value)
             if can_be_null:
                 if positive:
-                    sql = SQL("(%s IS NOT NULL AND %s)", sql_field, sql)
+                    # PERF: Explicitly rejecting NULLs on the joined primary key allows PostgreSQL
+                    # to reduce the LEFT JOIN to an INNER JOIN and potentially choose a better plan.
+                    sql = SQL("(%s IS NOT NULL AND %s IS NOT NULL AND %s)", sql_field, cotable.id, sql)
                 else:
                     sql = SQL("(%s IS NULL OR %s)", sql_field, sql)
             return sql
@@ -585,6 +599,7 @@ class Many2one(_Relational):
 
 class _RelationalMulti(_Relational):
     r"Abstract class for relational fields \*2many."
+    # X2many fields must be written last, because they flush other fields when deleting lines.
     write_sequence = 20
 
     # Important: the cache contains the ids of all the records in the relation,
@@ -1341,6 +1356,8 @@ class Many2many(_RelationalMulti):
                         "table is not possible when source and destination models " \
                         "are the same" % self
                     self.relation = '%s_%s_rel' % tuple(tables)
+                # Safe to update shared fields' attributes
+                # because _check_model_extension guarantees model_cls._table is not overridable.
                 if not self.column1:
                     self.column1 = '%s_id' % model._table
                 if not self.column2:

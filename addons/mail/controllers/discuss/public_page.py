@@ -20,7 +20,7 @@ class PublicPageController(http.Controller):
         type="http",
         auth="public",
     )
-    def discuss_channel_chat_from_token(self, create_token, channel_name=None):
+    def discuss_channel_chat_from_token(self, create_token, channel_name=None, fullscreen=None):
         return self._response_discuss_channel_from_token(create_token=create_token, channel_name=channel_name)
 
     @mail_route(
@@ -32,13 +32,13 @@ class PublicPageController(http.Controller):
         type="http",
         auth="public",
     )
-    def discuss_channel_meet_from_token(self, create_token, channel_name=None):
+    def discuss_channel_meet_from_token(self, create_token, channel_name=None, fullscreen=None):
         return self._response_discuss_channel_from_token(
             create_token=create_token, channel_name=channel_name, default_display_mode="video_full_screen"
         )
 
     @mail_route("/chat/<int:channel_id>/<string:invitation_token>", methods=["GET"], type="http", auth="public")
-    def discuss_channel_invitation(self, channel_id, invitation_token, email_token=None):
+    def discuss_channel_invitation(self, channel_id, invitation_token, email_token=None, fullscreen=None):
         guest_email = email_token and verify_hash_signed(
             self.env(su=True), "mail.invite_email", email_token
         )
@@ -51,7 +51,7 @@ class PublicPageController(http.Controller):
         return self._response_discuss_channel_invitation(store, channel, guest_email)
 
     @mail_route("/discuss/channel/<int:channel_id>", methods=["GET"], type="http", auth="public")
-    def discuss_channel(self, channel_id, *, highlight_message_id=None, fullscreen=None):
+    def discuss_channel(self, channel_id, *, debug=None, highlight_message_id=None, fullscreen=None):
         # highlight_message_id and fullscreen are used JS side by parsing the query string
         channel = request.env["discuss.channel"].search([("id", "=", channel_id)])
         if not channel:

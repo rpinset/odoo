@@ -55,7 +55,7 @@ class PaymentTransaction(models.Model):
         # Handle the payment request response
         payment_data = {"reference": self.reference}
         StripeController._include_payment_intent_in_payment_data(payment_intent, payment_data)
-        self._process("stripe", payment_data)
+        self._record(payment_data)
 
     def _stripe_create_intent(self):
         """Create and return a PaymentIntent or a SetupIntent object, depending on the operation.
@@ -79,7 +79,9 @@ class PaymentTransaction(models.Model):
                     ),
                 )
         except ValidationError as error:
-            self._set_error(str(error))
+            self.with_context(
+                payment_safe_write=True  # API request failed; safe to replay
+            )._set_error(str(error))
             intent = None
         else:
             intent = response
@@ -240,7 +242,7 @@ class PaymentTransaction(models.Model):
         # Process the refund request response.
         payment_data = {}
         StripeController._include_refund_in_payment_data(data, payment_data)
-        self._process("stripe", payment_data)
+        self._record(payment_data)
 
     def _send_capture_request(self):
         """Override of `payment` to send a capture request to Stripe."""
@@ -255,7 +257,7 @@ class PaymentTransaction(models.Model):
         # Process the capture request response.
         payment_data = {"reference": self.reference}
         StripeController._include_payment_intent_in_payment_data(payment_intent, payment_data)
-        self._process("stripe", payment_data)
+        self._record(payment_data)
 
     def _send_void_request(self):
         """Override of `payment` to send a void request to Stripe."""
@@ -270,7 +272,7 @@ class PaymentTransaction(models.Model):
         # Process the void request response.
         payment_data = {"reference": self.reference}
         StripeController._include_payment_intent_in_payment_data(payment_intent, payment_data)
-        self._process("stripe", payment_data)
+        self._record(payment_data)
 
     @api.model
     def _search_by_reference(self, provider_code, payment_data):
@@ -316,7 +318,7 @@ class PaymentTransaction(models.Model):
             payment_method_type = payment_method.get("type")
             if self.payment_method_id.code == payment_method_type == "card":
                 payment_method_type = payment_data["payment_method"]["card"]["brand"]
-            payment_method = self.env["payment.method"]._get_from_code(
+            payment_method = self.provider_id._get_pm_from_code(
                 payment_method_type, mapping=const.PAYMENT_METHODS_MAPPING
             )
             self.payment_method_id = payment_method or self.payment_method_id

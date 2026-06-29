@@ -4,15 +4,14 @@ import operator as py_operator
 from ast import literal_eval
 from collections import defaultdict
 from collections.abc import Iterable
+from datetime import date, datetime, time
 from dateutil.relativedelta import relativedelta
-from datetime import datetime
 
 from odoo import _, api, fields, models
 from odoo.exceptions import UserError
 from odoo.fields import Domain
 from odoo.tools import SQL
 from odoo.tools.barcode import check_barcode_encoding
-from odoo.tools.mail import html2plaintext, is_html_empty
 
 PY_OPERATORS = {
     '<': py_operator.lt,
@@ -159,9 +158,12 @@ class ProductProduct(models.Model):
         domain_quant = [('product_id', 'in', self.ids)] + domain_quant_loc
         dates_in_the_past = False
         # only to_date as to_date will correspond to qty_available
+        original_value = to_date
         to_date = fields.Datetime.to_datetime(to_date)
-        if to_date and to_date.time() == datetime.min.time():
-            to_date = datetime.combine(to_date, datetime.max.time())
+        if (isinstance(original_value, date) and not isinstance(original_value, datetime)) or \
+            (isinstance(original_value, str) and len(original_value) == 10):
+            to_date = datetime.combine(to_date.date(), time.max)
+
         if to_date and to_date < fields.Datetime.now():
             dates_in_the_past = True
 
@@ -208,7 +210,7 @@ class ProductProduct(models.Model):
         quants_res = {product.id: (quantity, reserved_quantity) for product, quantity, reserved_quantity in Quant._read_group(domain_quant, ['product_id'], ['quantity:sum', 'reserved_quantity:sum'])}
         expired_unreserved_quants_res = {}
         if self.env.context.get('with_expiration'):
-            max_date = self.env.context['to_date'] if self.env.context.get('to_date') else self.env.context['with_expiration']
+            max_date = self.env.context['to_date'] if self.env.context.get('to_date') and self.env.context.get('fresh_qty_forecast') else self.env.context['with_expiration']
             domain_quant += [('removal_date', '<=', max_date)]
             expired_unreserved_quants_res = {product.id: quantity - reserved_quantity for product, quantity, reserved_quantity in Quant._read_group(domain_quant, ['product_id'], ['quantity:sum', 'reserved_quantity:sum'])}
         moves_in_res_past = defaultdict(float)
@@ -284,13 +286,15 @@ class ProductProduct(models.Model):
         incoming_moves = self.env['stock.move.line']._read_group([
                 ('product_id', 'in', self.ids),
                 ('state', '=', 'done'),
-                ('picking_code', '=', 'incoming'),
+                ('location_id.warehouse_id', '=', False),
+                ('location_dest_id.warehouse_id', '!=', False),
                 ('date', '>=', fields.Datetime.now() - relativedelta(years=1))
             ], ['product_id'], ['__count'])
         outgoing_moves = self.env['stock.move.line']._read_group([
                 ('product_id', 'in', self.ids),
                 ('state', '=', 'done'),
-                ('picking_code', '=', 'outgoing'),
+                ('location_id.warehouse_id', '!=', False),
+                ('location_dest_id.warehouse_id', '=', False),
                 ('date', '>=', fields.Datetime.now() - relativedelta(years=1))
             ], ['product_id'], ['__count'])
         res_incoming = {product.id: count for product, count in incoming_moves}
@@ -313,16 +317,9 @@ class ProductProduct(models.Model):
         return []
 
     def _get_description(self, picking_type_id):
-        """
-            Return product description based on the picking type:
-            * For outgoing pickings, we always use the product name.
-            * For all other pickings, we try to use the product description (if one has been set),
-              otherwise we fall back to the product name.
-        """
+        """ Hook function meant to be overridden. """
         self.ensure_one()
-        if picking_type_id.code == 'outgoing':
-            return self.display_name
-        return html2plaintext(self.description) if not is_html_empty(self.description) else self.display_name
+        return self.display_name
 
     def _get_picking_description(self, picking_type_id):
         """
@@ -816,7 +813,7 @@ class ProductTemplate(models.Model):
         help="Ensure the traceability of a storable product in your warehouse.")
     lot_sequence_id = fields.Many2one(
         'ir.sequence', 'Serial/Lot Numbers Sequence', default=lambda self: self.env.ref('stock.sequence_production_lots', raise_if_not_found=False),
-        help='Technical Field: The Ir.Sequence record that is used to generate serial/lot numbers for this product')
+        help='Technical Field: The Ir.Sequence record that is used to generate serial/lot numbers for this product', index='btree_not_null')
     serial_prefix_format = fields.Char(
         'Custom Lot/Serial', compute='_compute_serial_prefix_format', inverse='_inverse_serial_prefix_format',
         help=SERIAL_PREFIX_FORMAT_HELP_TEXT)
@@ -923,13 +920,15 @@ class ProductTemplate(models.Model):
         incoming_moves = self.env['stock.move.line']._read_group([
                 ('product_id.product_tmpl_id', 'in', self.ids),
                 ('state', '=', 'done'),
-                ('picking_code', '=', 'incoming'),
+                ('location_id.warehouse_id', '=', False),
+                ('location_dest_id.warehouse_id', '!=', False),
                 ('date', '>=', fields.Datetime.now() - relativedelta(years=1))
             ], ['product_id'], ['__count'])
         outgoing_moves = self.env['stock.move.line']._read_group([
                 ('product_id.product_tmpl_id', 'in', self.ids),
                 ('state', '=', 'done'),
-                ('picking_code', '=', 'outgoing'),
+                ('location_id.warehouse_id', '!=', False),
+                ('location_dest_id.warehouse_id', '=', False),
                 ('date', '>=', fields.Datetime.now() - relativedelta(years=1))
             ], ['product_id'], ['__count'])
         for product, count in incoming_moves:

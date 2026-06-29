@@ -14,8 +14,6 @@ This module introduces skills and resume management for employees.
         """,
     'depends': ['hr'],
     'data': [
-        'security/ir.model.access.csv',
-        'security/hr_skills_security.xml',
         'views/hr_views.xml',
         'views/hr_job_views.xml',
         'views/hr_job_skill_views.xml',
@@ -30,6 +28,7 @@ This module introduces skills and resume management for employees.
         'views/hr_department_views.xml',
         'views/hr_employee_cv_templates.xml',
         'wizard/hr_employee_cv_wizard_views.xml',
+        'security/ir.access.csv',
     ],
     'demo': [
         'data/hr_skill_demo.xml',
@@ -39,6 +38,9 @@ This module introduces skills and resume management for employees.
         'data/hr.employee.skill.csv',
         'data/hr_employee_skill_demo.xml',
         'data/hr.resume.line.csv',
+    ],
+    'other_files': [
+        'data/scenarios/hr_skills_scenario.xml',
     ],
     'auto_install': True,
     'application': True,

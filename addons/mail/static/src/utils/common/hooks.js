@@ -1,6 +1,17 @@
-import { Component, onMounted, onPatched, onWillUnmount, proxy, xml } from "@odoo/owl";
+import {
+    Component,
+    onMounted,
+    onPatched,
+    onWillUnmount,
+    props,
+    proxy,
+    types,
+    untrack,
+    useEffect,
+    xml,
+} from "@odoo/owl";
 
-import { useComponent, useLayoutEffect, useRef, useSubEnv } from "@web/owl2/utils";
+import { useComponent, useLayoutEffect, useRef } from "@web/owl2/utils";
 import { Reactive } from "@web/core/utils/reactive";
 
 import { CallPermissionDeniedDialog } from "@mail/discuss/call/common/call_permission_denied_dialog";
@@ -49,6 +60,7 @@ export function useLazyExternalListener(target, eventName, handler, eventParams)
 export function onExternalClick(refOrName, cb) {
     let downTarget, upTarget;
     const ref = typeof refOrName === "string" ? useRef(refOrName) : refOrName;
+    let targetDocument = document;
     function onClick(ev) {
         if (ref.el && !ref.el.contains(ev.composedPath()[0])) {
             cb(ev, { downTarget, upTarget });
@@ -62,14 +74,15 @@ export function onExternalClick(refOrName, cb) {
         upTarget = ev.target;
     }
     onMounted(() => {
-        document.body.addEventListener("mousedown", onMousedown, true);
-        document.body.addEventListener("mouseup", onMouseup, true);
-        document.body.addEventListener("click", onClick, true);
+        targetDocument = ref.el?.ownerDocument || document;
+        targetDocument.body.addEventListener("mousedown", onMousedown, true);
+        targetDocument.body.addEventListener("mouseup", onMouseup, true);
+        targetDocument.body.addEventListener("click", onClick, true);
     });
     onWillUnmount(() => {
-        document.body.removeEventListener("mousedown", onMousedown, true);
-        document.body.removeEventListener("mouseup", onMouseup, true);
-        document.body.removeEventListener("click", onClick, true);
+        targetDocument.body.removeEventListener("mousedown", onMousedown, true);
+        targetDocument.body.removeEventListener("mouseup", onMouseup, true);
+        targetDocument.body.removeEventListener("click", onClick, true);
     });
 }
 
@@ -89,7 +102,6 @@ export function onExternalClick(refOrName, cb) {
  * @param {() => Array} [param1.stateObserver] when provided, function that, when called, returns list of
  *   reactive state related to presence of targets' el. This is used to help the hook detect when the targets
  *   are removed from DOM, to properly mark the hovered target as non-hovered.
- * @returns {({ isHover: boolean })}
  */
 export function useHover(refNames, { onHover, onAway, stateObserver, onHovering } = {}) {
     refNames = Array.isArray(refNames) ? refNames : [refNames];
@@ -235,11 +247,18 @@ export function useHover(refNames, { onHover, onAway, stateObserver, onHovering 
 }
 
 export class UseHoverOverlay extends Component {
-    static props = ["slots", "hover"];
     static template = xml`<div t-custom-ref="root"><t t-call-slot="default"/></div>`;
 
     setup() {
         super.setup();
+        this.props = props({
+            hover: types.object({
+                _contains: types.array(
+                    types.function([types.instanceOf(EventTarget)], types.boolean())
+                ),
+                addTarget: types.function([types.object({ ref: types.any() })], types.function([])),
+            }),
+        });
         this.root = useRef("root");
         const overlayContains = this.env[OVERLAY_SYMBOL].contains;
         let removeTarget;
@@ -342,8 +361,9 @@ export function useOnBottomScrolled(refName, callback, threshold = 1) {
  * @param {string} refName
  * @param {function} [cb]
  */
-export function useVisible(refName, cb, { ready = true } = {}) {
-    const ref = useRef(refName);
+export function useVisible(refOrName, cb, { ready = true } = {}) {
+    const ref = typeof refOrName === "string" ? useRef(refOrName) : refOrName;
+    const getEl = () => ("el" in ref ? ref.el : ref());
     const state = proxy({
         isVisible: undefined,
         ready,
@@ -365,7 +385,7 @@ export function useVisible(refName, cb, { ready = true } = {}) {
                 };
             }
         },
-        () => [ref.el, state.ready]
+        () => [getEl(), state.ready]
     );
     return state;
 }
@@ -472,27 +492,33 @@ export function useMessageScrolling({
     return state;
 }
 
+export class MessageSelectionState {
+    selectedMessageId;
+    data = new Set();
+
+    clearSelected() {
+        this.data.delete(this.selectedMessageId);
+    }
+
+    /** @param {import("models").Message} message */
+    isSelected(message) {
+        return this.data.has(message.id);
+    }
+
+    /** @param {import("models").Message} message */
+    setSelected(message) {
+        this.clearSelected();
+        this.data.add(message.id);
+        this.selectedMessageId = message.id;
+    }
+
+    get size() {
+        return this.data.size;
+    }
+}
+
 export function useMessageSelection() {
-    let selectedMessageId;
-    const data = proxy(new Set());
-    return {
-        clearSelected() {
-            data.delete(selectedMessageId);
-        },
-        /** @param {import("models").Message} message */
-        isSelected(message) {
-            return data.has(message.id);
-        },
-        /** @param {import("models").Message} message */
-        setSelected(message) {
-            this.clearSelected();
-            data.add(message.id);
-            selectedMessageId = message.id;
-        },
-        get size() {
-            return data.size;
-        },
-    };
+    return proxy(new MessageSelectionState());
 }
 
 export function useMicrophoneVolume() {
@@ -787,8 +813,18 @@ export function useSequential() {
     };
 }
 
-export function useDiscussSystray() {
+/** @param {import("@web/core/dropdown/dropdown_hooks").DropdownState} [dropdownState] */
+export function useDiscussSystray(dropdownState) {
     const ui = useService("ui");
+    if (dropdownState) {
+        useEffect(() => {
+            if (dropdownState.isOpen) {
+                document.body.classList.add("o-mail-discuss-systray-menu-open");
+            } else {
+                document.body.classList.remove("o-mail-discuss-systray-menu-open");
+            }
+        });
+    }
     return {
         class: "o-mail-DiscussSystray-class",
         get contentClass() {
@@ -908,18 +944,6 @@ export function useLongPress(ref, { action, predicate = () => true } = {}) {
     );
 }
 
-export const inDiscussCallViewProps = ["isPip?"];
-export function useInDiscussCallView() {
-    const component = useComponent();
-    useSubEnv({
-        inDiscussCallView: {
-            get isPip() {
-                return component.props.isPip;
-            },
-        },
-    });
-}
-
 /** @typedef {import("@web/core/utils/hooks").useChildRef} useChildRef */
 
 /**
@@ -972,4 +996,21 @@ export class UseForwardRefsToParent {
  */
 export function useForwardRefsToParent(propName, getRefIdFn, ref) {
     new UseForwardRefsToParent(propName, getRefIdFn, ref);
+}
+
+/**
+ * @template {readonly any[]} [T=any[]]
+ * @param {(...deps: T) => void} callback
+ * @param {Object} [options]
+ * @param {boolean} [options.initialRun=true] determine if the hook should skip the first run
+ */
+export function useOnChange(dependencies, callback, { initialRun } = { initialRun: true }) {
+    let firstRun = true;
+    useEffect(() => {
+        const dep = dependencies();
+        if (initialRun || !firstRun) {
+            untrack(() => callback(...dep));
+        }
+        firstRun = false;
+    });
 }

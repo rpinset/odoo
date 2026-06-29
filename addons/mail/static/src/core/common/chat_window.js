@@ -1,15 +1,16 @@
-import { useChildSubEnv, useRef, useSubEnv } from "@web/owl2/utils";
+import { useChildSubEnv, useSubEnv } from "@web/owl2/utils";
 import { ActionList } from "@mail/core/common/action_list";
 import { Composer } from "@mail/core/common/composer";
 import { DiscussAvatar } from "@mail/core/common/discuss_avatar";
 import { Thread } from "@mail/core/common/thread";
 import { AutoresizeInput } from "@mail/core/common/autoresize_input";
 import { CountryFlag } from "@mail/core/common/country_flag";
+import { RenameThreadPlugin } from "@mail/core/common/rename_thread_plugin";
 import { useThreadActions } from "@mail/core/common/thread_actions";
 import { useHover, useMessageScrolling } from "@mail/utils/common/hooks";
 import { isEventHandled } from "@web/core/utils/misc";
 
-import { Component, computed, proxy } from "@odoo/owl";
+import { Component, computed, plugin, props, providePlugins, proxy, signal, t } from "@odoo/owl";
 
 import { Dropdown } from "@web/core/dropdown/dropdown";
 import { localization } from "@web/core/l10n/localization";
@@ -19,12 +20,6 @@ import { Typing } from "@mail/discuss/typing/common/typing";
 import { getActiveHotkey } from "@web/core/hotkeys/hotkey_service";
 import { isMobileOS } from "@web/core/browser/feature_detection";
 
-/**
- * @typedef {Object} Props
- * @property {import("models").ChatWindow} chatWindow
- * @property {boolean} [right]
- * @extends {Component<Props, Env>}
- */
 export class ChatWindow extends Component {
     static components = {
         ActionList,
@@ -36,22 +31,26 @@ export class ChatWindow extends Component {
         AutoresizeInput,
         Typing,
     };
-    static props = ["chatWindow", "right?"];
     static template = "mail.ChatWindow";
 
     setup() {
-        super.setup();
-        useSubEnv({ inChatWindow: true });
+        super.setup(...arguments);
         this.store = useService("mail.store");
+        this.props = props({
+            chatWindow: t.instanceOf(this.store.ChatWindow.Class),
+            right: t.number().optional(),
+        });
+        useSubEnv({ inChatWindow: true });
         this.messageHighlight = useMessageScrolling({ thread: () => this.channel?.thread });
+        providePlugins([RenameThreadPlugin]);
+        this.editingName = plugin(RenameThreadPlugin).editingName;
         this.state = proxy({
             actionsMenuOpened: false,
             jumpThreadPresent: 0,
             editingGuestName: false,
-            editingName: false,
         });
         this.ui = useService("ui");
-        this.contentRef = useRef("content");
+        this.chatWindowContentRef = signal.ref(HTMLDivElement);
         this.threadActions = useThreadActions({ thread: () => this.channel?.thread });
         this.actionsMenuButtonHover = useHover("actionsMenuButton");
         this.parentChannelHover = useHover("parentChannel");
@@ -124,8 +123,8 @@ export class ChatWindow extends Component {
                 ) {
                     return;
                 }
-                if (this.state.editingName) {
-                    this.state.editingName = false;
+                if (this.editingName()) {
+                    this.editingName.set(false);
                     return;
                 }
                 this.close({ escape: true });
@@ -151,7 +150,7 @@ export class ChatWindow extends Component {
     onClickHeader(ev) {
         if (
             this.ui.isSmall ||
-            this.state.editingName ||
+            this.editingName() ||
             this.props.chatWindow.actionsDisabled ||
             isEventHandled(ev, "Action.onSelected")
         ) {
@@ -177,7 +176,7 @@ export class ChatWindow extends Component {
 
     async renameChannel(name) {
         await this.channel.rename(name);
-        this.state.editingName = false;
+        this.editingName.set(false);
     }
 
     async renameGuest(name) {

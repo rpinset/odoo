@@ -29,6 +29,7 @@ import { getActiveHotkey } from "@web/core/hotkeys/hotkey_service";
 import { isHtmlContentSupported } from "@html_editor/core/selection_plugin";
 import { BG_CLASSES_REGEX } from "@html_editor/utils/color";
 import { getElementHoveredEdge } from "@html_editor/utils/perspective_utils";
+import { rgbaToHex } from "@web/core/utils/colors";
 
 export const BORDER_SENSITIVITY = 5;
 
@@ -66,7 +67,7 @@ function isUnremovableTableComponent(node, root) {
  */
 
 /**
- * @typedef {((el: HTMLElement) => void)[]} deselect_custom_selected_nodes_processors
+ * @typedef {((el: HTMLElement) => HTMLElement)[]} deselect_custom_selected_nodes_processors
  */
 
 /**
@@ -115,6 +116,7 @@ export class TablePlugin extends Plugin {
                 isAvailable: isHtmlContentSupported,
             },
         ],
+        toolbar_groups: withSequence(25, { id: "table" }),
 
         /** Providers */
         toolbar_namespace_providers: [
@@ -126,6 +128,10 @@ export class TablePlugin extends Plugin {
         ],
         color_target_providers: (node) => closestElement(node, ".o_selected_td"),
         overlay_selection_target_rect_providers: this.getTableSelectionRangeRect.bind(this),
+        selected_background_color_providers: withSequence(
+            5,
+            this.computeBackgroundColorForTable.bind(this)
+        ),
 
         /** Resizing Parameters */
         resizing_parameters: [
@@ -147,7 +153,7 @@ export class TablePlugin extends Plugin {
         ],
 
         /** Handlers */
-        on_selectionchange_handlers: this.updateSelectionTable.bind(this),
+        on_selectionchange_handlers: withSequence(5, this.updateSelectionTable.bind(this)),
         on_will_break_line_handlers: this.resetTableSelection.bind(this),
         on_will_split_block_handlers: this.resetTableSelection.bind(this),
 
@@ -155,6 +161,7 @@ export class TablePlugin extends Plugin {
         before_insert_processors: this.handleTableInsert.bind(this),
         clean_for_save_processors: (root) => {
             this.deselectTable(root);
+            return root;
         },
         normalize_processors: this.normalizeTable.bind(this),
         clipboard_content_processors: this.processContentForClipboard.bind(this),
@@ -430,6 +437,7 @@ export class TablePlugin extends Plugin {
                 table.style.backgroundColor = "";
             }
         }
+        return root;
     }
 
     createTable({ rows = 2, cols = 2 } = {}) {
@@ -528,7 +536,7 @@ export class TablePlugin extends Plugin {
                 }
             }
             if (colgroup) {
-                const newcol = document.createElement("col");
+                const newcol = this.document.createElement("col");
                 const children = colgroup.children;
                 const currentCol = children[gridCellIndex];
                 newcol.style.width = currentCol.style.width;
@@ -1379,6 +1387,10 @@ export class TablePlugin extends Plugin {
             } else {
                 ev.preventDefault();
                 this.selectTableCells(this.dependencies.selection.getEditableSelection());
+                // For an empty cell with a div inside, we need to use setSelection to trigger the selectionchange event.
+                this.dependencies.selection.setSelection(
+                    this.dependencies.selection.getEditableSelection()
+                );
             }
             return;
         }
@@ -1582,6 +1594,13 @@ export class TablePlugin extends Plugin {
                     // to keep it selected.
                     this._isFirefoxDoubleMousedown = true;
                 }
+                if (ev.detail === 2) {
+                    // Specifically for double click on empty cell, to trigger
+                    // selectionchange event and update the toolbar button states.
+                    this.dependencies.selection.setSelection(
+                        this.dependencies.selection.getEditableSelection()
+                    );
+                }
                 if (ev.detail === 3) {
                     // Doing a tripleclick on a text will change the selection.
                     // In such case updateSelectionTable should not do anything.
@@ -1639,13 +1658,9 @@ export class TablePlugin extends Plugin {
         const startTd = closestElement(selection.startContainer, isTableCell);
         const endTd = closestElement(selection.endContainer, isTableCell);
         if (startTd && startTd === endTd && !isProtected(startTd) && !isProtecting(startTd)) {
-            const selectedNodes = this.dependencies.selection
-                .getTargetedNodes()
-                .filter(this.dependencies.selection.areNodeContentsFullySelected);
             const cellContents = descendants(startTd);
-            const areCellContentsFullySelected = cellContents
-                .filter((d) => !isBlock(d))
-                .every((child) => selectedNodes.includes(child));
+            const areCellContentsFullySelected =
+                this.dependencies.selection.areNodeContentsFullySelected(startTd);
             if (areCellContentsFullySelected) {
                 const SENSITIVITY = 5;
                 if (!this._mouseMovePositionWhenAllContentsSelected) {
@@ -1831,6 +1846,33 @@ export class TablePlugin extends Plugin {
                 }
             }
         }
+    }
+
+    computeBackgroundColorForTable() {
+        const selectedTds = Array.from(this.editable.querySelectorAll(".o_selected_td"));
+        if (selectedTds.length === 0) {
+            return null;
+        }
+
+        const firstStyle = getComputedStyle(selectedTds[0]);
+        const backgroundColor = firstStyle.backgroundColor;
+        const backgroundImage = firstStyle.backgroundImage;
+        // If the first selected cell doesn't have any background style, we
+        // consider that there's no common background style.
+        if (backgroundImage === "none" && backgroundColor === "rgba(0, 0, 0, 0)") {
+            return null;
+        }
+
+        const allSameStyle = selectedTds.slice(1).every((td) => {
+            const s = getComputedStyle(td);
+            return s.backgroundColor === backgroundColor && s.backgroundImage === backgroundImage;
+        });
+
+        if (!allSameStyle) {
+            return "#00000000";
+        }
+
+        return backgroundImage !== "none" ? backgroundImage : rgbaToHex(backgroundColor);
     }
 
     adjustTargetedNodes(targetedNodes) {

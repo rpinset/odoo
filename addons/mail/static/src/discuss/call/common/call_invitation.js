@@ -9,13 +9,12 @@ import {
 } from "@mail/discuss/call/common/call_actions";
 import { CallPreview } from "@mail/discuss/call/common/call_preview";
 
-import { Component, proxy } from "@odoo/owl";
+import { Component, props, proxy, types } from "@odoo/owl";
 
 import { _t } from "@web/core/l10n/translation";
 import { useService } from "@web/core/utils/hooks";
 
 export class CallInvitation extends Component {
-    static props = ["channel"];
     static template = "discuss.CallInvitation";
     static components = { ActionList, CallPreview };
 
@@ -23,6 +22,9 @@ export class CallInvitation extends Component {
         super.setup();
         this.rtc = useService("discuss.rtc");
         this.store = useService("mail.store");
+        this.props = props({
+            channel: types.instanceOf(this.store["discuss.channel"].Class),
+        });
         this.ui = useService("ui");
         this.state = proxy({
             activateCamera: 0,
@@ -34,12 +36,15 @@ export class CallInvitation extends Component {
         useSubEnv({ inCallInvitation: true });
     }
 
-    joinCall() {
+    async joinCall() {
         this.props.channel.open({ focus: true });
-        this.rtc.toggleCall(this.props.channel, {
+        await this.rtc.toggleCall(this.props.channel, {
             audio: this.state.hasMicrophone,
             camera: this.state.hasCamera,
         });
+        if (this.props.channel.default_display_mode === "video_full_screen") {
+            await this.rtc.enterFullscreen();
+        }
     }
 
     get acceptOrRejectActions() {

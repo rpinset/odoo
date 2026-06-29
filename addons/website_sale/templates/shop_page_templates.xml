@@ -190,6 +190,8 @@
                     (opt_wsale_categories and categories)
                     or (opt_wsale_attributes and (attributes or all_tags or opt_wsale_filter_price))
                     or show_price_filter
+                    or show_on_sale_filter
+                    or show_in_stock_filter
                 "
             />
 
@@ -232,7 +234,7 @@
                             class="d-none d-lg-block position-sticky align-self-start col clearfix pt-2"
                         >
                             <t t-call="website_sale.sidebar_dropzone_at_top"/>
-                            <div class="o_wsale_products_grid_before_rail vh-100 ms-n2 px-lg-2 ps-2 overflow-y-scroll">
+                            <div class="o_wsale_products_grid_before_rail ms-n2 px-lg-2 ps-2 overflow-y-scroll">
                                 <t
                                     t-set="is_sidebar_collapsible"
                                     t-value="is_view_active('website_sale.products_categories_list_collapsible')"
@@ -244,14 +246,23 @@
                                 >
                                     <t t-call="website_sale.products_categories_list"/>
                                 </div>
-                                <div
-                                    t-if="attrib_values or tags or (
-                                        show_price_filter and isFilteringByPrice
+                                <t
+                                    t-set="has_active_filters"
+                                    t-value="(
+                                        attrib_values
+                                        or tags
+                                        or (show_on_sale_filter and on_sale_active)
+                                        or (show_in_stock_filter and in_stock_active)
+                                        or (show_price_filter and isFilteringByPrice)
                                     )"
-                                    class="py-3 border-bottom"
-                                >
+                                />
+                                <div t-if="has_active_filters" class="py-3 border-bottom">
                                     <a
-                                        t-att-href="keep(**reset_attribute_value_params, tags=0, min_price=0, max_price=0)"
+                                        t-att-href="keep(
+                                            **reset_attribute_value_params, tags=0,
+                                            min_price=0, max_price=0,
+                                            on_sale=0, in_stock=0,
+                                        )"
                                         t-attf-class="btn btn-{{navClass}} d-flex align-items-center py-1"
                                         title="Clear Filters"
                                     >
@@ -268,6 +279,12 @@
                                     _classes.f="{{is_sidebar_collapsible and 'accordion accordion-flush'}} {{is_sidebar_collapsible and (opt_wsale_categories or len(attributes) > 0) and 'border-top'}}"
                                 >
                                 </t>
+                                <div
+                                    t-if="show_on_sale_filter or show_in_stock_filter"
+                                    class="d-flex flex-wrap gap-2 py-3 border-top"
+                                >
+                                    <t t-call="website_sale.ribbon_filter_pills"/>
+                                </div>
                                 <t t-call="website_sale.sidebar_dropzone_at_bottom"/>
                             </div>
                         </aside>
@@ -326,12 +343,11 @@
                                         <span t-field="category.name"/>
                                     </t>
                                 </h1>
-                                <h1
-                                    class="o_wsale_shop_title h4-fs"
-                                    t-if="not category and not search"
-                                >
-                                    All products
-                                </h1>
+                                <div class="o_wsale_shop_title" t-if="not category and not search">
+                                    <h1 class="h4-fs">
+                                        All products
+                                    </h1>
+                                </div>
                                 <t t-if="category">
                                     <t t-set='editor_msg'>
                                         Drag blocks here to customize the header of
@@ -846,7 +862,7 @@
                         t-attf-id="o_wsale_offcanvas_attribute_{{a.id}}_header"
                     >
                         <button
-                            t-attf-class="o_wsale_offcanvas_title accordion-button rounded-0 {{'' if _expand_attributes else 'collapsed'}}"
+                            t-attf-class="o_wsale_offcanvas_title accordion-button px-4 bg-transparent shadow-none {{'' if _expand_attributes else 'collapsed'}}"
                             type="button"
                             data-bs-toggle="collapse"
                             t-attf-data-bs-target="#o_wsale_offcanvas_attribute_{{a.id}}"
@@ -947,9 +963,6 @@
     <template id="website_sale.o_wsale_offcanvas" name="Offcanvas">
         <aside id="o_wsale_offcanvas"
                class="o_website_offcanvas offcanvas offcanvas-end p-0">
-            <div class="offcanvas-header justify-content-end">
-                <button type="button" class="btn-close" data-bs-dismiss="offcanvas" aria-label="Close"/>
-            </div>
             <div id="o_wsale_offcanvas_content" class="accordion accordion-flush flex-grow-1 overflow-auto">
                 <!-- Show sorting only if it's not avavailbe in the topbar already -->
                 <div t-if="not is_view_active('website_sale.sort')" class="accordion-item">
@@ -1025,14 +1038,50 @@
                    _classes.f="o_wsale_offcanvas_title accordion accordion-flush"
                    _classes_title.f="ms-n1 pt-3 pb-2"
                    isOffcanvas="True"/>
+                <div
+                    t-if="show_on_sale_filter or show_in_stock_filter"
+                    class="d-flex flex-wrap gap-2 px-4 py-3 border-top"
+                >
+                    <t t-call="website_sale.ribbon_filter_pills"/>
+                </div>
             </div>
-            <div class="offcanvas-body d-flex justify-content-between flex-grow-0 flex-shrink-0 border-top overflow-hidden">
-                <a t-attf-class="btn btn-{{navClass}} d-flex py-1 mb-2 {{(not attrib_values and not isFilteringByPrice and not tags) and 'disabled' }}"
-                   t-att-aria-disabled="(not attrib_values and not isFilteringByPrice and not tags) and 'true' or 'false'"
-                   t-att-href="keep(**reset_attribute_value_params, tags=0, min_price=0, max_price=0)"
-                   title="Clear Filters">
+            <div class="offcanvas-body d-flex flex-column flex-grow-0 overflow-hidden">
+                <t
+                    t-set="has_active_filters"
+                    t-value="(
+                        attrib_values
+                        or tags
+                        or (show_on_sale_filter and on_sale_active)
+                        or (show_in_stock_filter and in_stock_active)
+                        or isFilteringByPrice
+                    )"
+                />
+                <a
+                    t-attf-class="btn btn-link w-100 py-1 mb-2 {{not has_active_filters and 'disabled'}}"
+                    t-att-aria-disabled="'true' if not has_active_filters else 'false'"
+                    t-att-href="keep(
+                        **reset_attribute_value_params, tags=0,
+                        min_price=0, max_price=0,
+                        on_sale=0, in_stock=0,
+                    )"
+                    title="Clear Filters"
+                >
                     Clear Filters
                 </a>
+                <button
+                    id="o_wsale_apply_filters_btn"
+                    class="btn btn-primary w-100"
+                    type="button"
+                    data-bs-dismiss="offcanvas"
+                >
+                    Apply Filters
+                    <span
+                        id="o_wsale_offcanvas_product_count"
+                        class="badge rounded-pill bg-o-color-3 text-o-color-1"
+                    >
+                        <t t-out="search_count"/>
+                    </span>
+                </button>
             </div>
         </aside>
     </template>
@@ -1557,6 +1606,30 @@
                 <label class="form-check-label fw-normal" t-attf-for="tag_#{tag.id}" t-field="tag.name"/>
             </div>
         </t>
+    </template>
+
+    <template id="website_sale.ribbon_filter_pills" name="Ribbon Filter Pills">
+        <t
+            t-set="active_pill_class"
+            t-value="'btn border active bg-primary-subtle border-primary text-primary-emphasis'"
+        />
+        <t t-set="inactive_pill_class" t-value="'btn border'"/>
+        <a
+            t-if="show_on_sale_filter"
+            t-att-href="keep(on_sale=0 if on_sale_active else 1)"
+            t-att-class="active_pill_class if on_sale_active else inactive_pill_class"
+            aria-label="Filter by on sale products"
+        >
+            On sale
+        </a>
+        <a
+            t-if="show_in_stock_filter"
+            t-att-href="keep(in_stock=0 if in_stock_active else 1)"
+            t-att-class="active_pill_class if in_stock_active else inactive_pill_class"
+            aria-label="Filter by in stock products"
+        >
+            In stock
+        </a>
     </template>
 
     <!-- Enable HTML previews in edition mode. The template is active by default, but can be

@@ -520,7 +520,7 @@ class HrApplicant(models.Model):
         domains = []
         # Map statuses to domain filters
         if 'refused' in value:
-            domains.append([('active', '=', True), ('refuse_reason_id', '!=', None)])
+            domains.append([('active', '=', False), ('refuse_reason_id', '!=', None)])
         if 'hired' in value:
             domains.append([('active', '=', True), ('date_closed', '!=', False)])
         if 'archived' in value or False in value:
@@ -875,7 +875,7 @@ class HrApplicant(models.Model):
             "type": "ir.actions.act_window",
             "res_model": "job.add.applicants",
             "target": "new",
-            "views": [[False, "form"]],
+            "views": [[self.env.ref('hr_recruitment.job_add_applicants_view_form').id, "form"]],
             "context": {
                 "is_modal": True,
                 "default_applicant_ids": self.ids
@@ -978,7 +978,7 @@ class HrApplicant(models.Model):
         res._compute_partner_phone_email()
         return res
 
-    def _message_post_after_hook(self, message, msg_vals):
+    def _message_post_after_hook(self, message):
         if self.email_from and not self.partner_id:
             # we consider that posting a message with a specified recipient (not a follower, a specific one)
             # on a document without customer means that it was created through the chatter using
@@ -999,7 +999,7 @@ class HrApplicant(models.Model):
                 self.search([
                     ('partner_id', '=', False), email_domain, ('stage_id.fold', '=', False)
                 ]).write({'partner_id': new_partner[0].id})
-        return super()._message_post_after_hook(message, msg_vals)
+        return super()._message_post_after_hook(message)
 
     def create_employee_from_applicant(self):
         """ Create an employee from applicant """
@@ -1099,18 +1099,6 @@ class HrApplicant(models.Model):
         res = super(HrApplicant, self.with_context(just_unarchived=True)).action_unarchive()
         self.reset_applicant()
         return res
-
-    def action_send_email(self):
-        return {
-            'name': _('Send Email'),
-            'type': 'ir.actions.act_window',
-            'target': 'new',
-            'view_mode': 'form',
-            'res_model': 'applicant.send.mail',
-            'context': {
-                'default_applicant_ids': self.ids,
-            }
-        }
 
     def _get_duration_from_tracking(self, trackings):
         json = super()._get_duration_from_tracking(trackings)

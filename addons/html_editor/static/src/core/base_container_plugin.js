@@ -217,11 +217,12 @@ export class BaseContainerPlugin extends Plugin {
                 baseContainer.removeAttribute("class");
             }
         }
+        return root;
     }
 
     normalizeDivBaseContainers(element = this.editable) {
         if (this.config.baseContainers && !this.config.baseContainers.includes("DIV")) {
-            return;
+            return element;
         }
         const newBaseContainers = [];
         const targets = selectElements(element, `div:not(.${BASE_CONTAINER_CLASS})`);
@@ -241,10 +242,11 @@ export class BaseContainerPlugin extends Plugin {
                 div.classList.add(BASE_CONTAINER_CLASS);
                 newBaseContainers.push(div);
                 if (!div.hasChildNodes()) {
-                    const br = document.createElement("br");
+                    const br = this.document.createElement("br");
                     div.appendChild(br);
                 }
             }
         }
+        return element;
     }
 }

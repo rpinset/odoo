@@ -1,3 +1,5 @@
+import { waitUntilSubscribe } from "@bus/../tests/bus_test_helpers";
+
 import {
     click,
     contains,
@@ -5,8 +7,6 @@ import {
     insertText,
     mockGetMedia,
     openDiscuss,
-    patchUiSize,
-    SIZES,
     start,
     startServer,
 } from "@mail/../tests/mail_test_helpers";
@@ -15,7 +15,7 @@ import { pttExtensionServiceInternal } from "@mail/discuss/call/common/ptt_exten
 import { PTT_RELEASE_DURATION } from "@mail/discuss/call/common/rtc_service";
 import { makeRecordFieldLocalId } from "@mail/model/misc";
 import { toRawValue } from "@mail/utils/common/local_storage";
-import { advanceTime, freezeTime, keyDown, mockTouch, mockUserAgent, test } from "@odoo/hoot";
+import { advanceTime, freezeTime, keyDown, test } from "@odoo/hoot";
 import { patchWithCleanup } from "@web/../tests/web_test_helpers";
 import { browser } from "@web/core/browser/browser";
 
@@ -28,7 +28,7 @@ test("no auto-call on joining chat", async () => {
     pyEnv["res.users"].create({ partner_id: partnerId });
     await start();
     await openDiscuss();
-    await click("input[placeholder='Search conversations']");
+    await click("input[placeholder='Search']");
     await contains(".o_command_name", { count: 2 });
     await insertText(
         ".o_command_palette_search input[placeholder='Search conversations']",
@@ -51,7 +51,7 @@ test("no auto-call on joining group chat", async () => {
     pyEnv["res.users"].create([{ partner_id: partnerId_1 }, { partner_id: partnerId_2 }]);
     await start();
     await openDiscuss();
-    await click("input[placeholder='Search conversations']");
+    await click("input[placeholder='Search']");
     await click(".o_command_name:text(Mario)");
     await contains(".o-mail-DiscussContent-threadName[title='Mario']");
     await click("[title='Invite People']");
@@ -60,35 +60,6 @@ test("no auto-call on joining group chat", async () => {
     await contains(".o-mail-DiscussSidebar-item:contains('Mario, and Luigi')");
     await contains(".o-mail-Message", { count: 0 });
     await contains(".o-discuss-Call", { count: 0 });
-});
-
-test.tags("mobile");
-test("show Push-to-Talk button on mobile", async () => {
-    mockGetMedia();
-    mockTouch(true);
-    mockUserAgent("android");
-    const pyEnv = await startServer();
-    const channelId = pyEnv["discuss.channel"].create({ name: "General" });
-    patchWithCleanup(pttExtensionServiceInternal, {
-        onAnswerIsEnabled(pttService) {
-            pttService.isEnabled = false;
-        },
-    });
-    patchUiSize({ size: SIZES.SM });
-    await start();
-    await openDiscuss(channelId);
-    await click(".o-mail-ChatWindow-moreActions:text('General')");
-    await click(".o-dropdown-item:text('Start Call')");
-    // dropdown requires an extra delay before click (because handler is registered in useEffect)
-    await contains("[title='Open Actions Menu']");
-    await click("[title='Open Actions Menu']");
-    await click(".o-dropdown-item:text('Voice & Video Settings')");
-    await click("label[aria-label='Enable Push-to-talk']");
-    // dropdown requires an extra delay before click (because handler is registered in useEffect)
-    await contains("[title='Open Actions Menu']");
-    await click("[title='Open Actions Menu']");
-    await click(".o-dropdown-item:text('Voice & Video Settings')");
-    await contains("button:text('Push-to-talk')");
 });
 
 test.tags("desktop");
@@ -110,9 +81,18 @@ test("Can push-to-talk", async () => {
         },
     });
     freezeTime();
-    await start();
+    // Time is frozen, so the websocket subscription cannot complete on its own.
+    // The worker connection handshake reschedules a timer on each step and the
+    // subscribe is debounced, so advance in small steps to flush it, then await
+    // it before driving the call so the rest of the test does not race it.
+    let isSubscribed = false;
+    const subscribed = waitUntilSubscribe().then(() => (isSubscribed = true));
+    await start({ waitUntilSubscribe: false });
     await openDiscuss(channelId);
-    await advanceTime(1000);
+    while (!isSubscribed) {
+        await advanceTime(100);
+    }
+    await subscribed;
     await click("[title='Start Call']");
     await advanceTime(1000);
     await contains(".o-discuss-Call");

@@ -94,14 +94,6 @@ class PaymentTransaction(models.Model):
 
         return payment_data.get("MerchantTradeNo")
 
-    def _extract_amount_data(self, payment_data):
-        """Override of `payment` to extract the amount and currency from the payment data."""
-        if self.provider_code != "ecpay":
-            return super()._extract_amount_data(payment_data)
-
-        amount = float(payment_data.get("TradeAmt"))
-        return {"amount": amount, "currency_code": self.currency_id.name}
-
     def _apply_updates(self, payment_data):
         """Override of `payment` to update the transaction based on the payment data."""
         if self.provider_code != "ecpay":
@@ -112,7 +104,7 @@ class PaymentTransaction(models.Model):
 
         # Update the payment method.
         payment_method_code = payment_data.get("PaymentType")
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             payment_method_code, mapping=const.PAYMENT_METHODS_RESPONSE_MAPPING
         )
         self.payment_method_id = payment_method or self.payment_method_id
@@ -133,3 +125,11 @@ class PaymentTransaction(models.Model):
                     return_message=return_message,
                 )
             )
+
+    def _extract_amount_data(self, payment_data):
+        """Override of `payment` to extract the amount and currency from the payment data."""
+        if self.provider_code != "ecpay":
+            return super()._extract_amount_data(payment_data)
+
+        amount = float(payment_data.get("TradeAmt"))
+        return {"amount": amount, "currency_code": self.currency_id.name}

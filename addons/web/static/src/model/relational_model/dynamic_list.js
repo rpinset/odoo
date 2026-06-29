@@ -1,7 +1,7 @@
 import { ConfirmationDialog } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { _t } from "@web/core/l10n/translation";
 import { ConnectionLostError } from "@web/core/network/rpc";
-import { x2ManyCommands } from "@web/core/orm_service";
+import { x2ManyCommands } from "@web/core/orm_plugin";
 import { unique } from "@web/core/utils/arrays";
 import { DataPoint } from "./datapoint";
 import { Operation } from "./operation";
@@ -292,7 +292,7 @@ export class DynamicList extends DataPoint {
                         extras: getScheduleORMExtras(this.model, records),
                     }
                 );
-                this._unSelectAll();
+                this._unselectAll();
                 return true;
             }
             throw e;
@@ -501,7 +501,7 @@ export class DynamicList extends DataPoint {
                         extras: getScheduleORMExtras(this.model, records),
                     }
                 );
-                this._unSelectAll();
+                this._unselectAll();
                 return true;
             }
             throw e;
@@ -543,9 +543,13 @@ export class DynamicList extends DataPoint {
         }
     }
 
-    _unSelectAll() {
+    unselectAll() {
+        return this.model.mutex.exec(() => this._unselectAll());
+    }
+
+    _unselectAll() {
         this.selection.forEach((record) => {
-            record.toggleSelection(false);
+            record._toggleSelection(false);
         });
         this._selectDomain(false);
     }

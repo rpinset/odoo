@@ -50,7 +50,7 @@ class TestTOTPMixin:
             return token
         # because not preprocessed by ControllerType metaclass
         totp_hook.routing_type = 'json'
-        self.env.registry.clear_cache('routing')
+        self.env.transaction.invalidate_ormcache('routing')
         # patch Home to add test endpoint
         Home.totp_hook = http.route('/totphook', type='jsonrpc', auth='none')(totp_hook)
 
@@ -66,7 +66,7 @@ class TestTOTPMixin:
         def _cleanup():
             del Home.totp_hook
             auth_TOTP.match = origin_match
-            self.env.registry.clear_cache('routing')
+            self.env.transaction.invalidate_ormcache('routing')
 
 
 @tagged('post_install', '-at_install')
@@ -120,11 +120,6 @@ class TestTOTP(TestTOTPMixin, HttpCase):
 
     def test_totp_administration(self):
         self.start_tour('/odoo', 'totp_tour_setup', login='test_user')
-        # If not enabled (like in demo data), landing on res.config will try
-        # to disable module_sale_quotation_builder and raise an issue
-        group_order_template = self.env.ref('sale_management.group_sale_order_template', raise_if_not_found=False)
-        if group_order_template:
-            self.env.ref('base.group_user').write({"implied_ids": [(4, group_order_template.id)]})
         self.start_tour('/odoo', 'totp_admin_disables', login='admin')
         self.start_tour('/', 'totp_login_disabled', login=None)
 

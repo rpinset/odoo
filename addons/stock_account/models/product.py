@@ -1,5 +1,5 @@
 # Part of Odoo. See LICENSE file for full copyright and licensing details.
-from datetime import datetime
+from datetime import date, datetime, time
 from collections import defaultdict
 
 from odoo import api, fields, models, _
@@ -33,11 +33,6 @@ class ProductTemplate(models.Model):
         compute='_compute_lot_valuated', store=True, readonly=False,
         help="If checked, the valuation will be specific by Lot/Serial number.",
     )
-    # TODO remove in master
-    property_price_difference_account_id = fields.Many2one(
-        'account.account', 'Price Difference Account', company_dependent=True, ondelete='restrict',
-        check_company=True,
-        help="""With perpetual valuation, this account will hold the price difference between the standard price and the bill price.""")
 
     def _search_valuation(self, operator, value):
         if operator != '=':
@@ -182,23 +177,31 @@ class ProductProduct(models.Model):
         std_price_by_company_id = {}
         total_value_by_company_id = {}
         lot_valuated_products_ids = {p.id for p in self if p.lot_valuated}
+
+        products = self._with_valuation_context()
+        at_date = self.env.context.get('to_date')
+        original_value = at_date
+        at_date = fields.Datetime.to_datetime(at_date)
+        if (isinstance(original_value, date) and not isinstance(original_value, datetime)) or \
+            (isinstance(original_value, str) and len(original_value) == 10):
+            at_date = datetime.combine(at_date.date(), time.max)
+
+        if at_date:
+            products = products.with_context(at_date=at_date, to_date=at_date)
         for company in self.env.companies:
             std_price_by_product_id = defaultdict(float)
             total_value_by_product_id = defaultdict(float)
 
             products = self.with_company(company.id).with_context(allowed_company_ids=company.ids)
             products = products._with_valuation_context()
-
-            at_date = fields.Datetime.to_datetime(self.env.context.get('to_date'))
             if at_date:
-                at_date = at_date.replace(hour=23, minute=59, second=59)
-                products = products.with_context(at_date=at_date)
+                products = products.with_context(at_date=at_date, to_date=at_date)
 
             env = products.env
 
             if lot_valuated_products_ids:
                 domain = Domain([('product_id', 'in', lot_valuated_products_ids)])
-                if not self.env.context.get('warehouse_id'):
+                if not at_date and not self.env.context.get('warehouse_id'):
                     domain &= Domain([('product_qty', '!=', 0)])
                 lots_by_product = env['stock.lot']._read_group(
                     domain,
@@ -259,7 +262,7 @@ class ProductProduct(models.Model):
             total_value_by_company_id[company.id] = total_value_by_product_id
 
         for product in self:
-            product.total_value = sum(total_value_by_company_id[c.id].get(product.id, 0) for c in self.env.companies)
+            product.total_value = sum(c.currency_id._convert(total_value_by_company_id[c.id].get(product.id, 0), self.env.company.currency_id) for c in self.env.companies)
             product.avg_cost = product.total_value / product._with_valuation_context().qty_available if product._with_valuation_context().qty_available else std_price_by_company_id[self.env.company.id].get(product.id, product.standard_price)
 
     @api.model_create_multi
@@ -349,7 +352,9 @@ class ProductProduct(models.Model):
         return last_in
 
     def _with_valuation_context(self):
-        valued_locations = self.env['stock.location'].search([('is_valued_internal', '=', True)])
+        valued_locations = self.env['stock.location'].with_context(active_test=False).search(
+            [('is_valued_internal', '=', True)]
+        )
         return self.with_context(location=valued_locations.ids, strict=True, owners=[False, self.env.company.partner_id.id])
 
     def _get_remaining_moves(self):
@@ -402,7 +407,7 @@ class ProductProduct(models.Model):
 
         last_manual_value_by_product = self._get_last_product_value(at_date, lot=lot)
         oldest_manual_value = min(pv.date for pv in last_manual_value_by_product.values()) if last_manual_value_by_product else False
-        if oldest_manual_value:
+        if oldest_manual_value and self.env['product.product'].concat(last_manual_value_by_product.keys()) == self:
             moves_domain &= Domain([('date', '>=', oldest_manual_value)])
 
         for manual_value in last_manual_value_by_product.values():

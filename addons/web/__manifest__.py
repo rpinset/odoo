@@ -12,8 +12,6 @@ This module provides the core of the Odoo Web Client.
     'depends': ['base'],
     'auto_install': True,
     'data': [
-        'security/ir.model.access.csv',
-        'security/web_security.xml',
         'views/webclient_templates.xml',
         'views/report_templates.xml',
         'views/base_document_layout_views.xml',
@@ -25,6 +23,7 @@ This module provides the core of the Odoo Web Client.
         'views/ir_ui_view_views.xml',
         'data/ir_attachment.xml',
         'data/report_layout.xml',
+        'security/ir.access.csv',
     ],
     'assets': {
         # ---------------------------------------------------------------------
@@ -383,10 +382,6 @@ This module provides the core of the Odoo Web Client.
 
             ('include', 'web._assets_primary_variables'),
             ('include', 'web._assets_secondary_variables'),
-        ],
-        'web._assets_jquery': [
-            'web/static/lib/jquery/jquery.js',
-            'web/static/src/legacy/js/libs/jquery.js',
         ],
         'web._assets_bootstrap': [
             'web/static/src/scss/import_bootstrap.scss',

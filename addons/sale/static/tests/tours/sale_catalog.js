@@ -97,5 +97,5 @@ registry.category("web_tour.tours").add('test_add_section_from_product_catalog_o
             run: 'click',
         },
         ...addSectionFromProductCatalog(),
-    ]
+    ],
 });

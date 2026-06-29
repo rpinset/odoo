@@ -5,6 +5,8 @@ from collections import defaultdict
 from odoo import api, fields, models
 from odoo.exceptions import ValidationError
 
+from odoo.addons.sale.models.res_company import SALE_INVOICE_POLICY
+
 
 class ProductTemplate(models.Model):
     _inherit = "product.template"
@@ -39,7 +41,7 @@ class ProductTemplate(models.Model):
     )
     sales_count = fields.Float(string="Sold", compute="_compute_sales_count", digits="Product Unit")
     invoice_policy = fields.Selection(
-        selection=[("order", "Ordered quantities"), ("delivery", "Delivered quantities")],
+        selection=SALE_INVOICE_POLICY,
         string="Invoicing Policy",
         compute="_compute_invoice_policy",
         precompute=True,
@@ -65,7 +67,8 @@ class ProductTemplate(models.Model):
         "Delivery Time",
         default=0,
         company_dependent=True,
-        help="Delivery lead time, in days. It's the number of days, promised to the customer, between the confirmation of the sales order and the delivery.",
+        help="Delivery lead time, in days. It's the number of days, promised to the customer,"
+        " between the confirmation of the sales order and the delivery.",
     )
 
     @api.depends("invoice_policy", "sale_ok", "service_tracking")
@@ -205,7 +208,11 @@ class ProductTemplate(models.Model):
 
     @api.depends("type")
     def _compute_invoice_policy(self):
-        self.filtered(lambda t: t.type == "consu" or not t.invoice_policy).invoice_policy = "order"
+        for template in self:
+            if not template.invoice_policy:
+                template.invoice_policy = self.env.company.sale_invoice_policy
+            elif template.type == "consu":
+                template.invoice_policy = "order"
 
     def _get_backend_root_menu_ids(self):
         return super()._get_backend_root_menu_ids() + [self.env.ref("sale.sale_menu_root").id]

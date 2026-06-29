@@ -74,7 +74,7 @@ class StockRule(models.Model):
 
     def _filter_warehouse_routes(self, product, warehouses, route):
         if any(rule.action == 'manufacture' for rule in route.rule_ids):
-            if any(bom.type == 'normal' for bom in product.bom_ids):
+            if any(bom.type == 'normal' for bom in product.sudo().bom_ids):
                 return super()._filter_warehouse_routes(product, warehouses, route)
             return False
         return super()._filter_warehouse_routes(product, warehouses, route)
@@ -110,11 +110,17 @@ class StockRule(models.Model):
                     'mo_id': mo.id,
                     'product_qty': mo.product_id.uom_id._compute_quantity((mo.product_uom_qty + procurement_product_uom_qty), mo.uom_id),
                 }).change_prod_qty()
+                if procurement.values.get('move_dest_ids'):
+                    mo.move_finished_ids.filtered(
+                        lambda m: m.product_id == procurement.product_id and m.state not in ('done', 'cancel')
+                    ).move_dest_ids = [Command.link(m.id) for m in procurement.values['move_dest_ids']]
 
         for company_id in new_productions_values_by_company:
             productions_vals_list = new_productions_values_by_company[company_id]['values']
-            # create the MO as SUPERUSER because the current user may not have the rights to do it (mto product launched by a sale for example)
-            productions = self.env['mrp.production'].with_user(SUPERUSER_ID).sudo().with_company(company_id).create(productions_vals_list)
+            # Create the MO using the current logged-in user if the replenishment is triggered manually.
+            # Otherwise, fallback to SUPERUSER_ID (e.g., MO generated from sales orders).
+            user_id = (self.env.context.get('manual_replenishment') and self.env.uid) or SUPERUSER_ID
+            productions = self.env['mrp.production'].with_user(user_id).sudo().with_company(company_id).create(productions_vals_list)
             for mo in productions:
                 if self._should_auto_confirm_procurement_mo(mo):
                     mo.action_confirm()

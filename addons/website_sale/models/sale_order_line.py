@@ -14,6 +14,7 @@ class SaleOrderLine(models.Model):
     ]
 
     name_short = fields.Char(compute="_compute_name_short")
+    is_donation = fields.Boolean(compute="_compute_is_donation")
 
     # === COMPUTE METHODS ===#
 
@@ -85,17 +86,13 @@ class SaleOrderLine(models.Model):
         )
         return (int(rounded_uom_qty) == rounded_uom_qty and int(rounded_uom_qty)) or rounded_uom_qty
 
-    def _show_in_cart(self):
-        self.ensure_one()
-        # Exclude delivery & section/note lines from showing up in the cart
-        return not self.is_delivery and not bool(self.display_type) and not bool(self.combo_item_id)
-
     def _is_reorder_allowed(self):
         self.ensure_one()
         return (
             bool(self.product_id)
             and self.product_id._is_add_to_cart_allowed()
-            and self._show_in_cart()
+            and self._is_product_line()
+            and not self.combo_item_id
         )
 
     def _get_cart_display_price(self):
@@ -150,6 +147,24 @@ class SaleOrderLine(models.Model):
         """
         return self.product_id.is_published and not self.is_delivery
 
+    @api.depends("product_id")
+    def _compute_is_donation(self):
+        for line in self:
+            line.is_donation = bool(line.product_id and line.product_id._is_donation())
+
+    def _compute_price_unit(self):
+        """Override of `sale` to prevent recomputing the price of donation lines.
+
+        Donation lines have a user-selected price that must never be overwritten by pricelist rules.
+        """
+        donation_lines = self.filtered("is_donation")
+        super(SaleOrderLine, self - donation_lines)._compute_price_unit()
+
+    def _compute_discount(self):
+        donation_lines = self.filtered("is_donation")
+        donation_lines.discount = 0.0
+        super(SaleOrderLine, self - donation_lines)._compute_discount()
+
     def _get_max_line_qty(self):
         max_quantity = self._get_max_available_qty()
         return self.product_uom_qty + max_quantity if (max_quantity is not None) else None
@@ -197,3 +212,7 @@ class SaleOrderLine(models.Model):
                 self._add_warning_alert(self._get_shop_warning_stock(cart_qty, max(avl_qty, 0)))
                 return False
         return True
+
+    def _show_line_in_cart(self):
+        self.ensure_one()
+        return self._is_product_line() and not self.combo_item_id

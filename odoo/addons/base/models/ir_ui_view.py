@@ -28,6 +28,8 @@ from odoo.tools.template_inheritance import apply_inheritance_specs, locate_node
 from odoo.tools.translate import xml_translate, TRANSLATED_ATTRS
 from odoo.tools.view_validation import valid_view, get_domain_value_names, get_expression_field_names, get_dict_asts
 
+from . import ir_access
+
 _logger = logging.getLogger(__name__)
 
 MOVABLE_BRANDING = ['data-oe-model', 'data-oe-id', 'data-oe-field', 'data-oe-xpath', 'data-oe-source-id']
@@ -154,6 +156,7 @@ class IrUiView(models.Model):
                              ('calendar', 'Calendar'),
                              ('kanban', 'Kanban'),
                              ('search', 'Search'),
+                             ('card', "Card"),
                              ('qweb', 'QWeb')], string='View Type')
     arch = fields.Text(compute='_compute_arch', inverse='_inverse_arch', string='View Architecture',
                        help="""This field should be used when accessing view arch. It will use translation.
@@ -1122,13 +1125,13 @@ actual arch.
 
     @api.model
     def _get_cached_template_prefetched_keys(self):
-        return ['id', 'key', 'active']
+        return ['id', 'key', 'active', 'type']
 
     def _get_template_minimal_cache_keys(self):
         return (bool(self.env.context.get('active_test', True)),)
 
     @api.model
-    @tools.ormcache('id_or_xmlid', 'isinstance(id_or_xmlid, str) and self._get_template_minimal_cache_keys()', cache='templates')
+    @api.ormcache('id_or_xmlid', 'isinstance(id_or_xmlid, str) and self._get_template_minimal_cache_keys()', cache='templates')
     def _get_cached_template_info(self, id_or_xmlid: int | str, *, _view: models.BaseModel | None = None):
         """Return cached template data for ``id_or_xmlid``.
 
@@ -1243,7 +1246,7 @@ actual arch.
                 view_by_id[id_or_xmlid] = info['error']
         return view_by_id
 
-    @tools.ormcache(cache='templates')
+    @api.ormcache(cache='templates')
     def _clear_preload_views_cache_if_needed(self):
         """ Invalidate the local cache when the orm cache is cleared
         """
@@ -1529,12 +1532,26 @@ actual arch.
         return name_manager
 
     def _get_access_groups(self, group_definitions, model_name):
-        group_list = self.env['ir.model.access']._get_all_access_groups()['read'].get(model_name, ())
-        if not group_list:
-            return group_definitions.empty
-        if False in group_list:  # there is some global access
-            return group_definitions.universe
-        return group_definitions.from_ids(group_list)
+        """ Return the group expression object that represents the users who
+        can perform ``operation`` on model ``model_name``.
+        """
+        if not self.env.registry.ready:
+            access_domain = [
+                ('model_id.model', '=', model_name),
+                ('group_id', '!=', False),
+                ('operation', 'in', sorted(ir_access.IN_SELECTION['read'])),
+                ('active', '=', True),
+            ]
+            accesses = self.env['ir.access'].sudo().search_fetch(access_domain, ['group_id'], order='id')
+            return group_definitions.from_ids(accesses.group_id.ids)
+
+        accesses = self.env['ir.access']._get_all_access().get(model_name, ())
+        operations = ir_access.IN_SELECTION['read']
+        return group_definitions.from_ids(
+            access.group_id
+            for access in accesses
+            if access.group_id and access.operation in operations
+        )
 
     def _add_missing_fields(self, node, name_manager):
         """ Add the fields required for evaluating expressions in the view given by ``node``. """
@@ -1729,6 +1746,18 @@ actual arch.
         node_info['children'] = []
         self._postprocess_view(node, field.comodel_name, editable=False, node_info=node_info)
         name_manager.has_field(node, name, node_info)
+
+    def _postprocess_tag_card(self, node, name_manager, node_info):
+        # When this is called as the root of the recursive sub-view call below,
+        # view_type is 'card' and children should be processed normally by the
+        # inner stack — returning here lets that happen without re-entering.
+        if node_info.get('view_type') == 'card':
+            return
+        # card nodes are processed as nested sub-views on the same model so that
+        # fields auto-added for expression evaluation land inside <card> rather
+        # than being appended to the parent view root.
+        node_info['children'] = []
+        self._postprocess_view(node, name_manager.model._name, editable=False, node_info=node_info)
 
     def _postprocess_tag_label(self, node, name_manager, node_info):
         if not node.get('for'):
@@ -2156,7 +2185,7 @@ actual arch.
                 self._log_view_warning(msg, node)
 
     def _is_qweb_based_view(self, view_type):
-        return view_type == 'kanban'
+        return view_type == 'kanban' or view_type == 'card'
 
     def _validate_attributes(self, node, name_manager, node_info):
         """ Generic validation of node attributes. """
@@ -3087,7 +3116,7 @@ class Base(models.AbstractModel):
     @api.model
     @tools.conditional(
         'xml' not in config['dev_mode'],
-        tools.ormcache('self._get_view_cache_key(view_id, view_type, **options)', cache='templates'),
+        api.ormcache('self._get_view_cache_key(view_id, view_type, **options)', cache='templates'),
     )
     def _get_view_cache(self, view_id=None, view_type='form', **options):
         """ Get the view information ready to be cached
@@ -3118,6 +3147,14 @@ class Base(models.AbstractModel):
         """
         # Get the view arch and all other attributes describing the composition of the view
         arch, view = self._get_view(view_id, view_type, **options)
+
+        # Inline the card view if the root element references one via the 'card_id' attribute.
+        # The card arch is appended as a <card> child so that _postprocess_tag_card can
+        # process it as a nested sub-view, ensuring that fields auto-added for expression
+        # evaluation land inside <card> rather than at the parent view root.
+        if card_id := arch.get('card_id'):
+            card_arch, _card_view = self._get_view(view_id=int(card_id), view_type='card')
+            arch.append(card_arch)
 
         # Apply post processing, groups and modifiers etc...
         arch, models = self._get_view_postprocessed(view, arch, **options)

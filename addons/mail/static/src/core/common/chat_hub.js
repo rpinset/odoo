@@ -1,9 +1,8 @@
 import { ActionList } from "@mail/core/common/action_list";
 import { ChatWindow } from "@mail/core/common/chat_window";
 import { useHover, useMovable } from "@mail/utils/common/hooks";
-import { useExternalListener, useRef } from "@web/owl2/utils";
-
-import { Component, proxy } from "@odoo/owl";
+import { useRef } from "@web/owl2/utils";
+import { Component, proxy, useListener } from "@odoo/owl";
 
 import { Action } from "@mail/core/common/action";
 import { browser } from "@web/core/browser/browser";
@@ -17,7 +16,6 @@ import { ChatBubble } from "./chat_bubble";
 
 export class ChatHub extends Component {
     static components = { ActionList, ChatBubble, ChatWindow, Dropdown };
-    static props = [];
     static template = "mail.ChatHub";
 
     get chatHub() {
@@ -47,7 +45,7 @@ export class ChatHub extends Component {
             right: `${this.chatHub.BUBBLE_OUTER + this.chatHub.BUBBLE_START}px;`,
         });
         this.onResize();
-        useExternalListener(browser, "resize", this.onResize);
+        useListener(browser, "resize", () => this.onResize());
         useMovable({
             enable: () => this.chatHub.compact || !this.chatHub.opened.length,
             cursor: "grabbing",

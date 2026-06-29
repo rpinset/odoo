@@ -76,6 +76,22 @@ class TestHrAttendanceOvertime(TransactionCase):
             'ruleset_id': cls.ruleset.id
         })
 
+    def test_ruleset_unlink_not_linked_to_employee(self):
+        """ A ruleset with rules but not linked to any employee must be deletable. """
+        ruleset = self.env['hr.attendance.overtime.ruleset'].create({
+            'name': 'Unlinked Ruleset',
+            'rule_ids': [Command.create({
+                'name': 'Rule',
+                'base_off': 'quantity',
+                'quantity_period': 'day',
+                'expected_hours': 8,
+            })],
+        })
+        rule_ids = ruleset.rule_ids.ids
+        ruleset.unlink()
+        remaining_rules = self.env['hr.attendance.overtime.rule'].search([('id', 'in', rule_ids)])
+        self.assertFalse(remaining_rules, "Deleting a ruleset must cascade-delete its rules")
+
     def test_daily_overtime_8_hours_rule(self):
         with freeze_time("2021-01-04"):
             # Attendance: 10 hours (8 expected + 2 overtime at 150%)
@@ -184,3 +200,42 @@ class TestHrAttendanceOvertime(TransactionCase):
             'check_out': datetime(2021, 1, 4, 20, 0)
         })
         self.assertTrue(attendance.with_user(user).linked_overtime_ids.is_manager)
+
+    def test_default_ruleset_is_company_specific(self):
+        country = self.env.ref('base.be')
+        company_a, company_b = self.env['res.company'].create([{'name': 'A', 'country_id': country.id}, {'name': 'B', 'country_id': country.id}])
+
+        ruleset_a, ruleset_b = self.env['hr.attendance.overtime.ruleset'].create([{
+            'name': 'Ruleset A',
+            'company_id': company_a.id,
+            'country_id': country.id,
+        }, {
+            'name': 'Ruleset B',
+            'company_id': company_b.id,
+            'country_id': country.id,
+        }])
+
+        model_a = self.env['hr.version'].with_company(company_a).with_context(allowed_company_ids=[company_a.id])
+        model_b = self.env['hr.version'].with_company(company_b).with_context(allowed_company_ids=[company_b.id])
+
+        self.assertEqual(model_a._default_ruleset_id(), ruleset_a)
+        self.assertEqual(model_b._default_ruleset_id(), ruleset_b)
+
+    def test_country_id_computed_from_company(self):
+        country_a = self.env.ref('base.fr')
+        country_b = self.env.ref('base.be')
+
+        company_a, company_b = self.env['res.company'].create([{'name': 'A', 'country_id': country_a.id}, {'name': 'B', 'country_id': country_b.id}])
+
+        ruleset = self.env['hr.attendance.overtime.ruleset'].create({
+            'name': 'Test Ruleset',
+            'company_id': company_a.id,
+        })
+
+        self.assertEqual(ruleset.country_id, country_a)
+
+        ruleset.company_id = company_b
+        self.assertEqual(ruleset.country_id, country_b)
+
+        ruleset.company_id = False
+        self.assertEqual(ruleset.country_id, country_b)

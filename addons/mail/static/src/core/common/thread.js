@@ -1,25 +1,33 @@
-import { onRendered, useChildSubEnv, useLayoutEffect, useRef } from "@web/owl2/utils";
+import { useChildSubEnv, useLayoutEffect, useRef } from "@web/owl2/utils";
 import { DateSection } from "@mail/core/common/date_section";
 import { Message } from "@mail/core/common/message";
 import { NotificationMessage } from "./notification_message";
 import { Record } from "@mail/model/export";
-import { useChildRefs, useMessageSelection, useVisible } from "@mail/utils/common/hooks";
+import {
+    useChildRefs,
+    useMessageSelection,
+    useOnChange,
+    useVisible,
+} from "@mail/utils/common/hooks";
 
 import {
     Component,
+    computed,
     onMounted,
     onWillDestroy,
+    onWillPatch,
     onWillUnmount,
-    onWillUpdateProps,
+    props,
     proxy,
-    untrack,
-    useEffect,
+    signal,
+    t,
+    useListener,
 } from "@odoo/owl";
 import { browser } from "@web/core/browser/browser";
 
 import { _t } from "@web/core/l10n/translation";
 import { Transition } from "@web/core/transition";
-import { useBus, useRefListener, useService } from "@web/core/utils/hooks";
+import { useBus, useService } from "@web/core/utils/hooks";
 import { escape } from "@web/core/utils/strings";
 
 export const PRESENT_VIEWPORT_THRESHOLD = 1;
@@ -30,29 +38,11 @@ export const PRESENT_VIEWPORT_THRESHOLD = 1;
  * @property {"asc"|"desc"} [order="asc"]
  * @property {import("models").Thread} thread
  * @property {string} [searchTerm]
- * @property {import("@web/core/utils/hooks").Ref} [scrollRef]
+ * @property {import("@odoo/owl").Signal<HTMLElement>} [scrollRef]
  * @extends {Component<Props, Env>}
  */
 export class Thread extends Component {
     static components = { Message, NotificationMessage, Transition, DateSection };
-    static props = [
-        "autofocus?",
-        "showDates?",
-        "jumpPresent?",
-        "jumpToNewMessage?",
-        "thread",
-        "order?",
-        "scrollRef?",
-        "showEmptyMessage?",
-        "showJumpPresent?",
-    ];
-    static defaultProps = {
-        jumpPresent: 0,
-        order: "asc",
-        showDates: true,
-        showEmptyMessage: true,
-        showJumpPresent: true,
-    };
     static template = "mail.Thread";
 
     /** @type {Promise|undefined} */
@@ -69,11 +59,22 @@ export class Thread extends Component {
         this.onScroll = this.onScroll.bind(this);
         this.onWheel = this.onWheel.bind(this);
         this.messageRefs = useChildRefs();
-        useEffect(() => {
-            this.messageRefs.size; // trigger effect only when messageRefs changes
-            untrack(() => this.scrollToHighlighted());
-        });
+        useOnChange(
+            () => [this.messageRefs.size],
+            () => this.scrollToHighlighted()
+        );
         this.store = useService("mail.store");
+        this.props = props({
+            autofocus: t.or([t.number(), t.boolean()]).optional(),
+            jumpPresent: t.number().optional(0),
+            jumpToNewMessage: t.number().optional(),
+            order: t.selection(["asc", "desc"]).optional("asc"),
+            scrollRef: t.signal(t.instanceOf(HTMLElement)).optional(),
+            showDates: t.boolean().optional(true),
+            showEmptyMessage: t.boolean().optional(true),
+            showJumpPresent: t.boolean().optional(true),
+            thread: t.instanceOf(this.store["mail.thread"].Class),
+        });
         this.ui = useService("ui");
         this.state = proxy({
             isReplyingTo: false,
@@ -95,8 +96,8 @@ export class Thread extends Component {
         );
         this.present = useRef("load-newer");
         this.jumpPresentRef = useRef("jump-present");
-        this.root = useRef("messages");
-        this.visibleState = useVisible("messages", () => {
+        this.rootRef = signal.ref(HTMLDivElement);
+        this.visibleState = useVisible(this.rootRef, () => {
             this.updateShowJumpPresent();
         });
         /**
@@ -104,11 +105,11 @@ export class Thread extends Component {
          * either be the chatter scrollable (if chatter) or the thread
          * scrollable (in other cases).
          */
-        this.scrollableRef = this.props.scrollRef ?? this.root;
-        useRefListener(
+        this.scrollableRef = computed(() => this.props.scrollRef?.() ?? this.rootRef());
+        useListener(
             this.scrollableRef,
             "scrollend",
-            () => (this.state.scrollTop = this.scrollableRef.el.scrollTop)
+            () => (this.state.scrollTop = this.scrollableRef().scrollTop)
         );
         this.loadOlderState = useVisible(
             "load-older",
@@ -149,7 +150,7 @@ export class Thread extends Component {
         useLayoutEffect(
             (focus) => {
                 if (focus && this.state.mountedAndLoaded) {
-                    this.root.el.focus();
+                    this.rootRef().focus();
                 }
             },
             () => [this.props.autofocus + this.props.thread.autofocus, this.state.mountedAndLoaded]
@@ -237,17 +238,19 @@ export class Thread extends Component {
                 this.props.thread.fetchNewMessages();
             }
         });
-        onWillUpdateProps((nextProps) => {
-            if (nextProps.thread.notEq(this.props.thread)) {
-                this.lastJumpPresent = nextProps.jumpPresent;
-            }
-            if (!this.env.chatter || this.env.chatter?.shouldFetchMessages) {
-                if (this.env.chatter) {
-                    this.env.chatter.shouldFetchMessages = false;
+        useOnChange(
+            () => [this.props.thread],
+            (thread) => {
+                this.lastJumpPresent = this.props.jumpPresent;
+                if (!this.env.chatter || this.env.chatter?.shouldFetchMessages) {
+                    if (this.env.chatter) {
+                        this.env.chatter.shouldFetchMessages = false;
+                    }
+                    thread.fetchNewMessages();
                 }
-                nextProps.thread.fetchNewMessages();
-            }
-        });
+            },
+            { initialRun: false }
+        );
     }
 
     get channel() {
@@ -346,24 +349,26 @@ export class Thread extends Component {
                 this.reset();
             }
         });
-        onWillUpdateProps((nextProps) => {
-            if (nextProps.thread.notEq(this.props.thread)) {
+        useOnChange(
+            () => [this.props.thread],
+            (thread) => {
                 stopOnChange();
-                stopOnChange = Record.onChange(nextProps.thread, "isLoaded", () => {
-                    if (!nextProps.thread.isLoaded || !this.state.mountedAndLoaded) {
+                stopOnChange = Record.onChange(thread, "isLoaded", () => {
+                    if (!thread.isLoaded || !this.state.mountedAndLoaded) {
                         this.reset();
                     }
                 });
-            }
-        });
+            },
+            { initialRun: false }
+        );
         onWillDestroy(() => stopOnChange());
-        onRendered(() => {
+        onWillPatch(() => {
             if (!this.loadedAndPatched) {
                 return;
             }
             this.snapshot = {
-                scrollHeight: this.scrollableRef.el.scrollHeight,
-                scrollTop: this.scrollableRef.el.scrollTop,
+                scrollHeight: this.scrollableRef().scrollHeight,
+                scrollTop: this.scrollableRef().scrollTop,
             };
         });
         useLayoutEffect(this.applyScroll);
@@ -388,7 +393,7 @@ export class Thread extends Component {
                     };
                 }
             },
-            () => [this.scrollableRef.el, this.state.mountedAndLoaded]
+            () => [this.scrollableRef(), this.state.mountedAndLoaded]
         );
     }
 
@@ -426,7 +431,7 @@ export class Thread extends Component {
         if (this.snapshot && messagesAtTop) {
             this.setScroll(
                 this.snapshot.scrollTop +
-                    this.scrollableRef.el.scrollHeight -
+                    this.scrollableRef().scrollHeight -
                     this.snapshot.scrollHeight
             );
         } else if (this.snapshot && messagesAtBottom) {
@@ -444,15 +449,15 @@ export class Thread extends Component {
                 }
                 value =
                     this.props.order === "asc"
-                        ? this.scrollableRef.el.scrollHeight - this.scrollableRef.el.clientHeight
+                        ? this.scrollableRef().scrollHeight - this.scrollableRef().clientHeight
                         : 0;
             } else {
                 value =
                     this.props.order === "asc"
                         ? thread.scrollTop
-                        : this.scrollableRef.el.scrollHeight -
+                        : this.scrollableRef().scrollHeight -
                           thread.scrollTop -
-                          this.scrollableRef.el.clientHeight;
+                          this.scrollableRef().clientHeight;
             }
             if (
                 (this.lastSetValue === undefined || Math.abs(this.lastSetValue - value) > 1) &&
@@ -486,7 +491,7 @@ export class Thread extends Component {
             behavior: "instant",
             block: this.props.order === "asc" ? "start" : "end",
         });
-        thread.scrollTop = this.isAtBottom ? "bottom" : this.scrollableRef.el.scrollTop;
+        thread.scrollTop = this.isAtBottom ? "bottom" : this.scrollableRef().scrollTop;
         return true;
     }
 
@@ -499,7 +504,7 @@ export class Thread extends Component {
     }
 
     get viewportEl() {
-        let viewportEl = this.scrollableRef.el;
+        let viewportEl = this.scrollableRef();
         if (viewportEl && viewportEl.clientHeight > browser.innerHeight) {
             while (viewportEl && viewportEl.clientHeight > browser.innerHeight) {
                 viewportEl = viewportEl.parentElement;
@@ -619,11 +624,11 @@ export class Thread extends Component {
             return false;
         }
         return this.props.order === "asc"
-            ? this.scrollableRef.el.scrollHeight -
-                  this.scrollableRef.el.scrollTop -
-                  this.scrollableRef.el.clientHeight <
+            ? this.scrollableRef().scrollHeight -
+                  this.scrollableRef().scrollTop -
+                  this.scrollableRef().clientHeight <
                   30
-            : this.scrollableRef.el.scrollTop < 30;
+            : this.scrollableRef().scrollTop < 30;
     }
 
     onWheel(ev) {
@@ -656,10 +661,10 @@ export class Thread extends Component {
         } else {
             this.props.thread.scrollTop =
                 this.props.order === "asc"
-                    ? this.scrollableRef.el.scrollTop
-                    : this.scrollableRef.el.scrollHeight -
-                      this.scrollableRef.el.scrollTop -
-                      this.scrollableRef.el.clientHeight;
+                    ? this.scrollableRef().scrollTop
+                    : this.scrollableRef().scrollHeight -
+                      this.scrollableRef().scrollTop -
+                      this.scrollableRef().clientHeight;
         }
     }
 
@@ -721,7 +726,7 @@ export class Thread extends Component {
                 this.smoothScrollingTimeout = setTimeout(onSmoothScrollingEnd, 250);
             }
         }
-        this.scrollableRef.el.scrollTo({ behavior: smooth ? "smooth" : undefined, top: value });
+        this.scrollableRef().scrollTo({ behavior: smooth ? "smooth" : undefined, top: value });
         this.lastSetValue = value;
         this.messageHighlight?.resolveStartup?.();
         this.saveScroll();

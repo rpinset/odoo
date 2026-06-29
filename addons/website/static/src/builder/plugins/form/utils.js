@@ -113,6 +113,10 @@ export function renderField(field, resetId = false) {
     if (field.custom && !field.string) {
         params.field.string = field.name;
     }
+    if (field.string_in_website_lang && !field.modelRequired) {
+        // avoid changing strings in the original form definition
+        params.field.string = field.string_in_website_lang;
+    }
     if (field.description) {
         params.default_description =
             field.type === "boolean"
@@ -224,7 +228,7 @@ export function isFieldCustom(fieldEl) {
  * @param {HTMLElement} fieldEl
  * @returns {string}
  */
-export function getFieldName(fieldEl = this.$target[0]) {
+export function getFieldName(fieldEl) {
     const multipleName = fieldEl.querySelector(".s_website_form_multiple");
     return multipleName
         ? multipleName.dataset.name

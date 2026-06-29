@@ -109,6 +109,7 @@ export class DomPlugin extends Plugin {
         /** Handlers */
         clean_for_save_processors: (root) => {
             this.removeEmptyClassAndStyleAttributes(root);
+            return root;
         },
         clipboard_content_processors: this.removeEmptyClassAndStyleAttributes.bind(this),
         is_functional_empty_node_predicates: (node) => {
@@ -192,9 +193,7 @@ export class DomPlugin extends Plugin {
                 shouldBreakLine = true;
             } else if (
                 !visibleNodes.has(node) &&
-                !this.getResource("unremovable_node_predicates").some((predicate) =>
-                    predicate(node)
-                )
+                (this.checkPredicates("is_node_removable_predicates", node) ?? true)
             ) {
                 removeNode(node, cursors);
             } else if (node.nodeName === "BR") {
@@ -246,6 +245,7 @@ export class DomPlugin extends Plugin {
 
         const block = closestBlock(selection.anchorNode);
         container = this.processThrough("before_insert_processors", container, block);
+        this.trigger("before_insert_handlers");
         if (!container.hasChildNodes()) {
             return [];
         }
@@ -483,7 +483,7 @@ export class DomPlugin extends Plugin {
                     isBlock(nodeToInsert) &&
                     this.dependencies.split.isUnsplittable(nodeToInsert)
                 ) {
-                    const br = document.createElement("br");
+                    const br = this.document.createElement("br");
                     currentNode[
                         isEmptyBlock(currentNode) || !isTangible(currentNode) ? "before" : "after"
                     ](br);
@@ -725,7 +725,7 @@ export class DomPlugin extends Plugin {
         let newCandidate = createNewCandidate();
         this.dependencies.split.splitBlockSegments();
         const cursors = this.dependencies.selection.preserveSelection();
-        const newEls = [];
+        let newEl;
         for (const block of this.getBlocksToSet()) {
             if (
                 isParagraphRelatedElement(block) ||
@@ -736,9 +736,13 @@ export class DomPlugin extends Plugin {
                 if (newCandidate.matches(baseContainerGlobalSelector) && isListItemElement(block)) {
                     continue;
                 }
-                this.trigger("on_will_set_tag_handlers", block, tagName, cursors);
-                const newEl = this.setTagName(block, tagName);
-                cursors.remapNode(block, newEl);
+                const params = { block, newEl, tagName, cursors };
+                this.trigger("on_will_set_tag_handlers", params);
+                if (this.delegateTo("set_block_overrides", params)) {
+                    continue;
+                }
+                newEl = this.setTagName(params.block, tagName);
+                cursors.remapNode(params.block, newEl);
                 // We want to be able to edit the case `<h2 class="h3">`
                 // but in that case, we want to display "Header 2" and
                 // not "Header 3" as it is more important to display
@@ -750,7 +754,6 @@ export class DomPlugin extends Plugin {
                 if (extraClass) {
                     newEl.classList.add(extraClass);
                 }
-                newEls.push(newEl);
             } else {
                 // eg do not change a <div> into a h1: insert the h1
                 // into it instead.
@@ -773,5 +776,6 @@ export class DomPlugin extends Plugin {
                 node.removeAttribute("style");
             }
         }
+        return root;
     }
 }

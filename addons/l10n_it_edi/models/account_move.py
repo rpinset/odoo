@@ -260,7 +260,7 @@ class AccountMove(models.Model):
         # EXTENDS 'account'
         super()._compute_show_reset_to_draft_button()
         for move in self:
-            move.show_reset_to_draft_button = not move.l10n_it_edi_transaction and move.show_reset_to_draft_button
+            move.show_reset_to_draft_button = not (move.is_sale_document() and move.l10n_it_edi_transaction) and move.show_reset_to_draft_button
 
     def _parse_xml_with_recovery(self, content, name=None):
         def parse_xml(parser, content):
@@ -356,6 +356,25 @@ class AccountMove(models.Model):
         fields_list = super()._get_fields_to_detach()
         fields_list.append('l10n_it_edi_attachment_file')
         return fields_list
+
+    def _should_detach_attachments(self):
+        # EXTENDS account
+        return self.l10n_it_edi_is_self_invoice or super()._should_detach_attachments()
+
+    def _detach_attachments(self):
+        # EXTENDS account
+        moves_with_it_attachments = self.filtered(
+            lambda move: move.l10n_it_edi_attachment_name and move._should_detach_attachments()
+        )
+
+        super()._detach_attachments()
+
+        moves_with_it_attachments.invalidate_recordset(
+            fnames=['l10n_it_edi_attachment_name']
+        )
+        moves_with_it_attachments.filtered('l10n_it_edi_attachment_name').write({
+            'l10n_it_edi_attachment_name': False,
+        })
 
     # -------------------------------------------------------------------------
     # Business actions
@@ -603,7 +622,10 @@ class AccountMove(models.Model):
             return None
         tax = tax_data['tax']
 
-        if tax._l10n_it_is_split_payment():
+        if tax._l10n_it_is_split_payment() or any(
+            child_tax._l10n_it_is_split_payment()
+            for child_tax in tax_data.get('group', self.env['account.tax']).children_tax_ids
+        ):
             tax_exigibility_code = 'S'
         elif tax.tax_exigibility == 'on_payment':
             tax_exigibility_code = 'D'
@@ -1455,14 +1477,17 @@ class AccountMove(models.Model):
             pension_fund_type = pension_fund.find("TipoCassa")
             tax_factor_percent = pension_fund.find("AlCassa")
             vat_tax_factor_percent = pension_fund.find("AliquotaIVA")
+            pension_fund_natura = pension_fund.find("Natura")
             pension_fund_type = pension_fund_type.text if pension_fund_type is not None else ""
             tax_factor_percent = float(tax_factor_percent.text or "0.0")
             vat_tax_factor_percent = float(vat_tax_factor_percent.text or "0.0")
+            pension_fund_natura = pension_fund_natura.text if pension_fund_natura is not None else False
             pension_fund_tax = self._l10n_it_edi_search_tax_for_import(
                 company,
                 tax_factor_percent,
                 ([('l10n_it_pension_fund_type', '=', pension_fund_type)]
-                 + type_tax_use_domain))
+                 + type_tax_use_domain),
+                l10n_it_exempt_reason=pension_fund_natura)
             if pension_fund_tax:
                 if vat_tax_factor_percent not in pension_fund_taxes:
                     pension_fund_taxes[vat_tax_factor_percent] = pension_fund_tax
@@ -2547,7 +2572,7 @@ class AccountMove(models.Model):
         if not pension_fund_tax_candidates:
             return None
 
-        if l10n_it_exemption_reason and len(pension_fund_tax_candidates) > 1:
+        if l10n_it_exemption_reason:
             pension_fund_tax_candidates = pension_fund_tax_candidates.filtered(lambda t: t.l10n_it_exempt_reason == l10n_it_exemption_reason)
         pension_fund_tax = pension_fund_tax_candidates[:1]
 

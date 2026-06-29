@@ -1,4 +1,4 @@
-import { assertType, Component, markup, types as t, whenReady } from "@odoo/owl";
+import { assertType, Component, markup, t, whenReady } from "@odoo/owl";
 import { browser } from "@web/core/browser/browser";
 import { DropdownItem } from "@web/core/dropdown/dropdown_item";
 import { registry } from "@web/core/registry";
@@ -24,28 +24,46 @@ class OnboardingItem extends Component {
 }
 
 const stepSchema = {
-    "id?": t.string(),
-    "content?": t.or([t.string(), t.object()]), //allow object(_t && markup)
-    "debugHelp?": t.string(),
-    "isActive?": t.array(t.string()),
-    "run?": t.or([t.string(), t.function(), t.boolean()]),
-    "timeout?": t.customValidator(t.number(), (value) => value >= 0 && value <= 60000),
-    "tooltipPosition?": t.customValidator(t.string(), (value) =>
-        ["top", "bottom", "left", "right"].includes(value)
-    ),
     trigger: t.string(),
-    "expectUnloadPage?": t.boolean(),
+    id: t.string().optional(),
+    isActive: t.array(t.string()).optional(),
+    run: t
+        .customValidator(
+            t.or([t.string(), t.function()]),
+            (fn) => typeof fn === "string" || !/\{\s*\}$/.test(fn.toString().trim()),
+            "run must be a string or a non-empty function"
+        )
+        .optional(),
+};
+
+const stepSchemaAuto = {
+    ...stepSchema,
+    content: t.string().optional(),
+    expectUnloadPage: t.boolean().optional(),
+    timeout: t.customValidator(t.number(), (value) => value >= 0 && value <= 60000).optional(),
+    tooltipPosition: t
+        .customValidator(t.string(), (value) => ["top", "bottom", "left", "right"].includes(value))
+        .optional(),
+};
+
+const stepSchemaOnboarding = {
+    ...stepSchema,
+    content: t.or([t.string(), t.object()]).optional(), //allow object(_t && markup)
+    tooltipPosition: t
+        .customValidator(t.string(), (value) => ["top", "bottom", "left", "right"].includes(value))
+        .optional(),
 };
 
 const stepSchemaDebug = {
-    ...stepSchema,
-    "pause?": t.boolean(),
-    "break?": t.boolean(),
+    ...stepSchemaAuto,
+    ...stepSchemaOnboarding,
+    pause: t.boolean().optional(),
+    break: t.boolean().optional(),
 };
 
 const tourSchema = {
     steps: t.function(),
-    "undeterministicTour_doNotCopy?": t.boolean(),
+    undeterministicTour_doNotCopy: t.boolean().optional(),
 };
 
 const tourRegistry = registry.category("web_tour.tours");
@@ -154,7 +172,8 @@ export class TourService {
         if (options.mode === "manual") {
             const tour = await this.orm.call("web_tour.tour", "get_tour_json_by_name", [name]);
             if (!tour) {
-                throw new Error(`Tour '${name}' is not found in the database.`);
+                console.error(`Tour '${name}' is not found in the database.`);
+                return;
             }
             if (!tour.steps.length && tourRegistry.contains(tour.name)) {
                 tour.steps = tourRegistry.get(tour.name).steps;
@@ -174,7 +193,8 @@ export class TourService {
             await this.waitUntilTourRegistered(name);
             const tour = tourRegistry.get(name, null);
             if (!tour) {
-                throw new Error(`Tour '${name}' is not found in registry 'web_tour.tours'.`);
+                console.error(`Tour '${name}' is not found in registry 'web_tour.tours'.`);
+                return;
             }
             return {
                 ...tour,
@@ -329,12 +349,13 @@ export class TourService {
      */
     validateStep(step) {
         const tourConfig = tourState.getCurrentConfig();
+        const schema = tourConfig.debug
+            ? t.strictObject(stepSchemaDebug)
+            : tourConfig.mode === "auto"
+            ? t.strictObject(stepSchemaAuto)
+            : t.strictObject(stepSchemaOnboarding);
         try {
-            assertType(
-                step,
-                tourConfig.debug ? t.strictObject(stepSchemaDebug) : t.strictObject(stepSchema),
-                "Error in schema for TourStep"
-            );
+            assertType(step, schema, "Error in schema for TourStep");
         } catch (error) {
             console.error(error.message);
         }

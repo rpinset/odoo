@@ -659,6 +659,9 @@ class TestPoSSale(TestPointOfSaleHttpCommon):
             downpayment_invoice.invoice_line_ids,
         )
 
+        final_invoice_downpayment_line.move_id.action_post()
+        self.assertEqual(sale_order.amount_to_invoice, 0.0)
+
         # CASE 2: downpayment generated in POS, invoice settled in POS
         sale_order = sale_orders[0]
         self.start_pos_tour('PoSApplyDownpaymentInvoice2')
@@ -1206,15 +1209,20 @@ class TestPoSSale(TestPointOfSaleHttpCommon):
             'name': 'Test',
             'code': 'none',
         })
-        transaction = self.env['payment.transaction'].create({
+        payment_method = self.env["payment.method"].create({
+            "name": "Payment method",
+            "code": "unknown",
+            "provider_id": provider.id,
+        })
+        self.env['payment.transaction'].create({
             'provider_id': provider.id,
-            'payment_method_id': self.env.ref('payment.payment_method_unknown').id,
+            'payment_method_id': payment_method.id,
             'amount': sale_order.amount_total,
             'currency_id': sale_order.currency_id.id,
             'partner_id': sale_order.partner_id.id,
+            'state': 'done',
             'sale_order_ids': [(6, 0, [sale_order.id])],
         })
-        transaction._set_done()
         sale_order.invalidate_recordset(['transaction_ids'])
 
         self.assertEqual(
@@ -1416,6 +1424,52 @@ class TestPoSSale(TestPointOfSaleHttpCommon):
 
         self.assertEqual(sale_order.amount_unpaid, 0.0)
 
+    def test_settle_so_custom_attribute_value(self):
+        """When settling a sale order (e.g. from the website) in POS, free-text custom
+        attribute values must appear in the orderline's product name via
+        constructFullProductName, not just the placeholder (e.g. 'Custom').
+        """
+        attr = self.env['product.attribute'].create({
+            'name': 'Inscription',
+            'create_variant': 'no_variant',
+        })
+        attr_value = self.env['product.attribute.value'].create({
+            'name': 'Custom',
+            'attribute_id': attr.id,
+            'is_custom': True,
+        })
+        product_tmpl = self.env['product.template'].create({
+            'name': 'Custom Product',
+            'available_in_pos': True,
+            'type': 'service',
+            'list_price': 10.0,
+            'taxes_id': [],
+            'attribute_line_ids': [Command.create({
+                'attribute_id': attr.id,
+                'value_ids': [Command.link(attr_value.id)],
+            })],
+        })
+        ptav = product_tmpl.attribute_line_ids.product_template_value_ids
+        product = product_tmpl.product_variant_ids[0]
+
+        sale_order = self.env['sale.order'].create({
+            'partner_id': self.env['res.partner'].create({'name': 'Website Customer'}).id,
+            'order_line': [Command.create({
+                'product_id': product.id,
+                'product_uom_qty': 1,
+                'price_unit': 10.0,
+                'product_no_variant_attribute_value_ids': [Command.link(ptav.id)],
+                'product_custom_attribute_value_ids': [Command.create({
+                    'custom_product_template_attribute_value_id': ptav.id,
+                    'custom_value': 'Value',
+                })],
+            })],
+        })
+        sale_order.action_confirm()
+
+        self.main_pos_config.open_ui()
+        self.start_pos_tour('test_settle_so_custom_attribute_value', login="accountman")
+
     def test_advance_payment_with_extra_lines(self):
         so = self.env['sale.order'].sudo().create({
             'partner_id': self.partner_a.id,
@@ -1437,6 +1491,111 @@ class TestPoSSale(TestPointOfSaleHttpCommon):
         self.start_tour("/pos/ui?config_id=%d" % self.main_pos_config.id, 'PoSApplyDownpaymentWithExtraLine', login="accountman")
         self.assertEqual(so.amount_unpaid, 90)
 
+    def test_ensure_downpayment_product_in_multiple_company(self):
+        if self.env['ir.module.module']._get('pos_hr').state != 'installed':
+            self.skipTest("pos_hr module is required for this test")
+
+        branch = self.env['res.company'].create({
+            'name': 'Branch 1',
+            'parent_id': self.env.company.id,
+            'chart_template': self.env.company.chart_template,
+        })
+        self.env["pos.config"].with_company(branch).create({
+            "name": "Branch Point of Sale"
+        })
+        self.env['pos.config']._ensure_default_products()
+
+    def test_amount_unpaid_with_refund_pos_order(self):
+        product = self.env['product.product'].create({
+            'name': 'Refund Test Product',
+            'available_in_pos': True,
+            'lst_price': 100.0,
+            'taxes_id': [],
+        })
+        partner = self.env['res.partner'].create({'name': 'Refund Test Partner'})
+
+        sale_order = self.env['sale.order'].sudo().create({
+            'partner_id': partner.id,
+            'order_line': [(0, 0, {
+                'product_id': product.id,
+                'name': product.name,
+                'product_uom_qty': 1,
+                'price_unit': product.lst_price,
+                'tax_ids': [],
+            })],
+        })
+        sale_order.action_confirm()
+
+        self.main_pos_config.open_ui()
+        current_session = self.main_pos_config.current_session_id
+
+        pos_order_data = {
+            'amount_paid': 100.0,
+            'amount_return': 0.0,
+            'amount_tax': 0.0,
+            'amount_total': 100.0,
+            'date_order': fields.Datetime.to_string(fields.Datetime.now()),
+            'fiscal_position_id': False,
+            'to_invoice': False,
+            'partner_id': partner.id,
+            'pricelist_id': self.main_pos_config.available_pricelist_ids[0].id,
+            'lines': [[0, 0, {
+                'discount': 0,
+                'price_unit': 100.0,
+                'product_id': product.id,
+                'price_subtotal': 100.0,
+                'price_subtotal_incl': 100.0,
+                'sale_order_line_id': sale_order.order_line[0].id,
+                'sale_order_origin_id': sale_order.id,
+                'qty': 1,
+                'tax_ids': [],
+            }]],
+            'name': 'Order Refund-Test-0001',
+            'session_id': current_session.id,
+            'sequence_number': 1,
+            'payment_ids': [[0, 0, {
+                'amount': 100.0,
+                'name': fields.Datetime.now(),
+                'payment_method_id': self.main_pos_config.payment_method_ids[0].id,
+            }]],
+            'user_id': self.env.uid,
+            'uuid': str(uuid.uuid4()),
+        }
+
+        data = self.env['pos.order'].sync_from_ui([pos_order_data])
+        pos_order_record = self.env['pos.order'].browse(data['pos.order'][0]['id'])
+
+        self.assertEqual(
+            sale_order.amount_unpaid, 0.0,
+            "amount_unpaid should be 0 after the sale order is fully paid through POS",
+        )
+
+        # Backend refund: _prepare_refund_values sets is_refund=True and
+        # _compute_amount_line_all produces a positive price_subtotal_incl.
+        refund_action = pos_order_record.refund()
+        refund_order = self.env['pos.order'].browse(refund_action['res_id'])
+
+        self.assertTrue(
+            refund_order.is_refund,
+            "Refund order created via refund() must have is_refund=True",
+        )
+        self.assertAlmostEqual(
+            refund_order.lines[0].price_subtotal_incl, 100.0,
+            msg="Refund line price_subtotal_incl is positive (sign is absorbed into qty by is_refund logic)",
+        )
+
+        payment_context = {'active_ids': refund_order.ids, 'active_id': refund_order.id}
+        self.env['pos.make.payment'].with_context(**payment_context).create({
+            'amount': refund_order.amount_total,
+            'payment_method_id': self.bank_payment_method.id,
+        }).with_context(**payment_context).check()
+
+        self.assertEqual(
+            sale_order.amount_unpaid, 100.0,
+            "amount_unpaid must equal amount_total after a full POS refund; "
+            "a positive refund line must be treated as negative in the computation",
+        )
+
 
 @tagged('post_install', '-at_install')
 class TestPoSSalePayment(TestPointOfSaleHttpCommon, PaymentCommon):
@@ -1446,7 +1605,7 @@ class TestPoSSalePayment(TestPointOfSaleHttpCommon, PaymentCommon):
         via a payment transaction with the automatic invoicing setting enabled.
         """
         self.product_a.available_in_pos = True
-        self.env['ir.config_parameter'].sudo().set_bool('sale.automatic_invoice', 'True')
+        self.env.company.sale_automatic_invoice = True
         self.partner_a.email = "test.customer@example.com"
         sale_order = self.env['sale.order'].sudo().create({
             'partner_id': self.partner_a.id,
@@ -1475,8 +1634,7 @@ class TestPoSSalePayment(TestPointOfSaleHttpCommon, PaymentCommon):
                 state='done',
                 reference='Test Transaction',
             )
-        tx._set_done()
-        tx._post_process()
+        self._run_post_processing(tx)
         self.main_pos_config.down_payment_product_id = self.env.ref("pos_sale.default_downpayment_product")
         self.main_pos_config.open_ui()
         self.start_pos_tour('test_pos_settle_so_with_downpayment', login="accountman")

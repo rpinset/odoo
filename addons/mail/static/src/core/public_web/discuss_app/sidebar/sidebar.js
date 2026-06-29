@@ -10,13 +10,8 @@ import { useService } from "@web/core/utils/hooks";
 
 export const discussSidebarItemsRegistry = registry.category("mail.discuss_sidebar_items");
 
-/**
- * @typedef {Object} Props
- * @extends {Component<Props, Env>}
- */
 export class DiscussSidebar extends Component {
     static template = "mail.DiscussSidebar";
-    static props = {};
     static components = { ActionList, DiscussSearch, ResizablePanel };
 
     setup() {
@@ -31,10 +26,6 @@ export class DiscussSidebar extends Component {
 
     get discussSidebarItems() {
         return discussSidebarItemsRegistry.getAll();
-    }
-
-    onClickViewHiddenConversations() {
-        this.env.services.action.doAction("mail.discuss_my_conversations_action");
     }
 
     onResize(width) {

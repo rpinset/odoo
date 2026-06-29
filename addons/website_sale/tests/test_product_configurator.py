@@ -404,6 +404,24 @@ class TestWebsiteSaleProductConfigurator(HttpCase, WebsiteSaleCommon):
             main_product.website_url, "website_sale.product_configurator_strikethrough_price"
         )
 
+    def test_product_configurator_strikethrough_price_uom_change(self):
+        """Test that the strikethrough price is updated when changing the packaging."""
+        self.env["res.config.settings"].create({
+            "group_product_price_comparison": True,
+            "group_uom": True,
+        }).execute()
+        self.env["product.template"].create({
+            "name": "Packaged product",
+            "website_published": True,
+            "list_price": 100,
+            "compare_list_price": 200,
+            "uom_ids": [Command.set(self.env.ref("uom.product_uom_pack_6").ids)],
+        })
+        self.start_tour(
+            "/shop?search=Packaged product",
+            "website_sale.product_configurator_strikethrough_price_uom_change",
+        )
+
     def test_get_product_combination_multi_attribute_with_archived_variant_and_inactive_ptav(self):
         """
         This test covers a case where a product has multiple attributes and one
@@ -443,9 +461,9 @@ class TestWebsiteSaleProductConfigurator(HttpCase, WebsiteSaleCommon):
             lambda product: product.product_template_attribute_value_ids[1].name == "first"
         ).action_archive()
         main_product.attribute_line_ids[1].product_template_value_ids[0].ptav_active = False
-        with self.mock_request():
+        with self.mock_request() as request:
             product_values = self.pc_controller._prepare_product_values(
-                main_product, **{str(attribute_single.id): str(attribute_single.value_ids.id)}
+                main_product.with_context(request.env.context), **{str(attribute_single.id): str(attribute_single.value_ids.id)}
             )
         is_combination_possible = product_values["combination_info"]["is_combination_possible"]
         combination_product_id = product_values["combination_info"]["product_id"]
@@ -475,11 +493,11 @@ class TestWebsiteSaleProductConfigurator(HttpCase, WebsiteSaleCommon):
         })
 
         # On website 1, the category from website 1 should be selected.
-        with MockRequest(self.env, website=self.website):
-            values = self.pc_controller._prepare_product_values(product_tmpl)
+        with MockRequest(self.website.env, website=self.website) as request:
+            values = self.pc_controller._prepare_product_values(product_tmpl.with_context(request.env.context))
         self.assertEqual(values["category"], categ_website_1)
 
         # On website 2, the category from website 2 should be selected.
-        with MockRequest(self.env, website=second_website):
-            values = self.pc_controller._prepare_product_values(product_tmpl)
+        with MockRequest(self.website.env, website=second_website) as request:
+            values = self.pc_controller._prepare_product_values(product_tmpl.with_context(request.env.context))
         self.assertEqual(values["category"], categ_website_2)

@@ -4,6 +4,7 @@ from stdnum.it import codicefiscale, iva
 
 from odoo import api, fields, models, _
 from odoo.exceptions import UserError
+from odoo.tools.business_data import split_vat
 
 
 class ResPartner(models.Model):
@@ -83,12 +84,10 @@ class ResPartner(models.Model):
                         normalized_country = 'IT'
                 # If the partner is from the EU, the country-code prefix of the VAT must be taken away
                 else:
-                    if not normalized_country:
-                        normalized_country = normalized_vat[:2].upper()
-                    normalized_vat = normalized_vat.removeprefix(normalized_country)
+                    normalized_country, normalized_vat = split_vat(normalized_vat, default_country_code=normalized_country)
             # If customer is from San Marino
             elif is_sm:
-                normalized_vat = normalized_vat if normalized_vat[:2].isdecimal() else normalized_vat[2:]
+                normalized_vat = split_vat(normalized_vat)[1]
 
         # If it has a codice fiscale (and no country), it's an Italian partner
         if not normalized_country and self.l10n_it_codice_fiscale:
@@ -205,10 +204,6 @@ class ResPartner(models.Model):
         if self.l10n_it_codice_fiscale:
             return 'IT'
         return super()._deduce_country_code()
-
-    def _peppol_eas_endpoint_depends(self):
-        # extends account_edi_ubl_cii
-        return super()._peppol_eas_endpoint_depends() + ['l10n_it_codice_fiscale']
 
     def _get_frontend_writable_fields(self):
         frontend_writable_fields = super()._get_frontend_writable_fields()

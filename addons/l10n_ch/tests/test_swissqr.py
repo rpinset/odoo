@@ -173,6 +173,11 @@ class TestSwissQR(AccountTestInvoicingCommon):
             'name': 'Test',
             'code': 'custom',
         })
+        payment_method = self.env["payment.method"].create({
+            "name": "Payment method",
+            "code": "unknown",
+            "provider_id": provider.id,
+        })
         invoice_journal = self.env['account.journal'].search(
             [('type', '=', 'sale'), ('company_id', '=', self.env.company.id)], limit=1)
         invoice_journal.write({'invoice_reference_model': 'ch'})
@@ -185,14 +190,14 @@ class TestSwissQR(AccountTestInvoicingCommon):
         })
         payment_transaction = self.env['payment.transaction'].create({
             'provider_id': provider.id,
-            'payment_method_id': self.env.ref('payment.payment_method_unknown').id,
+            'payment_method_id': payment_method.id,
             'sale_order_ids': [order.id],
             'partner_id': self.env['res.partner'].search([("name", '=', 'Partner')])[0].id,
             'amount': 100,
             'currency_id': self.env.company.currency_id.id,
+            'state': 'pending',
         })
-        payment_transaction._set_pending()
-        payment_transaction._post_process()
+        payment_transaction.with_context(payment_safe_write=True)._post_process()
 
         self.assertEqual(order.reference, mod10r(order.reference[:-1]))
 

@@ -163,6 +163,8 @@ export class ToolbarPlugin extends Plugin {
         on_selection_leave_handlers: () => this.closeToolbar(),
         on_selection_enter_handlers: () => this.updateToolbar(),
         on_committed_to_history_handlers: () => this.updateToolbar(),
+        on_format_requested_handlers: () => this.updateToolbar(),
+        on_collapsed_formats_removed_handlers: () => this.updateToolbar(),
         user_commands: {
             id: "expandToolbar",
             run: () => {
@@ -313,7 +315,12 @@ export class ToolbarPlugin extends Plugin {
         };
         /** @type {(item: ToolbarComponentItem) => ToolbarComponentButton} */
         const componentItemToButton = (item) => ({
-            isAvailable: () => true,
+            isAvailable: (selection) => {
+                const command = item.commandId
+                    ? this.dependencies.userCommand.getCommand(item.commandId)
+                    : null;
+                return command?.isAvailable ? command.isAvailable(selection) : true;
+            },
             ...item,
             description:
                 item.description instanceof Function ? item.description : () => item.description,
@@ -559,6 +566,7 @@ class MobileToolbarOverlay {
 
     open({ props }) {
         props.class = "shadow";
+        props.editable = this.editable;
         if (!this.isOpen) {
             const modal = this.editable.closest(".o_modal_full");
             if (modal) {

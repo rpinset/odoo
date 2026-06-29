@@ -1,9 +1,12 @@
+import logging
+
 from odoo import api, fields, models, modules
 from odoo.exceptions import UserError, ValidationError, RedirectWarning
+
+from odoo.addons.l10n_fr_pdp.tools.demo_utils import handle_demo
 from odoo.addons.iap.tools import iap_tools
 
-ENDPOINT = 'https://pdp.odoo.com'
-TEST_ENDPOINT = 'https://pdp.test.odoo.com'
+_logger = logging.getLogger(__name__)
 
 
 class PdpRegistration(models.TransientModel):
@@ -21,9 +24,9 @@ class PdpRegistration(models.TransientModel):
         required=True,
     )
     pdp_identifier = fields.Char(
-        related='company_id.pdp_identifier',
+        compute="_compute_pdp_identifier",
+        store=True,
         readonly=False,
-        required=True,
     )
     pdp_pilot_phase = fields.Boolean(
         related='company_id.l10n_fr_pdp_pilot_phase',
@@ -44,7 +47,6 @@ class PdpRegistration(models.TransientModel):
     )
     account_peppol_proxy_state = fields.Selection(
         related='company_id.account_peppol_proxy_state',
-        readonly=False,
     )
     warnings = fields.Json(
         string="Warnings",
@@ -53,10 +55,13 @@ class PdpRegistration(models.TransientModel):
     siren_number = fields.Char(
         compute='_compute_siren_number',
         store=True,
-        readonly=False
+        readonly=False,
     )
     pdp_authentication_uuid = fields.Char(
         string="Authentication IAP UUID",
+        related="company_id.pdp_authentication_uuid",
+        store=True,  # Keeping it stored as it's a stored field in stable.
+        readonly=False,
     )
     pdp_kyc_status = fields.Selection(
         string="Authentication status",
@@ -83,10 +88,15 @@ class PdpRegistration(models.TransientModel):
     # COMPUTE METHODS
     # -------------------------------------------------------------------------
 
-    @api.depends('company_id.company_registry')
+    @api.depends('company_id.pdp_identifier')
+    def _compute_pdp_identifier(self):
+        for wizard in self:
+            wizard.pdp_identifier = wizard.company_id.pdp_identifier or wizard.company_id.partner_id._get_suggested_pdp_identifier()
+
+    @api.depends('company_id.partner_id.additional_identifiers')
     def _compute_siren_number(self):
         for wizard in self:
-            wizard.siren_number = wizard.company_id.company_registry[:9] if wizard.company_id.company_registry else ''
+            wizard.siren_number = wizard.company_id.partner_id._l10n_fr_pdp_get_siren()
 
     @api.depends('company_id.account_edi_proxy_client_ids')
     def _compute_edi_user_id(self):
@@ -98,10 +108,18 @@ class PdpRegistration(models.TransientModel):
         for wizard in self:
             wizard.edi_mode = wizard.company_id._get_peppol_edi_mode()
 
-    @api.depends('pdp_identifier')
+    @api.depends('pdp_identifier', 'siren_number')
     def _compute_warnings(self):
         for wizard in self:
             warnings = {}
+            # Check SIREN
+            if not wizard.siren_number:
+                warnings['company_siren_warning'] = {
+                    'level': 'warning',
+                    'message': self.env._("The SIREN of the company could not be determined."),
+                    'action_text': self.env._("Go to company"),
+                    'action': wizard.company_id._get_records_action(name=self.env._("Check Company Data")),
+                }
             # Check identifier
             if (
                 wizard.pdp_identifier
@@ -136,6 +154,8 @@ class PdpRegistration(models.TransientModel):
     # -------------------------------------------------------------------------
 
     def _ensure_mandatory_fields(self):
+        if not self.pdp_identifier:
+            raise ValidationError(self.env._("The Identifier is required."))
         if not self.contact_email:
             raise ValidationError(self.env._("The contact email is required."))
 
@@ -159,15 +179,7 @@ class PdpRegistration(models.TransientModel):
         }
 
     def _action_open_pdp_form(self, reopen=True):
-        if not self.env.user.totp_enabled and not bool(self.env['ir.config_parameter'].sudo().get_str('auth_totp.policy')):
-            raise RedirectWarning(
-                message=self.env._("To be able to register, you need to enable the two-factor authentication."),
-                action=self.env.user._get_records_action(
-                    target='new',
-                    views=[(self.env.ref('base.view_users_form_simple_modif').id, "form")],
-                ),
-                button_text=self.env._("Go to the Preferences panel"),
-            )
+        self.ensure_one()
         return self._get_records_action(
             name=self.env._("Send via French electronic invoicing"),
             target='new',
@@ -184,6 +196,7 @@ class PdpRegistration(models.TransientModel):
     # BUSINESS ACTIONS
     # -------------------------------------------------------------------------
 
+    @handle_demo
     def button_trigger_authentication(self):
         self.ensure_one()
         if not self.siren_number:
@@ -192,73 +205,94 @@ class PdpRegistration(models.TransientModel):
                 action=self.company_id._get_records_action(),
                 button_text=self.env._("Go to company"),
             )
-        base_url = ENDPOINT if self.edi_mode == 'prod' else TEST_ENDPOINT
+        base_url = self.company_id._pdp_get_iap_url()
         response = iap_tools.iap_jsonrpc(f'{base_url}/api/id_authentication/1/authentication', params={
             'db_uuid': self.env['ir.config_parameter'].sudo().get_str('database.uuid'),
             'vat': self.siren_number,
             'auth_email': self.contact_email,
             'company_name': self.company_id.name,
             'localization': 'FR',
+            'db_url': self.get_base_url(),
         })
+        if error := response.get('error'):
+            raise UserError(error)
+
         self.pdp_authentication_uuid = response.get('object_uuid')
-        self.auth_url_hash = response.get('url_hash')
+
+        if not self.pdp_authentication_uuid or not response.get('url_hash'):
+            raise UserError(self.env._("Something wrong happened."))
         self.pdp_kyc_status = 'processing'
 
         return {
             'type': 'ir.actions.act_url',
-            'url': f'{base_url}/api/id_authentication/1/authentication_portal/{self.auth_url_hash}',
+            'url': f'{base_url}/api/id_authentication/1/authentication_portal/{response["url_hash"]}',
             'target': 'new',
+        }
+
+    def _get_status_notification_data(self):
+        self.ensure_one()
+        if self.pdp_kyc_status == 'success':
+            return {
+                'message': self.env._("Identity verified."),
+                'type': 'success',
+                'sticky': True,
+                'next': self._action_open_pdp_form(),
+            }
+        elif self.pdp_kyc_status == 'fail':
+            return {
+                'message': self.env._("Authentication failed."),
+                'type': 'danger',
+                'sticky': True,
+                'next': {'type': 'ir.actions.act_window_close'},
+            }
+        return {
+            'message': self.env._("Status updated."),
+            'type': 'info',
+            'sticky': False,
+            'next': self._action_open_pdp_form(),
         }
 
     def _display_status_notification(self):
         self.ensure_one()
-        if self.pdp_kyc_status == 'success':
-            type_color = 'success'
-            message = self.env._("Identity verified.")
-            next_action = self._action_open_pdp_form()
-        elif self.pdp_kyc_status == 'fail':
-            type_color = 'danger'
-            message = self.env._("Authentication failed.")
-            next_action = {'type': 'ir.actions.act_window_close'}
-
+        data = self._get_status_notification_data()
         return {
             'type': 'ir.actions.client',
             'tag': 'display_notification',
             'params': {
-                'message': message,
-                'type': type_color,
-                'sticky': True,
-                'next': next_action,
+                'message': data['message'],
+                'type': data['type'],
+                'sticky': data['sticky'],
+                'next': data['next'],
             },
         }
+
+    def display_status_notification_from_uuid(self):
+        self.ensure_one()
+        return self._display_status_notification()
 
     def button_refresh_authentication(self):
         self.ensure_one()
-        base_url = ENDPOINT if self.edi_mode == 'prod' else TEST_ENDPOINT
-        response = iap_tools.iap_jsonrpc(f'{base_url}/api/signaturit_id_authentication/1/kyc_status', params={
-            'object_uuid': self.pdp_authentication_uuid,
-        })
-        kyc_status = response.get('kyc_status')
-        if kyc_status in ('success', 'fail'):
-            self.pdp_kyc_status = kyc_status
-            return self._display_status_notification()
-
-        return {
-            'type': 'ir.actions.client',
-            'tag': 'display_notification',
-            'params': {
-                'message': self.env._("Status updated."),
-                'type': 'success',
-                'next': self._action_open_pdp_form(),
-            },
-        }
+        self.company_id._refresh_pdp_authentication_status()
+        return self._display_status_notification()
 
     def button_open_authentication_link(self):
         self.ensure_one()
-        base_url = ENDPOINT if self.edi_mode == 'prod' else TEST_ENDPOINT
+        base_url = self.company_id._pdp_get_iap_url()
+        response = iap_tools.iap_jsonrpc(f'{base_url}/api/id_authentication/1/get_authentication_hash', params={
+            'db_uuid': self.env['ir.config_parameter'].sudo().get_str('database.uuid'),
+            'vat': self.siren_number,
+            'auth_email': self.contact_email,
+            'object_uuid': self.pdp_authentication_uuid,
+        })
+        if error := response.get('error'):
+            raise UserError(error)
+
+        if not response.get('url_hash'):
+            raise UserError(self.env._("Something wrong happened."))
+
         return {
             'type': 'ir.actions.act_url',
-            'url': f'{base_url}/api/id_authentication/1/authentication_portal/{self.auth_url_hash}',
+            'url': f'{base_url}/api/id_authentication/1/authentication_portal/{response["url_hash"]}',
             'target': 'new',
         }
 
@@ -290,6 +324,7 @@ class PdpRegistration(models.TransientModel):
         if not self.env["res.company"]._check_pdp_identifier(self.pdp_identifier):
             raise UserError(self.env._("The Identifier is not valid. The expected format is: SIREN, SIREN_SIRET, SIREN_SIRET_CodeRoutage or SIREN_SuffixeAdressage"))
 
+        self.company_id.pdp_identifier = self.pdp_identifier
         edi_user = self.edi_user_id or self.env['account_edi_proxy_client.user']._register_proxy_user(self.company_id, 'pdp', self.edi_mode)
 
         # if there is an error when activating the participant below,
@@ -320,5 +355,7 @@ class PdpRegistration(models.TransientModel):
         """
         self.ensure_one()
 
+        # Reset the kyc status
+        self.pdp_kyc_status = False
         if self.edi_user_id:
             self.edi_user_id._peppol_deregister_participant()

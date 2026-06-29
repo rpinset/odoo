@@ -48,6 +48,7 @@
         <field name="name">project.project.view.inherit</field>
         <field name="model">project.project</field>
         <field name="inherit_id" ref="project.edit_project"/>
+        <field name="priority">20</field>
         <field name="arch" type="xml">
             <xpath expr="//button[@name='project_update_all_action']" position="after">
                 <field name="display_sales_stat_buttons" invisible="1"/>
@@ -138,15 +139,14 @@
             <xpath expr="//i[@name='partner_id']" position="attributes">
                 <attribute name="invisible">not allow_billable or is_template</attribute>
             </xpath>
-            <xpath expr="//div[@name='group_time_managment']" position="before">
-                <div name="group_sales_invoicing">
-                    <separator string="Sales &amp; Invoicing"/>
+            <xpath expr="//group[@name='group_time_managment']" position="before">
+                <group name="group_sales_invoicing" string="Sales &amp; Invoicing" class="row o_settings_container">
                     <setting help="Invoice your time and material to customers" id="allow_billable_container">
                         <field name="allow_billable"/>
                     </setting>
-                </div>
+                </group>
             </xpath>
-            <xpath expr="//t[@name='allocated_hours_placeholder']" position="after">
+            <xpath expr="//group[@name='other_section']" position="inside">
                 <field name="reinvoiced_sale_order_id" invisible="not allow_billable or not partner_id or is_template"  context="{'default_partner_id': partner_id}"/>
                 <label for="sale_line_id" invisible="not allow_billable or not partner_id or is_template"/>
                 <div
@@ -172,10 +172,11 @@
     <record id="project_embedded_action_project_actual_margin" model="ir.embedded.actions">
         <field name="parent_res_model">project.project</field>
         <field name="sequence">132</field>
-        <field name="name">Real Margin</field>
+        <field name="name">Margins</field>
         <field name="groups_ids" eval="[(4, ref('project.group_project_manager'))]"/>
         <field name="parent_action_id" ref="project.act_project_project_2_project_task_all"/>
         <field name="python_method">action_real_margin</field>
+        <field name="context">{"from_embedded_action": true}</field>
     </record>
 
     <record id="view_sale_project_quick_create_task_form" model="ir.ui.view">
@@ -414,11 +415,14 @@
             <field name="is_deadline_exceeded" position="after">
                 <field name="quantity_percentage"/>
             </field>
-            <xpath expr="//field[@name='name']" position="after">
-                <t t-if="record.sale_line_display_name.raw_value and record.quantity_percentage.raw_value">
-                    <field name="sale_line_display_name"/>(
-                    <field name="quantity_percentage" widget="percentage" class="d-contents"/>)
-                </t>
+            <xpath expr="//div[@name='deadline']" position="before">
+                <div t-if="record.sale_line_display_name.raw_value and record.quantity_percentage.raw_value" class="d-flex gap-1" name="sale_line" title="Sales Order Item">
+                    <i class="fa fa-money px-1 mt-1"/>
+                    <span>
+                        <field name="sale_line_display_name"/>
+                        (<field name="quantity_percentage" widget="percentage" class="d-contents"/>)
+                    </span>
+                </div>
             </xpath>
         </field>
     </record>

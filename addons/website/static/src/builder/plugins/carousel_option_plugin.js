@@ -245,8 +245,19 @@ export class CarouselOptionPlugin extends Plugin {
      * @param {HTMLElement} editingElement the carousel element.
      */
     assignUniqueID(editingElement) {
+        const preExistingId = editingElement.querySelector(".carousel").id;
         const id = "myCarousel" + Date.now();
-        editingElement.querySelector(".carousel").setAttribute("id", id);
+        // Update ids of .carousel, .carousel-inner, .carousel-item
+        for (const el of editingElement.querySelectorAll(`[id^=${preExistingId}`)) {
+            const currentId = el.id;
+            const newId = currentId.replace(preExistingId, id);
+            el.setAttribute("id", newId);
+            for (const controlEl of editingElement.querySelectorAll(
+                `[aria-controls='${currentId}']`
+            )) {
+                controlEl.setAttribute("aria-controls", newId);
+            }
+        }
         editingElement.querySelectorAll("[data-bs-target]").forEach((el) => {
             el.setAttribute("data-bs-target", "#" + id);
         });
@@ -300,6 +311,7 @@ export class CarouselOptionPlugin extends Plugin {
             // Activate the active slide.
             this.dependencies.builderOptions.setNextTarget(activeItemEl);
         }
+        return activeItemEl;
     }
     /**
      * @param {HTMLElement} editingElement the carousel element

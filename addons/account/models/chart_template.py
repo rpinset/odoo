@@ -287,7 +287,8 @@ class AccountChartTemplate(models.AbstractModel):
             data['res.company'][company.id].setdefault('anglo_saxon_accounting', company.anglo_saxon_accounting)
         for xmlid, journal_data in list(data.get('account.journal', {}).items()):
             if self.ref(xmlid, raise_if_not_found=False):
-                del data['account.journal'][xmlid]
+                if 'type' in journal_data:
+                    del data['account.journal'][xmlid]
             else:
                 journal = None
                 lang = self._get_untranslatable_fields_target_language(company.chart_template, company)
@@ -307,39 +308,33 @@ class AccountChartTemplate(models.AbstractModel):
                         ('name', 'in', (journal_data['name'], translated_name)),
                     ], limit=1)
                 if journal:
-                    del data['account.journal'][xmlid]
+                    if 'type' in journal_data:
+                        del data['account.journal'][xmlid]
                     self.env['ir.model.data']._update_xmlids([{
                         'xml_id': self.company_xmlid(xmlid, company),
                         'record': journal,
                         'noupdate': True,
                     }])
 
-        current_taxes = self.env['account.tax'].with_context(active_test=False).search([
-            *self.env['account.tax']._check_company_domain(company),
-        ])
+        def get_records_and_xmlid_mapping(model):
+            current_records = self.env[model].with_context(active_test=False).search([
+                *self.env[model]._check_company_domain(company),
+            ])
+            xmlid2records = {
+                xml_id.split('.')[1].split('_', maxsplit=1)[1]: self.env[model].browse(record)
+                for record, xml_id in current_records.get_external_id().items()
+                if xml_id.startswith('account.')
+            }
+            return current_records, xmlid2records
 
-        current_fiscal_positions =  self.env['account.fiscal.position'].with_context(active_test=False).search([
-            *self.env['account.fiscal.position']._check_company_domain(company),
-        ])
-
-        current_tax_groups = self.env['account.tax.group'].with_context(active_test=False).search([
-            *self.env['account.tax.group']._check_company_domain(company)
-        ])
+        current_taxes, xmlid2tax = get_records_and_xmlid_mapping('account.tax')
+        _current_fiscal_positions, xmlid2fiscal_position = get_records_and_xmlid_mapping('account.fiscal.position')
+        _current_tax_groups, xmlid2tax_group = get_records_and_xmlid_mapping('account.tax.group')
+        _current_accounts, xmlid2account = get_records_and_xmlid_mapping('account.account')
 
         unique_tax_name_key = lambda t: (t.name, t.type_tax_use, t.tax_scope, t.company_id)
         unique_tax_name_keys = set(current_taxes.mapped(unique_tax_name_key))
-        xmlid2tax = {
-            xml_id.split('.')[1].split('_', maxsplit=1)[1]: self.env['account.tax'].browse(record)
-            for record, xml_id in current_taxes.get_external_id().items() if xml_id.startswith('account.')
-        }
-        xmlid2fiscal_position= {
-            xml_id.split('.')[1].split('_', maxsplit=1)[1]: self.env['account.fiscal.position'].browse(record)
-            for record, xml_id in current_fiscal_positions.get_external_id().items() if xml_id.startswith('account.')
-        }
-        xmlid2tax_group = {
-            xml_id.split('.')[1].split('_', maxsplit=1)[1]: self.env['account.tax.group'].browse(res_id)
-            for res_id, xml_id in current_tax_groups.get_external_id().items() if xml_id.startswith('account.')
-        }
+
         def tax_template_changed(tax, template):
             template_line_ids = [x for x in template.get('repartition_line_ids', []) if x[0] != Command.CLEAR]
             return (
@@ -384,7 +379,10 @@ class AccountChartTemplate(models.AbstractModel):
                                 values.pop(field_name, None)
 
                 elif model_name == 'account.tax':
-                    if xmlid not in xmlid2tax or (tax_template_changed(xmlid2tax[xmlid], values) and not force_update):
+                    if xmlid not in xmlid2tax and 'name' not in values:
+                        skip_update.add((model_name, xmlid))
+                        _logger.warning("Required field missing on non existing record while reloading the CoA for %r", xmlid)
+                    elif xmlid not in xmlid2tax or (tax_template_changed(xmlid2tax[xmlid], values) and not force_update):
                         if not force_create:
                             skip_update.add((model_name, xmlid))
                             continue
@@ -438,11 +436,11 @@ class AccountChartTemplate(models.AbstractModel):
                                         repartition_line_values['tag_ids'] = tags or [Command.clear()]
                 elif model_name == 'account.account':
                     # Point or create xmlid to existing record to avoid duplicate code
-                    account = self.ref(xmlid, raise_if_not_found=False)
+                    account = xmlid2account.get(xmlid)
                     if 'code' in values:
                         # Inactive accounts are typically parents — skip padding to avoid code collisions
                         normalized_code = f'{values["code"]:<0{int(template_data.get("code_digits", 6))}}' if values.get("active", True) else values["code"]
-                        if not account or not re.match(f'^{values["code"]}0*$', account.code):
+                        if not (account and account.code and re.match(f'^{values["code"]}0*$', account.code)):
                             query = self.env['account.account'].with_context(active_test=False)._search(
                                 self.env['account.account']._check_company_domain(company)
                             )
@@ -757,13 +755,13 @@ class AccountChartTemplate(models.AbstractModel):
         if not company.currency_exchange_journal_id:
             company.currency_exchange_journal_id = self.ref('exch', raise_if_not_found=False)
 
-        # Setup default Income/Expense Accounts on Sale/Purchase journals
-        sale_journal = self.ref("sale", raise_if_not_found=False)
-        if sale_journal and company.income_account_id:
-            sale_journal.default_account_id = company.income_account_id
-        purchase_journal = self.ref("purchase", raise_if_not_found=False)
-        if purchase_journal and company.expense_account_id:
-            purchase_journal.default_account_id = company.expense_account_id
+        # Setup default Income/Expense Accounts on new Sale/Purchase journals
+        for journal, account in [
+            (self.ref("sale", raise_if_not_found=False), company.income_account_id),
+            (self.ref("purchase", raise_if_not_found=False), company.expense_account_id),
+        ]:
+            if journal and account and not journal.default_account_id and journal.write_date == journal.create_date:
+                journal.default_account_id = account
 
         # Set default Purchase and Sale taxes on the company
         if not company.account_sale_tax_id:

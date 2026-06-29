@@ -2,7 +2,7 @@ from odoo import Command
 from odoo.addons.account_edi_ubl_cii.tests.common import TestUblBis3Common, TestUblCiiBECommon
 from odoo.addons.base.tests.files import DOCX_RAW, XLSX_RAW
 
-from odoo.exceptions import UserError
+from odoo.exceptions import ValidationError
 from odoo.tests import tagged
 
 
@@ -103,6 +103,22 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
 
         self._generate_invoice_ubl_file(invoice)
         self._assert_invoice_ubl_file(invoice, 'test_invoice_BR_CO_10_line_extension_amount_sum_lines')
+
+    def test_invoice_PEPPOL_EN16931_R120_line_extension_amount_huge_number_of_decimals(self):
+        """ [PEPPOL-EN16931-R120]-Invoice line net amount MUST equal (Invoiced quantity * (Item net price/item price base quantity)
+        + Sum of invoice line charge amount - sum of invoice line allowance amount
+        """
+        tax_21 = self.percent_tax(21.0)
+        product = self._create_product(lst_price=0.01110515963896, taxes_id=tax_21)
+        invoice = self._create_invoice_one_line(
+            product_id=product,
+            quantity=278362.5,
+            partner_id=self.partner_be,
+            post=True,
+        )
+
+        self._generate_invoice_ubl_file(invoice)
+        self._assert_invoice_ubl_file(invoice, 'test_invoice_PEPPOL_EN16931_R120_line_extension_amount_huge_number_of_decimals')
 
     def test_invoice_price_amount_rounding_precision_with_price_included_taxes(self):
         tax_21 = self.percent_tax(21.0, price_include_override='tax_included')
@@ -515,6 +531,21 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
         self._generate_invoice_ubl_file(invoice)
         self._assert_invoice_ubl_file(invoice, 'test_invoice_early_pay_discount_with_0_tax')
 
+    def test_invoice_with_global_discount_line_sale_order(self):
+        self.ensure_installed('sale')
+
+        tax_21 = self.percent_tax(21.0)
+        product_a = self._create_product(name='product_a', lst_price=1000, taxes_id=tax_21)
+        self.env.user.group_ids |= self.env.ref('sales_team.group_sale_salesman')
+        sale_order = self._create_sale_order_one_line(
+            partner_id=self.partner_be.id,
+            product_id=product_a,
+        )
+        self._apply_sale_order_discount(sale_order, 'percent', 10)  # Global Discount of 10%
+        invoice = self._create_final_invoice(sale_order, post=True)
+        self._generate_invoice_ubl_file(invoice)
+        self._assert_invoice_ubl_file(invoice, 'test_invoice_with_global_discount_line_sale_order')
+
     def test_invoice_cash_rounding_add_invoice_line(self):
         tax_21 = self.percent_tax(21.0)
         product = self._create_product(lst_price=1039.99, taxes_id=tax_21)
@@ -721,10 +752,10 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
             test_file='test_invoice_customer_party_identifiers_partner_be_vat_and_company_registry',
         )
 
-        # With only VAT.
+        # With only VAT (no BE_EN typed identifier).
         # PartyIdentification is not there.
         # PartyTaxScheme / PartyLegalEntity are filled using the VAT.
-        self.partner_be.company_registry = None
+        self.partner_be.additional_identifiers = False
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_be,
             test_file='test_invoice_customer_party_identifiers_partner_be_vat',
@@ -739,12 +770,14 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
             test_file='test_invoice_customer_party_identifiers_partner_be_vat_and_ref',
         )
 
-        # No VAT, no ref, only EAS/Endpoint.
+        # No VAT, no ref, only EAS/Endpoint. `routing_identifier` is now an explicit routing override
+        # (no longer auto-computed from the other identifiers), so it is set on purpose here.
         # PartyIdentification is not there.
         # PartyTaxScheme is filled using EAS/Endpoint.
         # PartyLegalEntity is filled using the Endpoint only.
         self.partner_be.vat = None
         self.partner_be.ref = None
+        self.partner_be.routing_identifier = '0208:0477472701'
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_be,
             test_file='test_invoice_customer_party_identifiers_partner_be_only_eas_endpoint',
@@ -754,7 +787,7 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
         # PartyIdentification is not there.
         # PartyTaxScheme is filled using EAS/Endpoint.
         # PartyLegalEntity is filled using the Endpoint only.
-        self.partner_be.company_registry = '0477472701'
+        self.partner_be.additional_identifiers = {'BE_EN': '0477472701'}
         self.partner_be.vat = 'BE0477472701'
         partner_be_invoice_address = self._create_partner_be(
             name=False,
@@ -766,39 +799,33 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
             test_file='test_invoice_customer_party_identifiers_partner_be_invoice_address',
         )
 
-        # VAT in company_registry should render the CBE Numer only
-        self.partner_be.company_registry = 'BE0477472701'
-        self._assert_invoice_partner_party_identifiers(
-            partner=self.partner_be,
-            test_file='test_invoice_customer_party_identifiers_partner_be_vat_and_company_registry',
-        )
-
-        # Malformed company_registry should raise
-        self.partner_be.company_registry = 'BEWrongOne'
-        with self.assertRaises(UserError):
-            self._assert_invoice_partner_party_identifiers(
-                partner=self.partner_be,
-                test_file='test_invoice_customer_party_identifiers_partner_be_vat_and_company_registry',
-            )
+        # BE_EN is stored normalized through `_set_additional_identifier`, which
+        # uses `be_vat.validate`; a malformed value should be rejected at write time.
+        with self.assertRaises(ValidationError):
+            self.partner_be.additional_identifiers = {'BE_EN': 'BEWrongOne'}
 
     def test_invoice_customer_party_identifiers_partner_lu(self):
-        # Both VAT and company registry are not set.
-        # PartyIdentification is not there.
-        # PartyTaxScheme is filled using EAS/Endpoint.
-        # PartyTaxScheme is filled using the Endpoint only.
+        # Only VAT is set
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_lu_dig,
-            test_file='test_invoice_customer_party_identifiers_partner_lu_only_eas_endpoint',
+            test_file='test_invoice_customer_party_identifiers_partner_lu_only_vat',
         )
 
-        # Company registry is set.
-        # PartyIdentification is not there.
-        # PartyTaxScheme is filled using EAS/Endpoint.
-        # PartyLegalEntity is filled using the company registry.
-        self.partner_lu_dig.company_registry = "123456789"
+        # VAT + LU_EN identifiers are set.
+        self.partner_lu_dig.additional_identifiers = {'LU_EN': "B123456"}
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_lu_dig,
             test_file='test_invoice_customer_party_identifiers_partner_lu_company_registry',
+        )
+
+        self.partner_lu_dig.write({
+            'additional_identifiers': None,
+            'vat': None,
+            'routing_identifier': '9938:LU12345613'
+        })
+        self._assert_invoice_partner_party_identifiers(
+            partner=self.partner_lu_dig,
+            test_file='test_invoice_customer_party_identifiers_partner_lu_only_vat',  # should give the same output as if VAT was set (thanks to enrich=True)
         )
 
     def test_invoice_customer_party_identifiers_partner_nl(self):
@@ -811,36 +838,27 @@ class TestUblExportBis3BE(TestUblBis3Common, TestUblCiiBECommon):
             test_file='test_invoice_customer_party_identifiers_partner_nl_vat_kvk_eas',
         )
 
-        # VAT is set plus an OIN number as EAS/Endpoint.
-        # PartyIdentification is not there.
-        # PartyTaxScheme is filled using VAT.
-        # PartyLegalEntity is filled using the EAS/Endpoint.
-        self.partner_nl.peppol_eas = '0190'
-        self.partner_nl.peppol_endpoint = '00000001822477348000'
+        # VAT + a typed NL_OIN identifier: PartyLegalEntity is filled from NL_OIN
+        # with schemeID 0190; routing_identifier resolves to the OIN as the routable id.
+        self.partner_nl.additional_identifiers = {'NL_OIN': '00000001822477348000'}
+        self.partner_nl.routing_identifier = '0190:00000001822477348000'
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_nl,
             test_file='test_invoice_customer_party_identifiers_partner_nl_vat_oin_eas',
         )
 
-        # VAT in EAS/Endpoint, KVK number in company registry.
-        # PartyIdentification is not there.
-        # PartyTaxScheme is filled using VAT.
-        # PartyLegalEntity is filled using the EAS/Endpoint.
-        self.partner_nl.company_registry = '77777677'
-        self.partner_nl.peppol_eas = '9944'
-        self.partner_nl.peppol_endpoint = 'NL000099998B57'
+        # VAT used as the routable id (routing_identifier = 9944:NL VAT) but NL_KVK
+        # still typed: PartyLegalEntity is filled from NL_KVK with schemeID 0106.
+        self.partner_nl.additional_identifiers = {'NL_KVK': '77777677'}
+        self.partner_nl.routing_identifier = '9944:NL000099998B57'
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_nl,
             test_file='test_invoice_customer_party_identifiers_partner_nl_vat_eas_kvk_company_registry',
         )
 
-        # VAT in EAS/Endpoint, OIN number in company registry.
-        # PartyIdentification is not there.
-        # PartyTaxScheme is filled using VAT.
-        # PartyLegalEntity is filled using the EAS/Endpoint.
-        self.partner_nl.company_registry = '00000001822477348000'
-        self.partner_nl.peppol_eas = '9944'
-        self.partner_nl.peppol_endpoint = 'NL000099998B57'
+        # Same with NL_OIN typed (PartyLegalEntity uses NL_OIN, schemeID 0190).
+        self.partner_nl.additional_identifiers = {'NL_OIN': '00000001822477348000'}
+        self.partner_nl.routing_identifier = '9944:NL000099998B57'
         self._assert_invoice_partner_party_identifiers(
             partner=self.partner_nl,
             test_file='test_invoice_customer_party_identifiers_partner_nl_vat_eas_oin_company_registry',

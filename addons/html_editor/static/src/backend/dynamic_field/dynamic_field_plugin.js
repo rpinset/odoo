@@ -60,7 +60,7 @@ export class DynamicFieldPlugin extends Plugin {
             withSequence(20, {
                 categoryId: "dynamic_field_tools",
                 commandId: "insertField",
-                keywords: [_t("dynamic placeholder")],
+                keywords: [_t("dynamic"), _t("placeholder"), _t("personalize")],
             }),
         ],
         on_selectionchange_handlers: withSequence(9, this.onSelectionChanged.bind(this)),
@@ -312,6 +312,7 @@ export class DynamicFieldPlugin extends Plugin {
             }
             return false;
         });
+        return node;
     }
 
     cleanQwebExpressionsForCopy(node) {
@@ -322,6 +323,7 @@ export class DynamicFieldPlugin extends Plugin {
                 }
             }
         );
+        return node;
     }
 
     cleanQwebExpressionsForSave(root) {
@@ -337,6 +339,7 @@ export class DynamicFieldPlugin extends Plugin {
             }
             return doChildren;
         });
+        return root;
     }
 }
 

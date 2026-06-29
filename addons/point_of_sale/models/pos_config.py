@@ -12,6 +12,7 @@ from odoo import SUPERUSER_ID, Command, _, api, fields, models, tools
 from odoo.exceptions import AccessError, UserError, ValidationError
 from odoo.http import request
 from odoo.tools import SQL, convert
+from odoo.fields import Domain
 from odoo.tools.misc import get_lang
 
 from odoo.addons.point_of_sale.models.pos_printer import format_epson_certified_domain
@@ -94,8 +95,6 @@ class PosConfig(models.Model):
     iface_group_by_categ = fields.Boolean("Group products by categories", help='Display products grouped by categories.')
     iface_print_auto = fields.Boolean(string='Automatic Receipt Printing', default=False,
         help='The receipt will automatically be printed at the end of each order.')
-    iface_print_skip_screen = fields.Boolean(string='Skip Preview Screen', default=True,
-        help='The receipt screen will be skipped if the receipt can be printed automatically.')
     iface_tax_included = fields.Selection([('subtotal', 'Tax-Excluded Price'), ('total', 'Tax-Included Price')], string="Tax Display", default='total', required=True)
     iface_available_categ_ids = fields.Many2many('pos.category', string='Available PoS Product Categories',
         help='The point of sale will only display products which are within one of the selected category trees. If no category is specified, all available products will be shown')
@@ -109,12 +108,12 @@ class PosConfig(models.Model):
     set_maximum_difference = fields.Boolean('Set Maximum Difference', help="Set a maximum difference allowed between the expected and counted money during the closing of the session.")
     receipt_header = fields.Text(string='Receipt Header', help="A short text that will be inserted as a header in the printed receipt.")
     receipt_footer = fields.Text(string='Receipt Footer', help="A short text that will be inserted as a footer in the printed receipt.")
-    basic_receipt = fields.Boolean(string='Basic Receipt', help="Print basic ticket without prices. Can be used for gifts.")
+    basic_receipt = fields.Boolean(string='Gift Receipt', help="Print gift ticket without prices. Can be used for gifts.")
     active = fields.Boolean(default=True)
     uuid = fields.Char(readonly=True, default=lambda self: str(uuid4()), copy=False,
         help='A globally unique identifier for this pos configuration, used to prevent conflicts in client-generated data.')
     session_ids = fields.One2many('pos.session', 'config_id', string='Sessions')
-    current_session_id = fields.Many2one('pos.session', compute='_compute_current_session', string="Current Session")
+    current_session_id = fields.Many2one('pos.session', compute='_compute_current_session', string="Current Session", search='_search_current_session')
     current_session_state = fields.Char(compute='_compute_current_session')
     number_of_rescue_session = fields.Integer(string="Number of Rescue Session", compute='_compute_current_session')
     last_session_closing_cash = fields.Float(compute='_compute_last_session')
@@ -359,10 +358,15 @@ class PosConfig(models.Model):
             rescue_sessions = opened_sessions.filtered('rescue')
             session = pos_config.session_ids.filtered(lambda s: s.state != 'closed' and not s.rescue)
             # sessions ordered by id desc
-            pos_config.has_active_session = opened_sessions and True or False
-            pos_config.current_session_id = session and session[0].id or False
-            pos_config.current_session_state = session and session[0].state or False
+            pos_config.has_active_session = bool(opened_sessions.filtered(lambda s: s.state != 'opening_control')) or False
+            pos_config.current_session_id = (session and session[0].id) or False
+            pos_config.current_session_state = (session and session[0].state) or False
             pos_config.number_of_rescue_session = len(rescue_sessions)
+
+    def _search_current_session(self, operator, value):
+        if operator != 'in':
+            return NotImplemented
+        return Domain('session_ids', operator, value)
 
     def _compute_statistics_for_session(self):
         for config in self:
@@ -870,6 +874,13 @@ class PosConfig(models.Model):
         self._check_profit_loss_cash_journal()
         self._check_payment_method_ids()
 
+    def open_session_if_not_opened(self):
+        if not self.current_session_id:
+            # Acquire an row-level lock on the pos_config record to prevent race conditions
+            # This prevents multiple concurrent processes from creating duplicate POS sessions
+            self.lock_for_update()
+            self.open_ui()
+
     def open_ui(self):
         """Open the pos interface with config_id as an extra argument.
 
@@ -1009,7 +1020,10 @@ class PosConfig(models.Model):
         return False
 
     def _get_special_products(self):
-        return self.env.ref('point_of_sale.product_product_tip', raise_if_not_found=False) or self.env['product.product']
+        default_tip = self.env.ref('point_of_sale.product_product_tip', raise_if_not_found=False) or self.env['product.product']
+        default_fee = self.env.ref('point_of_sale.product_product_service_fee', raise_if_not_found=False) or self.env['product.product']
+        fee_products = self.env['pos.preset'].search([('service_fee', '=', True)]).mapped('service_fee_product_id')
+        return default_tip | default_fee | fee_products
 
     def update_customer_display(self, order, device_uuid):
         self.ensure_one()

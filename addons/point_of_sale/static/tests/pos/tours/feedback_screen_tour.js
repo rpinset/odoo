@@ -11,7 +11,6 @@ import * as Numpad from "@point_of_sale/../tests/generic_helpers/numpad_util";
 import * as OfflineUtil from "@point_of_sale/../tests/generic_helpers/offline_util";
 import { registry } from "@web/core/registry";
 import { inLeftSide } from "@point_of_sale/../tests/pos/tours/utils/common";
-import { negateStep } from "@point_of_sale/../tests/generic_helpers/utils";
 
 registry.category("web_tour.tours").add("FeedbackScreenTour", {
     steps: () =>
@@ -21,7 +20,7 @@ registry.category("web_tour.tours").add("FeedbackScreenTour", {
             OfflineUtil.setOfflineMode(),
             ProductScreen.addOrderline("Letter Tray", "10", "5"),
             ProductScreen.clickPartnerButton(),
-            ProductScreen.clickCustomer("Partner Full"),
+            ProductScreen.clickCustomer("APartner Full"),
             ProductScreen.clickPayButton(),
             PaymentScreen.clickPaymentMethod("Bank"),
             PaymentScreen.validateButtonIsHighlighted(true),
@@ -118,46 +117,10 @@ registry.category("web_tour.tours").add("FeedbackScreenTour", {
                         name: "Desk Pad",
                         cssRules: [
                             {
-                                css: ".info-list .customer-note",
+                                css: ".lines .line-note",
                                 text: "Test customer note",
                             },
                         ],
-                    },
-                ],
-            }),
-            FeedbackScreen.clickNextOrder(),
-
-            // Test that Internal notes are not available on receipt
-            ProductScreen.addOrderline("Desk Pad", "1", "5"),
-            inLeftSide([
-                { ...ProductScreen.clickLine("Desk Pad")[0], isActive: ["mobile"] },
-                ...ProductScreen.addInternalNote("Test internal note"),
-                ...ProductScreen.clickSelectedLine("Desk Pad"),
-                ...ProductScreen.addInternalNote("Test internal note on order"),
-                ...Order.hasInternalNote("Test internal note on order"),
-            ]),
-            ProductScreen.clickPayButton(),
-            PaymentScreen.clickPaymentMethod("Bank"),
-            PaymentScreen.clickValidate(),
-            FeedbackScreen.isShown(),
-            FeedbackScreen.checkTicketData({
-                orderlines: [
-                    {
-                        name: "Desk Pad",
-                        cssRules: [
-                            {
-                                css: ".info-list .o_tag_badge_text",
-                                text: "Test internal note",
-                                negation: true,
-                            },
-                        ],
-                    },
-                ],
-                cssRules: [
-                    {
-                        css: ".order-container .internal-note-container span div",
-                        text: "Test internal note on order",
-                        negation: true,
                     },
                 ],
             }),
@@ -284,6 +247,19 @@ registry.category("web_tour.tours").add("point_of_sale.test_printed_receipt_tour
                 },
                 true
             ),
+            FeedbackScreen.checkTicketData(
+                {
+                    cssRules: [
+                        {
+                            css: "[name='simplified_receipt_label']",
+                            text: "Receipt",
+                            negation: false,
+                        },
+                    ],
+                },
+                false,
+                true
+            ),
         ].flat(),
 });
 
@@ -368,10 +344,9 @@ registry.category("web_tour.tours").add("test_automatic_receipt_printing", {
             FeedbackScreen.isShown(),
             FeedbackScreen.isContinueEnabled(),
             FeedbackScreen.isTransitioning(),
-            FeedbackScreen.clickScreen(),
-            FeedbackScreen.isTransitioning().map(negateStep),
-            FeedbackScreen.clickNextOrder(),
+            FeedbackScreen.isSuccess(),
             ProductScreen.isShown(),
+            Chrome.closePrintingWarning(),
             ProductScreen.clickDisplayedProduct("Desk Organizer"),
             ProductScreen.clickPayButton(),
             PaymentScreen.clickPaymentMethod("Bank"),
@@ -379,6 +354,7 @@ registry.category("web_tour.tours").add("test_automatic_receipt_printing", {
             FeedbackScreen.isShown(),
             FeedbackScreen.isContinueEnabled(),
             FeedbackScreen.isTransitioning(),
+            FeedbackScreen.isSuccess(),
             ProductScreen.isShown(),
         ].flat(),
 });

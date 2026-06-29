@@ -4,11 +4,12 @@ from xml.dom.minidom import parseString
 
 from dateutil.relativedelta import relativedelta
 from lxml import etree
-from stdnum.pl.nip import compact
+from decimal import Decimal
 
 from odoo import Command, api, fields, models
 from odoo.exceptions import UserError
 from odoo.tools import float_compare, float_is_zero, float_repr, OrderedSet
+from odoo.tools.business_data import split_vat
 
 from odoo.addons.l10n_pl_edi.tools.ksef_api_service import KsefApiService
 
@@ -137,10 +138,7 @@ class AccountMove(models.Model):
             return vat[:2].upper()
 
         def get_vat_number(vat):
-            vat_country, vat_number = self.env['res.partner']._split_vat(vat)
-            if vat_country == 'PL':
-                return compact(vat)
-            return vat_number
+            return split_vat(vat)[1]
 
         def get_address(partner):
             return re.sub(r'\n+', r' ', partner._display_address(True))
@@ -161,6 +159,12 @@ class AccountMove(models.Model):
             conversion_line = self.invoice_line_ids.sorted(lambda line: abs(line.balance), reverse=True)[0] if self.invoice_line_ids else None
             conversion_rate = abs(conversion_line.balance / conversion_line.amount_currency) if self.currency_id != self.env.ref('base.PLN') and conversion_line else 1
             return get_amounts_from_tag(tax_group_id) * conversion_rate
+
+        def get_base_amounts_from_tag(tax_tag_string):
+            lines = self.line_ids.filtered(lambda line: line.tax_tag_ids & get_tags(tax_tag_string))
+            if 'OSS' in tax_tag_string:
+                lines = lines.filtered(lambda line: line.tax_ids if 'Base' in tax_tag_string else not line.tax_ids)
+            return -self.direction_sign * sum(lines.mapped('price_subtotal'))
 
         def compute_p_12(tag_names):
             """
@@ -218,7 +222,7 @@ class AccountMove(models.Model):
                 'P_7': line.name,
                 'P_8A': line.product_uom_id.name or 'szt.',
                 'P_8B': line.quantity * sign,
-                'P_9A': float_repr(line.price_unit, 2),
+                'P_9A': float_repr(line.price_unit, 8),
                 'P_11': float_repr(line.price_subtotal * sign, 2),
                 'P_12': compute_p_12(tag_names),
             }
@@ -264,11 +268,14 @@ class AccountMove(models.Model):
             'get_vat_number': get_vat_number,
             'get_amounts_from_tag': get_amounts_from_tag,
             'get_amounts_from_tag_in_PLN_currency': get_amounts_from_tag_in_PLN_currency,
+            'get_base_amounts_from_tag': get_base_amounts_from_tag,
             'invoice_type': ksef_type,
             'related_invoices': self._l10n_pl_edi_get_related_invoices(),
             'correction_info': correction_info,
             'special_transactions': {'OSS_Base', 'OSS_Tax', 'Triangular Sale'} & invoice_tag_names,
             'triangular_transaction': '1' if 'Triangular Sale' in invoice_tag_names else '2',
+            'prefiks_podatnika': bool({'K_21', 'K_12', 'Triangular Sale'} & invoice_tag_names),
+            'reverse_charge': any(invoice_line_vals['P_12'] in ('np I', 'np II', 'oo') for invoice_line_vals in invoice_lines_vals),
         }
 
     def _l10n_pl_edi_render_xml(self):
@@ -411,9 +418,7 @@ class AccountMove(models.Model):
 
     def _cron_l10n_pl_edi_check_invoice_status(self):
         """get all moves that are in state sent run action_update_invoice_status on all of them"""
-        to_update_moves = self.env['account.move'].search([*self.env['account.move']._check_company_domain(self.env.company), ('l10n_pl_edi_status', '=', 'sent')])
-        for move in to_update_moves:
-            self.env['res.company']._with_locked_records(move)
+        for move in self.env['account.move'].search([('l10n_pl_edi_status', '=', 'sent')]):
             move.action_l10n_pl_edi_update_invoice_status()
 
     def button_draft(self):
@@ -502,7 +507,10 @@ class AccountMove(models.Model):
                     else:
                         raise UserError(self.env._("Tax corresponding to '%s' required to derive the net unit price from gross price during KSeF import was not found in the mapping.", tax_name))
                 else:
-                    raise UserError(self.env._("No net or gross unit price found in the FA (3) for the line with product '%s'.", name))
+                    price_unit = 0.0
+
+                if P_10 := get_value(line_node, '{*}P_10'):
+                    price_unit = float(Decimal(str(price_unit)) - Decimal(P_10))
 
                 lines.append(
                     {

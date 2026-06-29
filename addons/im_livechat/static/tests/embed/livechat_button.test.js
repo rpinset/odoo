@@ -20,7 +20,7 @@ defineLivechatModels();
 test("open/close temporary channel", async () => {
     await startServer();
     await loadDefaultEmbedConfig();
-    await start({ authenticateAs: false });
+    await start({ authenticateAs: false, waitUntilSubscribe: false });
     await click(".o-livechat-LivechatButton");
     await contains(".o-mail-ChatWindow");
     await contains(".o-livechat-LivechatButton", { count: 0 });
@@ -37,10 +37,10 @@ test("livechat not available", async () => {
     patchWithCleanup(mailDataHelpers, {
         _process_request_for_all(store) {
             super._process_request_for_all(...arguments);
-            store.add({ livechat_available: false });
+            store.add_global_values({ livechat_available: false });
         },
     });
-    await start({ authenticateAs: false });
+    await start({ authenticateAs: false, waitUntilSubscribe: false });
     await contains(".o-mail-ChatHub");
     await contains(".o-livechat-LivechatButton", { count: 0 });
 });
@@ -57,10 +57,10 @@ test("clicking on notification opens the chat", async () => {
             store.add(pyEnv["im_livechat.channel.rule"].browse(btnAndTextRuleId), {
                 action: "display_button_and_text",
             });
-            store.add({ livechat_rule: btnAndTextRuleId });
+            store.add_global_values({ livechat_rule: btnAndTextRuleId });
         },
     });
-    await start({ authenticateAs: false });
+    await start({ authenticateAs: false, waitUntilSubscribe: false });
     await click(".o-livechat-LivechatButton-notification", {
         text: "Need help? Chat with us.",
     });

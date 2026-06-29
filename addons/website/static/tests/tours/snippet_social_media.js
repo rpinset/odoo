@@ -50,8 +50,7 @@ const replaceIconByImage = function (url) {
         },
         {
             content: "Select the image",
-            trigger:
-                ".o_select_media_dialog .o_button_area[aria-label='s_banner_default_image.jpg']",
+            trigger: ".o_select_media_dialog .o_button_area[aria-label='landscape_md_1.jpg']",
             run: "click",
         },
         ...preventRaceConditionStep,
@@ -94,7 +93,6 @@ const addNewSocialNetwork = function (optionIndex, url, replaceIcon = false) {
 registerWebsitePreviewTour(
     "snippet_social_media",
     {
-        undeterministicTour_doNotCopy: true, // Remove this key to make the tour failed. ( It removes delay between steps )
         edition: true,
     },
     () => [
@@ -111,9 +109,11 @@ registerWebsitePreviewTour(
             trigger: ':iframe .s_social_media:has(a:eq(0)[href="https://twitter.com/Odoo"])',
         },
         {
+            trigger: ".o_social_media_list tr:nth-child(8):last-child",
+        },
+        {
             content: "Drag the twitter link at the end of the list",
             trigger: ".o_social_media_list button.o_drag_handle",
-            tooltipPosition: "bottom",
             run: "drag_and_drop .o_social_media_list tr:last-child",
         },
         ...preventRaceConditionStep,

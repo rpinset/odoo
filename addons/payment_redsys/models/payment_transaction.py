@@ -23,7 +23,10 @@ class PaymentTransaction(models.Model):
         """Override of `payment` to set the Redsys-specific `provider_reference`."""
         transactions = super().create(vals_list)
         for tx in transactions.filtered(lambda t: t.provider_code == "redsys"):
-            tx.provider_reference = tx.reference
+            tx.with_context(
+                # The transaction was just created; no concurrent write is possible
+                payment_safe_write=True
+            ).provider_reference = tx.reference
         return transactions
 
     def _compute_reference(self, provider_code, prefix=None, separator="-", **kwargs):
@@ -75,7 +78,7 @@ class PaymentTransaction(models.Model):
         payment_data = self._send_api_request(
             "POST", "/rest/trataPeticionREST", json=self._redsys_prepare_request_payload()
         )
-        self._process("redsys", payment_data)
+        self._record(payment_data)
 
     def _redsys_prepare_request_payload(self):
         """Prepare the Redsys request payload with encoded merchant parameters and signature.
@@ -158,7 +161,7 @@ class PaymentTransaction(models.Model):
 
         # Update the payment method.
         card_brand = payment_data.get("Ds_Card_Brand")
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             card_brand, mapping=const.PAYMENT_METHODS_MAPPING
         )
         self.payment_method_id = payment_method or self.payment_method_id
@@ -170,13 +173,7 @@ class PaymentTransaction(models.Model):
         elif status_code in const.PAYMENT_STATUS_MAPPING["cancel"]:
             self._set_canceled()
         elif status_code in const.PAYMENT_STATUS_MAPPING["error"]:
-            self._set_error(
-                self.env._(
-                    "An error occurred during the processing of your payment (%s). Please try"
-                    " again.",
-                    payment_data.get("Ds_ErrorCode"),
-                )
-            )
+            self._set_error(const.ERROR_CODE_MAPPING[status_code])
         else:
             _logger.warning("Received invalid payment status (%s).", status_code)
             self._set_error(self.env._("Unknown status code: %s", status_code))

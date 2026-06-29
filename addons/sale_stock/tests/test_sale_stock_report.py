@@ -166,7 +166,6 @@ class TestSaleStockReports(TestReportsCommon):
             'login': 'other',
             'group_ids': [
                 Command.link(self.env.ref('sales_team.group_sale_salesman').id),
-                Command.link(self.env.ref('stock.group_stock_user').id),
             ],
         })
 
@@ -207,13 +206,13 @@ class TestSaleStockReports(TestReportsCommon):
         })
         picking_receipt.action_confirm()
 
-        self.env['report.stock.report_reception']._action_assign(
+        self.env['stock.allocation.report']._allocate_moves(
             picking_receipt.move_ids,
             so_delivery.move_ids,
         )
         self.assertEqual(picking_receipt.move_ids.reference_ids, so_delivery.move_ids.reference_ids)
 
-        self.env['report.stock.report_reception']._action_unassign(
+        self.env['stock.allocation.report']._unallocate_moves(
             picking_receipt.move_ids,
             so_delivery.move_ids,
         )

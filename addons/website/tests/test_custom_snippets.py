@@ -18,7 +18,7 @@ class TestCustomSnippet(TransactionCase):
             'url_code': 'pa_GB',
         })
         ResLang._activate_lang(parseltongue.code)
-        website = self.env.ref('website.default_website')
+        website = self.env.ref('base.default_website')
         website.language_ids = [Command.link(parseltongue.id)]
         data_name_attr = "Custom Text Block Test Translations"
         data_name_attr2 = "Custom Title Test Translations"
@@ -67,7 +67,7 @@ class TestCustomSnippet(TransactionCase):
         ).save_snippet(
             name=data_name_attr,
             arch=snippet_arch,
-            thumbnail_url='/website/static/src/img/snippets_thumbs/s_text_block.svg',
+            thumbnail_url='/website/static/src/img/snippets_thumbs/thumb_snippets_text.svg',
             snippet_key='s_text_block',
             template_key='website.snippets'
         )
@@ -86,7 +86,7 @@ class TestCustomSnippet(TransactionCase):
         ).save_snippet(
             name=data_name_attr2,
             arch=snippet_arch2,
-            thumbnail_url='/website/static/src/img/snippets_thumbs/s_text_block.svg',
+            thumbnail_url='/website/static/src/img/snippets_thumbs/thumb_snippets_text.svg',
             snippet_key='s_text_block',
             template_key='website.snippets'
         )
@@ -150,7 +150,7 @@ class TestCustomSnippet(TransactionCase):
         ).save_snippet(
             name='Test Translation MegaMenu',
             arch=snippet_arch,
-            thumbnail_url='/website/static/src/img/snippets_thumbs/s_text_block.svg',
+            thumbnail_url='/website/static/src/img/snippets_thumbs/thumb_snippets_text.svg',
             snippet_key='s_text_block',
             template_key='website.snippets'
         )
@@ -203,7 +203,7 @@ class TestCustomSnippet(TransactionCase):
             'url_code': 'pa_GB',
         })
         ResLang._activate_lang(parseltongue.code)
-        website = self.env.ref('website.default_website')
+        website = self.env.ref('base.default_website')
         website.language_ids = [Command.link(parseltongue.id)]
         data_name_attr = "Custom Text Block Test Translations"
         # Note that `s_custom_snippet` is supposed to be added by the JS when
@@ -244,7 +244,7 @@ class TestCustomSnippet(TransactionCase):
         ).save_snippet(
             name=data_name_attr,
             arch=snippet_arch,
-            thumbnail_url='/website/static/src/img/snippets_thumbs/s_text_block.svg',
+            thumbnail_url='/website/static/src/img/snippets_thumbs/thumb_snippets_text.svg',
             snippet_key='s_text_block',
             template_key='website.snippets'
         )

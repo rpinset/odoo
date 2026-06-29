@@ -8,7 +8,7 @@ from odoo import api, fields, models, modules, tools
 from odoo.api import SUPERUSER_ID
 from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Command, Domain
-from odoo.tools import SQL, BinaryBytes, file_open, html2plaintext, ormcache
+from odoo.tools import SQL, BinaryBytes, file_open, html2plaintext
 from odoo.tools.image import image_process
 from odoo.tools.sql import table_columns
 
@@ -52,6 +52,7 @@ def company_default_for(fname, target_model, target_fname):
         'inverse': _inverse_to_ir_default,
         'compute_sql': _compute_sql_ir_default,
         'compute_sudo': True,
+        'write_sequence': -10,  # inverse before other fields to apply the company default
     }
 
 
@@ -114,7 +115,8 @@ class ResCompany(models.CachedModel):
     phone = fields.Char(related='partner_id.phone', store=True, readonly=False)
     website = fields.Char(related='partner_id.website', readonly=False)
     vat = fields.Char(related='partner_id.vat', string="Tax ID", readonly=False)
-    company_registry = fields.Char(related='partner_id.company_registry', string="Company ID", readonly=False)
+    additional_identifiers = fields.Json(related='partner_id.additional_identifiers', readonly=False)
+    available_additional_identifiers_metadata = fields.Json(related='partner_id.available_additional_identifiers_metadata')
     paperformat_id = fields.Many2one('report.paperformat', 'Paper format', default=lambda self: self.env.ref('base.paperformat_euro', raise_if_not_found=False))
     external_report_layout_id = fields.Many2one('ir.ui.view', 'Document Template')
     report_tables_id = fields.Selection([
@@ -395,7 +397,7 @@ class ResCompany(models.CachedModel):
         if any(self._ids) and not self._clear_asset_cache_on_fields.isdisjoint(vals):
             # this is used in the content of an asset (see asset_styles_company_report)
             # and thus needs to invalidate the assets cache when this is changed
-            self.env.registry.clear_cache('assets')  # not 100% it is useful a test is missing if it is the case
+            self.env.transaction.invalidate_ormcache('assets')  # not 100% it is useful a test is missing if it is the case
 
         # Archiving a company should also archive all of its branches
         if vals.get('active') is False:
@@ -460,7 +462,7 @@ class ResCompany(models.CachedModel):
 
         return main_company
 
-    @ormcache('frozenset(self.env.companies.ids)', 'self.id', 'self.env.uid')
+    @api.ormcache('frozenset(self.env.companies.ids)', 'self.id', 'self.env.uid')
     def __accessible_branches(self):
         # Get branches of this company that the current user can use
         self.ensure_one()

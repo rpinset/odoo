@@ -28,6 +28,7 @@ describe("reset", () => {
             resources = {
                 normalize_processors: () => {
                     this.editable.firstChild.setAttribute("data-test-normalize", "1");
+                    return this.editable;
                 },
             };
         };
@@ -516,6 +517,20 @@ describe("makeSavePoint", () => {
         redo(editor);
         expect(getContent(el)).toBe(`<p>ab[]</p>`);
     });
+    test("makeSavePoint restores a selection invalidated by the reverted mutations", async () => {
+        const { el, editor } = await setupEditor(`<p>abc</p>`);
+        setSelection({
+            anchorNode: el.firstChild,
+            anchorOffset: 0,
+            focusNode: el.firstChild,
+            focusOffset: 1,
+        });
+        editor.shared.selection.stageSelection();
+        const restore = editor.shared.history.makeSavePoint();
+        editor.shared.format.requestFormat("underline", { applyStyle: true, commit: false });
+        restore();
+        expect(getContent(el)).toBe(`<p>[abc]</p>`);
+    });
 });
 
 describe("makePreviewableOperation", () => {
@@ -667,6 +682,7 @@ describe("shortcut", () => {
             normalize_processors: (root) => {
                 expect.step("normalize");
                 root.classList.add("test");
+                return root;
             },
         };
         const { editor } = await setupEditor(`<p>[]</p>`, {

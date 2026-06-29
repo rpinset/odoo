@@ -135,9 +135,7 @@
                     </group>
                     <notebook>
                         <page name="map" string="Map" invisible="not google_map_iframe">
-                            <!-- The readonly is set to false just to remove the iframe from the parent div with class "o_readonly" -->
-                            <!-- This class add some padding which we want to remove to make the map use all the space available in the page -->
-                            <field name="google_map_iframe" readonly="0"/>
+                            <field name="google_map_iframe"/>
                         </page>
                         <page name="description" string="Description">
                             <field name="description" options="{'resizable': false}" placeholder="Project description..."/>
@@ -176,8 +174,7 @@
                                     </span>
                                 </group>
                                 <div class="o_col">
-                                    <group>
-                                        <t name="allocated_hours_placeholder"/>
+                                    <group name="other_section">
                                     </group>
                                     <group name="analytic" groups="analytic.group_analytic_accounting">
                                         <div class="o_flexible_margin_top o_horizontal_separator text-uppercase fw-bolder small mb-3" colspan="2">analytic</div>
@@ -185,23 +182,21 @@
                                     </group>
                                 </div>
                             </group>
+                            <group>
+                                <group name="group_tasks_managment" string="Tasks Management" class="row o_settings_container">
+                                    <setting id="recurring_tasks_setting" help="Auto-generate tasks for regular activities">
+                                        <field name="allow_recurring_tasks"/>
+                                    </setting>
+                                    <setting id="task_dependencies_setting" help="Determine the order in which to perform tasks">
+                                        <field name="allow_task_dependencies"/>
+                                    </setting>
+                                    <setting id="project_milestone_setting" help="Track major progress points that must be reached to achieve success">
+                                        <field name="allow_milestones"/>
+                                    </setting>
+                                </group>
 
-                            <div name="group_tasks_managment">
-                                <separator string="Tasks Management"/>
-                                <setting id="recurring_tasks_setting" help="Auto-generate tasks for regular activities">
-                                    <field name="allow_recurring_tasks"/>
-                                </setting>
-                                <setting id="task_dependencies_setting" help="Determine the order in which to perform tasks">
-                                    <field name="allow_task_dependencies"/>
-                                </setting>
-                                <setting id="project_milestone_setting" help="Track major progress points that must be reached to achieve success">
-                                    <field name="allow_milestones"/>
-                                </setting>
-                            </div>
-
-                            <div name="group_time_managment" invisible="1">
-                                <separator string="Time Management"/>
-                            </div>
+                                <group name="group_time_managment" string="Time Management" class="row o_settings_container" invisible="1"/>
+                            </group>
                         </page>
                     </notebook>
                 </sheet>
@@ -233,7 +228,9 @@
                     <filter string="Start Date" name="start_date" date="date_start" end_month="1" end_year="1"/>
                     <filter string="End Date" name="end_date" date="date" end_month="1" end_year="1"/>
                     <separator/>
-                    <filter string="Templates" context="{'render_project_templates': True}" name="templates" domain="[('is_template', '=', True)]"
+                    <filter string="Templates"
+                        context="{'render_project_templates': True, 'default_is_template': True}"
+                        name="templates" domain="[('is_template', '=', True)]"
                         invisible="not context.get('display_milestone_deadline')"/>
                     <separator/>
                     <filter string="Archived" name="inactive" domain="[('active', '=', False)]"/>
@@ -395,17 +392,18 @@
                         </h1>
                     </div>
                     <field name="user_id" invisible="1"/>
-                    <div class="row o_settings_container"/>
-                    <div class="o_wrap_cell">
-                        <label for="alias_name" string="Create tasks by email:"/>
-                        <div name="alias_def" class="d-flex align-items-baseline gap-2">
-                            <field name="alias_id" invisible="1"/>
-                            <field name="alias_name" class="flex-basis-md-25" placeholder="e.g. office-party"/>
-                            <span>@</span>
-                            <field name="alias_domain_id" placeholder="e.g. mycompany.com"
-                                   options="{'no_create': True, 'no_open': True}"/>
-                        </div>
-                    </div>
+                    <group>
+                        <group>
+                            <field name="date" required="date_start" invisible="1"/>
+                            <field name="date_start" required="date" string="Planned Date" widget="daterange" options='{"end_date_field": "date", "always_range": True}'/>
+                            <label for="alias_name" string="Project's Email"/>
+                            <div name="alias_def" class="d-flex align-items-baseline gap-2">
+                                <field name="alias_name" placeholder="e.g. office-party"/>
+                                <span>@</span>
+                                <field name="alias_domain_id" placeholder="e.g. mycompany.com" options="{'no_create': True, 'no_open': True}"/>
+                            </div>
+                        </group>
+                    </group>
                 </form>
             </field>
         </record>
@@ -425,8 +423,9 @@
             </field>
         </record>
 
+        <!-- Please update both act_window when modifying one (open_create_project or open_create_project_template) as they should be the same except for the name -->
         <record id="open_create_project" model="ir.actions.act_window">
-            <field name="name">Create a Project</field>
+            <field name="name">Create Project</field>
             <field name="res_model">project.project</field>
             <field name="view_mode">form</field>
             <field name="view_id" ref="project_project_view_form_simplified_footer"/>
@@ -434,19 +433,20 @@
             <field name="context">{"default_allow_billable": 0}</field>
         </record>
 
-        <record model="ir.ui.view" id="view_project_kanban">
-            <field name="name">project.project.kanban</field>
+        <record id="open_create_project_template" model="ir.actions.act_window">
+            <field name="name">Create a Project Template</field>
+            <field name="res_model">project.project</field>
+            <field name="view_mode">form</field>
+            <field name="view_id" ref="project_project_view_form_simplified_footer"/>
+            <field name="target">new</field>
+            <field name="context">{"default_allow_billable": 0}</field>
+        </record>
+
+        <record model="ir.ui.view" id="view_project_card">
+            <field name="name">project.project.card</field>
             <field name="model">project.project</field>
             <field name="arch" type="xml">
-                <kanban highlight_color="color"
-                    class="o_project_kanban"
-                    js_class="project_project_kanban"
-                    on_create="project.open_create_project"
-                    action="action_view_tasks" type="object"
-		    quick_create_view="project.quick_create_project_form"
-                    sample="1"
-                    default_order="is_favorite desc, sequence, name, id"
-                >
+                <card>
                     <field name="allow_milestones"/>
                     <field name="rating_count" />
                     <field name="show_ratings"/>
@@ -455,8 +455,6 @@
                     <field name="is_milestone_deadline_exceeded"/>
                     <field name="can_mark_milestone_as_done"/>
                     <field name="is_template"/>
-                    <progressbar field="last_update_status" colors='{"on_track": "success", "at_risk": "warning", "off_track": "danger", "on_hold": "info", "done": "purple"}'/>
-                    <field name="sequence" widget="handle"/>
                     <templates>
                         <t t-name="menu" groups="base.group_user">
                             <div class="container">
@@ -568,7 +566,40 @@
                             </footer>
                         </t>
                     </templates>
+                </card>
+            </field>
+        </record>
+
+        <record model="ir.ui.view" id="view_project_kanban">
+            <field name="name">project.project.kanban</field>
+            <field name="model">project.project</field>
+            <field name="arch" type="xml">
+                <kanban highlight_color="color"
+                    class="o_project_kanban"
+                    js_class="project_project_kanban"
+                    on_create="project.open_create_project"
+                    action="action_view_tasks" type="object"
+                    quick_create_view="project.quick_create_project_form"
+                    sample="1"
+                    default_order="is_favorite desc, sequence, name, id"
+                    card_id="%(project.view_project_card)d"
+                >
+                    <progressbar field="last_update_status" colors='{"on_track": "success", "at_risk": "warning", "off_track": "danger", "on_hold": "info", "done": "purple"}'/>
+                    <field name="sequence" widget="handle"/>
                 </kanban>
+            </field>
+        </record>
+
+        <record id="view_project_card_group_stage" model="ir.ui.view">
+            <field name="name">project.project.card.group.stage</field>
+            <field name="model">project.project</field>
+            <field name="mode">primary</field>
+            <field name="inherit_id" ref="view_project_card"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='user_id']" position="before">
+                    <field name="is_rotting" invisible="1"/>
+                    <field name="rotting_days" widget="rotting_days" class="d-flex pe-2"/>
+                </xpath>
             </field>
         </record>
 
@@ -581,10 +612,7 @@
                 <xpath expr="//kanban" position="attributes">
                     <attribute name="default_group_by">stage_id</attribute>
                     <attribute name="js_class">project_project_kanban_group_stage</attribute>
-                </xpath>
-                <xpath expr="//field[@name='user_id']" position="before">
-                    <field name="is_rotting" invisible="1"/>
-                    <field name="rotting_days" widget="rotting" class="d-flex pe-2"/>
+                    <attribute name="card">%(project.view_project_card_group_stage)d</attribute>
                 </xpath>
             </field>
         </record>
@@ -610,10 +638,7 @@
                 <xpath expr="//kanban" position="attributes">
                     <attribute name="default_group_by">stage_id</attribute>
                     <attribute name="js_class">project_project_kanban_group_stage</attribute>
-                </xpath>
-                <xpath expr="//field[@name='user_id']" position="before">
-                    <field name="is_rotting" invisible="1"/>
-                    <field name="rotting_days" widget="rotting" class="d-flex pe-2"/>
+                    <attribute name="card">%(project.view_project_card_group_stage)d</attribute>
                 </xpath>
             </field>
         </record>
@@ -751,13 +776,13 @@
             <field name="view_id" ref="view_project_config_kanban_group_stage"/>
         </record>
 
-        <record id="project_view_kanban_inherit_project" model="ir.ui.view">
+        <record id="project_view_card_inherit_project" model="ir.ui.view">
             <field name="name">project.kanban.inherit.project</field>
             <field name="model">project.project</field>
-            <field name="inherit_id" ref="project.view_project_kanban"/>
+            <field name="inherit_id" ref="project.view_project_card"/>
             <field name="priority">200</field>
             <field name="arch" type="xml">
-                <xpath expr="/kanban" position="inside">
+                <xpath expr="/card" position="inside">
                     <field name="id"/>
                 </xpath>
                 <xpath expr="//div[@name='task_analysis']" position="before">
@@ -800,6 +825,16 @@
             </field>
         </record>
 
+        <record id="project_templates_view_card" model="ir.ui.view">
+            <field name="name">project.project.template.card</field>
+            <field name="model">project.project</field>
+            <field name="inherit_id" ref="project.view_project_card"/>
+            <field name="mode">primary</field>
+            <field name="arch" type="xml">
+                <span name="partner_name" position="replace"/>
+            </field>
+        </record>
+
         <record id="project_templates_view_kanban" model="ir.ui.view">
             <field name="name">project.project.template.kanban</field>
             <field name="model">project.project</field>
@@ -808,9 +843,48 @@
             <field name="arch" type="xml">
                 <kanban position="attributes">
                     <attribute name="js_class"></attribute>
+                    <attribute name="card">%(project.project_templates_view_card)d</attribute>
+                    <attribute name="on_create">project.open_create_project_template</attribute>
                 </kanban>
-                <span name="partner_name" position="replace"/>
             </field>
+        </record>
+
+        <record id="open_view_project_template" model="ir.actions.act_window">
+            <field name="name">Project Templates</field>
+            <field name="res_model">project.project</field>
+            <field name="path">project-template</field>
+            <field name="domain">[('is_template', '=', True)]</field>
+            <field name="view_mode">list,kanban,form</field>
+            <field name="context">{'default_is_template': True}</field>
+            <field name="help" type="html">
+                <p class="o_view_nocontent_smiling_face">
+                   No project templates found. Let's create one!
+                </p>
+                <p>
+                    Save time by using project templates with pre-filled details.<br/>
+                    Standardize workflows and ensure consistency across projects.
+                </p>
+            </field>
+        </record>
+
+        <record id="open_view_project_template_kanban_action_view" model="ir.actions.act_window.view">
+            <field name="view_mode">kanban</field>
+            <field name="sequence" eval="2"/>
+            <field name="act_window_id" ref="project.open_view_project_template"/>
+            <field name="view_id" ref="project_templates_view_kanban"/>
+        </record>
+
+        <record id="open_view_project_template_tree_action_view" model="ir.actions.act_window.view">
+            <field name="view_mode">list</field>
+            <field name="sequence" eval="1"/>
+            <field name="act_window_id" ref="project.open_view_project_template"/>
+            <field name="view_id" ref="project_templates_view_list"/>
+        </record>
+
+        <record id="open_view_project_template_form_action_view" model="ir.actions.act_window.view">
+            <field name="view_mode">form</field>
+            <field name="act_window_id" ref="project.open_view_project_template"/>
+            <field name="view_id" ref="project_templates_view_form"/>
         </record>
 
         <record id="action_server_convert_project_to_template" model="ir.actions.server">

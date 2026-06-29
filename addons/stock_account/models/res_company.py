@@ -84,6 +84,7 @@ class ResCompany(models.Model):
             'ref': _('Stock Closing'),
             'inventory_closing': True,
             'line_ids': [Command.create(aml_vals) for aml_vals in aml_vals_list],
+            'company_id': self.env.company.id,
         }
         account_move = self.env['account.move'].create(moves_vals)
         if auto_post:
@@ -113,10 +114,7 @@ class ResCompany(models.Model):
         if not accounts_by_product:
             accounts_by_product = self._get_accounts_by_product()
         account_data = defaultdict(float)
-        stock_valuation_accounts_ids = set()
-        for dummy, accounts in accounts_by_product.items():
-            if accounts['valuation']:
-                stock_valuation_accounts_ids.add(accounts['valuation'].id)
+        stock_valuation_accounts_ids = {accounts['valuation'].id for accounts in accounts_by_product.values() if accounts['valuation']}
         stock_valuation_accounts = self.env['account.account'].browse(stock_valuation_accounts_ids)
         domain = Domain([
             ('account_id', 'in', stock_valuation_accounts.ids),
@@ -150,9 +148,13 @@ class ResCompany(models.Model):
 
     @api.model
     def _cron_post_stock_valuation(self):
-        domain = Domain([('inventory_period', '=', 'daily'), ('inventory_valuation', '!=', 'real_time')])
+        periods = ['daily']
         if fields.Date.today() == fields.Date.today() + relativedelta(day=31):
-            domain = domain & Domain([('inventory_period', '=', 'monthly')])
+            periods.append('monthly')
+        domain = Domain([
+            ('inventory_period', 'in', periods),
+            ('inventory_valuation', '!=', 'real_time'),
+        ])
         companies = self.env['res.company'].search(domain)
         for company in companies:
             company.action_close_stock_valuation(auto_post=True)
@@ -162,7 +164,9 @@ class ResCompany(models.Model):
 
     def _get_accounts_by_product(self, products=None):
         if not products:
-            products = self.env['product.product'].with_company(self).search(self._get_valuation_product_domain())
+            products = self.env['product.product'].with_company(self).search_fetch(
+                self._get_valuation_product_domain(), ['categ_id'],
+            )
 
         accounts_by_product = {}
         for product in products:

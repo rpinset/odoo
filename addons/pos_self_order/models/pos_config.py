@@ -108,10 +108,11 @@ class PosConfig(models.Model):
             'self_ordering_image_brand', 'self_ordering_image_brand_name', 'currency_id', 'has_paper',
             'floor_ids', 'fiscal_position_ids', 'receipt_header', 'receipt_footer', 'current_session_id',
             'pricelist_id', 'available_pricelist_ids', 'default_fiscal_position_id', 'use_pricelist', 'module_pos_restaurant',
-            'rounding_method', 'cash_rounding', 'only_round_cash_method', 'has_active_session',
+            'rounding_method', 'cash_rounding', 'only_round_cash_method',
             'available_preset_ids', 'default_preset_id', 'use_presets', 'iface_tax_included',
             'status', 'self_ordering_image_background_ids', 'preparation_printer_ids',
             'receipt_printer_ids', 'use_order_printer', 'other_devices', 'pos_snooze_ids', 'self_ordering_primary_color',
+            'logo', 'receipt_address', 'phone', 'email', 'website',
         ]
 
     def _update_access_token(self):
@@ -313,6 +314,9 @@ class PosConfig(models.Model):
         record['_self_ordering_image_background_ids'] = config.self_ordering_image_background_ids.ids
         record['_pos_special_products_ids'] = config._get_special_products().ids
         record['_self_order_pos'] = True
+        google_places_api_key = self.env['ir.config_parameter'].sudo().get_str('google_address_autocomplete.google_places_api_key')
+        record['_has_google_places_api_key'] = bool(google_places_api_key)
+        record['_base_url'] = config.get_base_url()
         return read_records
 
     def load_self_data(self):
@@ -362,7 +366,7 @@ class PosConfig(models.Model):
 
     def _compute_status(self):
         for record in self:
-            record.status = 'active' if record.has_active_session else 'inactive'
+            record.status = 'active' if record.current_session_id else 'inactive'
 
     def action_open_wizard(self):
         self.ensure_one()

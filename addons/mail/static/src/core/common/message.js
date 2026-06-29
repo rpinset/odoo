@@ -17,7 +17,8 @@ import { isEventHandled, markEventHandled } from "@web/core/utils/misc";
 import { renderToElement } from "@web/core/utils/render";
 import { nbsp } from "@web/core/utils/strings";
 
-import { Component, proxy, signal, useEffect } from "@odoo/owl";
+import { Component, computed, props, proxy, signal, t, useApp, useEffect } from "@odoo/owl";
+import { MessageSearchState } from "@mail/core/common/message_search_hook";
 
 import { ActionSwiper } from "@web/core/action_swiper/action_swiper";
 import { isMobileOS } from "@web/core/browser/feature_detection";
@@ -25,31 +26,22 @@ import { Dropdown } from "@web/core/dropdown/dropdown";
 import { useDropdownState } from "@web/core/dropdown/dropdown_hooks";
 import { _t } from "@web/core/l10n/translation";
 import { usePopover } from "@web/core/popover/popover_hook";
-import { useChildRef, useService } from "@web/core/utils/hooks";
+import { useService } from "@web/core/utils/hooks";
 import { createElementWithContent } from "@web/core/utils/html";
 import { getOrigin, url } from "@web/core/utils/urls";
 import { useMessageActions } from "./message_actions";
 import { discussComponentRegistry } from "./discuss_component_registry";
 import { NotificationMessage } from "./notification_message";
-import { useForwardRefsToParent, useLongPress } from "@mail/utils/common/hooks";
+import {
+    MessageSelectionState,
+    useForwardRefsToParent,
+    useLongPress,
+} from "@mail/utils/common/hooks";
 import { ActionList } from "@mail/core/common/action_list";
 import { loadCssFromBundle } from "@mail/utils/common/misc";
 import { MessageContextMenu } from "@mail/core/common/message_context_menu";
 import { Priority } from "@mail/core/common/priority";
 
-/**
- * @typedef {Object} Props
- * @property {boolean} [hasActions=true]
- * @property {boolean} [highlighted]
- * @property {function} [onParentMessageClick]
- * @property {import("models").Message} message
- * @property {boolean} [squashed]
- * @property {import("models").Thread} [thread]
- * @property {ReturnType<import('@mail/utils/common/hooks').useMessageSelection>} [messageSelection]
- * @property {ReturnType<import('@mail/core/common/message_search_hook').useMessageSearch>} [messageSearch]
- * @property {String} [className]
- * @extends {Component<Props, Env>}
- */
 export class Message extends Component {
     // This is the darken version of #71639e
     static SHADOW_LINK_COLOR = "#66598f";
@@ -73,27 +65,9 @@ export class Message extends Component {
         NotificationMessage,
         Priority,
     };
-    static defaultProps = {
-        hasActions: true,
-        showDates: true,
-    };
-    static props = [
-        "asCard?",
-        "hasActions?",
-        "onParentMessageClick?",
-        "message",
-        "messageSelection?",
-        "messageRefs?",
-        "previousMessage?",
-        "squashed?",
-        "thread?",
-        "messageSearch?",
-        "className?",
-        "showDates?",
-        "isFirstMessage?",
-        "isReadOnly?",
-    ];
     static template = "mail.Message";
+
+    app = useApp();
 
     /**
      * @type {boolean} Whether the right-click drodpown is being closed.
@@ -106,6 +80,22 @@ export class Message extends Component {
         super.setup();
         this.nbsp = nbsp;
         this.store = useService("mail.store");
+        this.props = props({
+            asCard: t.boolean().optional(),
+            className: t.string().optional(),
+            hasActions: t.boolean().optional(true),
+            isFirstMessage: t.boolean().optional(),
+            isReadOnly: t.boolean().optional(),
+            message: t.instanceOf(this.store["mail.message"].Class),
+            messageRefs: t.instanceOf(Map).optional(),
+            messageSearch: t.instanceOf(MessageSearchState).optional(),
+            messageSelection: t.instanceOf(MessageSelectionState).optional(),
+            onParentMessageClick: t.function([]).optional(),
+            previousMessage: t.instanceOf(this.store["mail.message"].Class).optional(),
+            showDates: t.boolean().optional(true),
+            squashed: t.boolean().optional(),
+            thread: t.instanceOf(this.store["mail.thread"].Class).optional(),
+        });
         this.popover = usePopover(this.constructor.components.Popover, { position: "top" });
         this.state = proxy({
             isHovered: false,
@@ -125,9 +115,8 @@ export class Message extends Component {
                 delete this.rootRef().dataset.rightClicking;
             },
         });
-        this.rightClickAnchor = useChildRef("rightClickAnchor");
-        /** @type {import("@odoo/owl").Signal<Element>} */
-        this.rootRef = signal();
+        this.rightClickAnchor = signal.ref();
+        this.rootRef = signal.ref(HTMLDivElement);
         if (isMobileOS()) {
             useLongPress(this.rootRef, {
                 action: () => this.openMobileActions(),
@@ -137,14 +126,13 @@ export class Message extends Component {
         useForwardRefsToParent("messageRefs", (props) => props.message.id, this.rootRef);
         this.messageBody = useRef("body");
         this.messageActions = useMessageActions(this.messageActionsParams);
-        /** @type {import("@odoo/owl").Signal<Element>} */
-        this.shadowBody = signal();
-        /** @type {import("@odoo/owl").Signal<ShadowRoot>} */
-        this.shadowRoot = signal();
+        this.shadowBody = signal.ref(HTMLDivElement);
+        this.shadowRoot = signal(null, { type: t.ref(ShadowRoot) });
         this.dialog = useService("dialog");
         this.ui = useService("ui");
         this.openReactionMenu = this.openReactionMenu.bind(this);
         this.optionsDropdown = useDropdownState();
+        this.isActive = computed(() => Boolean(this._isActive));
         useSubEnv({ inMessage: true });
         useChildSubEnv({
             message: this.props.message,
@@ -207,8 +195,8 @@ export class Message extends Component {
                     "span",
                     this.message.showTranslation
                         ? this.message.richTranslationValue
-                        : this.props.messageSearch?.highlight(this.message.richBody) ??
-                              this.message.richBody
+                        : (this.props.messageSearch?.highlight(this.message.richBody) ??
+                              this.message.richBody)
                 );
                 const roots = this.prepareMessageBody(bodyEl) ?? [];
                 shadowRoot.appendChild(bodyEl);
@@ -224,7 +212,7 @@ export class Message extends Component {
             () => {
                 const roots = this.isEditing
                     ? []
-                    : this.prepareMessageBody(this.messageBody.el) ?? [];
+                    : (this.prepareMessageBody(this.messageBody.el) ?? []);
                 return () => {
                     for (const root of roots) {
                         root.destroy();
@@ -238,6 +226,7 @@ export class Message extends Component {
     get messageActionsParams() {
         return {
             message: () => this.message,
+            rootRef: this.rootRef,
             thread: () => this.props.thread,
         };
     }
@@ -263,8 +252,8 @@ export class Message extends Component {
                           ? "left-end"
                           : "left-start"
                       : this.message.threadAsNewest
-                      ? "right-end"
-                      : "right-start",
+                        ? "right-end"
+                        : "right-start",
                   name: this.expandText,
               })
             : undefined;
@@ -339,7 +328,7 @@ export class Message extends Component {
         if (isMobileOS()) {
             return 1;
         }
-        return this.env.inChatWindow || this.env.inMeetingChat ? 2 : 4;
+        return 2;
     }
 
     get showSubtypeDescription() {
@@ -369,7 +358,8 @@ export class Message extends Component {
         return _t("Message");
     }
 
-    get isActive() {
+    /** The getter of the isActive. Meant to be patched */
+    get _isActive() {
         return (
             this.state.isHovered ||
             this.state.isClicked ||
@@ -501,7 +491,7 @@ export class Message extends Component {
 
     showRightClickMessageActions(ev) {
         this.rootRef().dataset.rightClicking = true;
-        const el = this.rightClickAnchor.el;
+        const el = this.rightClickAnchor();
         el.style.left = ev.clientX + "px";
         el.style.top = ev.clientY + "px";
         this.rightClickDropdownState.open();
@@ -551,7 +541,7 @@ export class Message extends Component {
             // so value becomes empty and highlighting loses the original code text.
             const props = getProps(el);
             const { root, mountPromise } = mountComponent(
-                this.__owl__.app,
+                this.app,
                 Component,
                 el,
                 props,

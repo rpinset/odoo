@@ -1,4 +1,4 @@
-import { useChildSubEnv, useExternalListener, useLayoutEffect, useRef } from "@web/owl2/utils";
+import { useChildSubEnv, useLayoutEffect, useRef } from "@web/owl2/utils";
 import { AttachmentList } from "@mail/core/common/attachment_list";
 import { useAttachmentUploader } from "@mail/core/common/attachment_uploader_hook";
 import { useCustomDropzone } from "@web/core/dropzone/dropzone_hook";
@@ -25,8 +25,12 @@ import {
     EventBus,
     immediateEffect,
     onWillDestroy,
+    props,
     proxy,
     signal,
+    t,
+    useListener,
+    useApp,
 } from "@odoo/owl";
 
 import { _t } from "@web/core/l10n/translation";
@@ -68,8 +72,18 @@ export const COMPOSER_TYPES = {
     MESSAGE: "message",
 };
 class FullComposerRecoveryPopover extends Component {
-    static props = ["composer", "onClickFullRecover", "onClickTextRecover", "close?"];
     static template = "mail.FullComposerRecoveryPopover";
+
+    setup() {
+        super.setup(...arguments);
+        this.store = useService("mail.store");
+        this.props = props({
+            close: t.function([]).optional(),
+            composer: t.instanceOf(this.store["Composer"].Class),
+            onClickFullRecover: t.function([]),
+            onClickTextRecover: t.function([]),
+        });
+    }
 
     onClickFullRecover() {
         this.props.onClickFullRecover();
@@ -82,19 +96,6 @@ class FullComposerRecoveryPopover extends Component {
     }
 }
 
-/**
- * @typedef {Object} Props
- * @property {import("models").Composer} composer
- * @property {'compact'|'normal'|'extended'} [mode] default: 'normal'
- * @property {'message'|'note'|false} [type] default: false
- * @property {string} [placeholder]
- * @property {string} [className]
- * @property {function} [onDiscardCallback]
- * @property {function} [onPostCallback]
- * @property {number} [autofocus]
- * @property {import("@web/core/utils/hooks").Ref} [dropzoneRef]
- * @extends {Component<Props, Env>}
- */
 export class Composer extends Component {
     static components = {
         ActionList,
@@ -105,31 +106,9 @@ export class Composer extends Component {
         NavigableList,
         Wysiwyg,
     };
-    static defaultProps = {
-        autofocus: 0,
-        mode: "normal",
-        className: "",
-        sidebar: true,
-        showFullComposer: true,
-        allowUpload: true,
-    };
-    static props = [
-        "composer",
-        "autofocus?",
-        "onCloseFullComposerCallback?",
-        "onDiscardCallback?",
-        "onPostCallback?",
-        "mode?",
-        "placeholder?",
-        "dropzoneRef?",
-        "className?",
-        "sidebar?",
-        "type?",
-        "showFullComposer?",
-        "allowUpload?",
-        "disabled?",
-    ];
     static template = "mail.Composer";
+
+    app = useApp();
 
     setup() {
         super.setup();
@@ -139,6 +118,22 @@ export class Composer extends Component {
         this.isMobileOS = isMobileOS();
         this.isIosPwa = isIOS() && isDisplayStandalone();
         this.store = useService("mail.store");
+        this.props = props({
+            allowUpload: t.boolean().optional(true),
+            autofocus: t.or([t.number(), t.boolean()]).optional(0),
+            className: t.string().optional(""),
+            composer: t.instanceOf(this.store["Composer"].Class),
+            disabled: t.boolean().optional(),
+            dropzoneRef: t.signal(t.instanceOf(HTMLElement)).optional(),
+            mode: t.selection(["compact", "normal", "extended"]).optional("normal"),
+            onCloseFullComposerCallback: t.function([t.boolean()]).optional(),
+            onDiscardCallback: t.function([t.instanceOf(Event)]).optional(),
+            onPostCallback: t.function([]).optional(),
+            placeholder: t.string().optional(),
+            sidebar: t.boolean().optional(true),
+            showFullComposer: t.boolean().optional(true),
+            type: t.or([t.selection(["message", "note"]), t.literal(false)]).optional(),
+        });
         this.composerActions = useComposerActions(this.composerActionsParams);
         this.EDIT_CLICK_TYPE = EDIT_CLICK_TYPE;
         this.OR_PRESS_SEND_KEYBIND = _t("or press %(send_keybind)s", {
@@ -155,14 +150,13 @@ export class Composer extends Component {
         this.composerService = useService("mail.composer");
         this.ref = useRef("textarea");
         this.fakeTextarea = useRef("fakeTextarea");
-        this.inputContainerRef = useRef("input-container");
+        this.inputContainerRef = signal.ref(HTMLSpanElement);
         this.pickerContainerRef = useRef("picker-container");
         this.state = proxy({
             active: true,
             isFullComposerOpen: false,
         });
-        /** @type {import("@odoo/owl").Signal<Element>} */
-        this.rootRef = signal();
+        this.rootRef = signal.ref(HTMLDivElement);
         this.fullComposerRecoveryPopover = usePopover(FullComposerRecoveryPopover, {
             closeOnClickAway: false,
             closeOnEscape: false,
@@ -194,17 +188,18 @@ export class Composer extends Component {
             execBeforeUnmount: true,
         });
         this.updateFromEditor = false;
-        useExternalListener(window, "beforeunload", this.saveContent.bind(this));
-        useExternalListener(
+        useListener(window, "beforeunload", this.saveContent.bind(this));
+        useListener(
             window,
             "click",
             (ev) => {
+                const target = ev.composedPath()[0];
                 if (
                     this.ui.isSmall &&
                     this.composerActions.activeAction &&
                     this.pickerContainerRef.el &&
-                    ev.target !== this.pickerContainerRef.el &&
-                    !this.pickerContainerRef.el.contains(ev.target)
+                    target !== this.pickerContainerRef.el &&
+                    !this.pickerContainerRef.el.contains(target)
                 ) {
                     this.composerActions.activeAction.actionPanelClose();
                 }
@@ -440,7 +435,7 @@ export class Composer extends Component {
                 onInput: this.onInput.bind(this),
                 onKeydown: this.onKeydown.bind(this),
             },
-            embeddedComponentInfo: { app: this.__owl__.app, env: this.env },
+            embeddedComponentInfo: { app: this.app, env: this.env },
             resources: {
                 embedded_components: [syntaxHighlightingEmbedding],
             },
@@ -544,7 +539,7 @@ export class Composer extends Component {
     get navigableListProps() {
         const { loading, searchTerm, results } = this.suggestion.search;
         const props = {
-            anchorRef: this.inputContainerRef.el,
+            anchorRef: this.inputContainerRef,
             position: this.env.inChatter ? "bottom-fit" : "top-fit",
             onSelect: (ev, option) => {
                 this.suggestion.insert(option);
@@ -552,6 +547,7 @@ export class Composer extends Component {
             },
             isLoading: !!searchTerm && loading,
             options: [],
+            rememberPosition: false,
         };
         if (!this.hasSuggestions) {
             return props;
@@ -706,7 +702,15 @@ export class Composer extends Component {
             default_partner_ids:
                 this.props.type === "note"
                     ? []
-                    : allRecipients.map((recipient) => recipient.partner_id),
+                    : allRecipients
+                          .filter((r) => r.recipient_type !== "cc")
+                          .map((r) => r.partner_id),
+            default_partner_cc_ids:
+                this.props.type === "note"
+                    ? []
+                    : allRecipients
+                          .filter((r) => r.recipient_type === "cc")
+                          .map((r) => r.partner_id),
             default_res_ids: [this.thread.id],
             default_subtype_xmlid: this.props.type === "note" ? "mail.mt_note" : "mail.mt_comment",
             clicked_on_full_composer: true,
@@ -879,12 +883,11 @@ export class Composer extends Component {
 
     get postData() {
         return {
-            attachments: this.props.composer.attachments || [],
+            attachments: [...(this.props.composer.attachments || [])],
             emailAddSignature: this.props.composer.emailAddSignature,
             isNote: this.props.type === "note",
-            mentionedChannels: this.props.composer.mentionedChannels || [],
-            mentionedPartners: this.props.composer.mentionedPartners || [],
-            mentionedRoles: this.props.composer.mentionedRoles || [],
+            mentionedPartners: [...(this.props.composer.mentionedPartners || [])],
+            mentionedRoles: [...(this.props.composer.mentionedRoles || [])],
             cannedResponseIds: this.props.composer.cannedResponses.map((c) => c.id),
             parentId: this.props.composer.replyToMessage?.id,
         };
@@ -895,7 +898,6 @@ export class Composer extends Component {
      * @property {import("models").Attachment[]} attachments
      * @property {boolean} isNote
      * @property {number} parentId
-     * @property {integer[]} mentionedChannelIds
      * @property {integer[]} mentionedPartnerIds
      */
 
@@ -929,13 +931,12 @@ export class Composer extends Component {
         if (!this.askDeleteFromEdit) {
             await this.processMessage(async (value) =>
                 this.props.composer.message.edit(value, this.props.composer.attachments, {
-                    mentionedChannels: this.props.composer.mentionedChannels,
                     mentionedPartners: this.props.composer.mentionedPartners,
                     mentionedRoles: this.props.composer.mentionedRoles,
                 })
             );
         } else {
-            this.props.composer.message.showDeleteConfirm(this);
+            this.props.composer.message.showDeleteConfirm(this, this.rootRef);
         }
         this.suggestion?.clearRawMentions();
     }

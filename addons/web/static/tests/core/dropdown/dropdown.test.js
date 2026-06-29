@@ -1,4 +1,4 @@
-import { useRef, useState } from "@web/owl2/utils";
+import { useRef } from "@web/owl2/utils";
 import { expect, getFixture, queryRect, test } from "@odoo/hoot";
 import {
     click,
@@ -12,8 +12,8 @@ import {
     queryOne,
     resize,
 } from "@odoo/hoot-dom";
-import { Deferred, animationFrame, runAllTimers, tick } from "@odoo/hoot-mock";
-import { Component, onMounted, onPatched, xml } from "@odoo/owl";
+import { animationFrame, runAllTimers, tick } from "@odoo/hoot-mock";
+import { Component, onMounted, onPatched, xml, proxy } from "@odoo/owl";
 
 import { getPickerCell } from "@web/../tests/core/datetime/datetime_test_helpers";
 import {
@@ -24,6 +24,7 @@ import {
     mockService,
     mountWithCleanup,
     patchWithCleanup,
+    registerTemplate,
 } from "@web/../tests/web_test_helpers";
 import { DateTimeInput } from "@web/core/datetime/datetime_input";
 import { Dialog } from "@web/core/dialog/dialog";
@@ -93,7 +94,7 @@ class NoBottomSheetDropdown extends Component {
 }
 
 function startOpenState() {
-    const state = useState({
+    const state = proxy({
         isOpen: true,
         open: () => {
             state.isOpen = true;
@@ -116,13 +117,13 @@ test("can be rendered", async () => {
 });
 
 test("can be toggled", async () => {
-    const beforeOpenProm = new Deferred();
+    const beforeOpenProm = Promise.withResolvers();
     class Parent extends SimpleDropdown {
         setup() {
             this.dropdownProps = {
                 beforeOpen: () => {
                     expect.step("beforeOpen");
-                    return beforeOpenProm;
+                    return beforeOpenProm.promise;
                 },
             };
         }
@@ -235,7 +236,7 @@ test("close on click outside when the opening active element was removed", async
         `;
 
         setup() {
-            this.state = useState({ showActive: true });
+            this.state = proxy({ showActive: true });
             useActiveElement("active");
         }
     }
@@ -327,7 +328,7 @@ test("hold position on hover", async () => {
     let parentState;
     class Parent extends Component {
         setup() {
-            this.state = useState({ filler: false });
+            this.state = proxy({ filler: false });
             parentState = this.state;
         }
         static template = xml`
@@ -730,14 +731,14 @@ test("date picker inside does not close when a click occurs in date picker", asy
 });
 
 test("onOpened callback props called after the menu has been mounted", async () => {
-    const beforeOpenProm = new Deferred();
+    const beforeOpenProm = Promise.withResolvers();
 
     class Parent extends SimpleDropdown {
         setup() {
             this.dropdownProps = {
                 beforeOpen: () => {
                     expect.step("beforeOpened");
-                    return beforeOpenProm;
+                    return beforeOpenProm.promise;
                 },
                 onOpened: () => {
                     expect.step("onOpened");
@@ -792,7 +793,7 @@ test("Dropdown with CheckboxItem: toggle value", async () => {
         static components = { Dropdown, CheckboxItem };
         static props = [];
         setup() {
-            this.state = useState({ checked: false });
+            this.state = proxy({ checked: false });
         }
         onSelected() {
             this.state.checked = !this.state.checked;
@@ -905,7 +906,7 @@ test("t-if t-else as toggler", async () => {
             `;
 
         setup() {
-            state = useState({ foo: "bar" });
+            state = proxy({ foo: "bar" });
             this.state = state;
         }
     }
@@ -1014,7 +1015,7 @@ test("multi-level dropdown: initial open state can be true", async () => {
     class Parent extends MultiLevelDropdown {
         setup() {
             this.dropdownProps = {
-                state: useState({
+                state: proxy({
                     isOpen: true,
                     open: () => {},
                     close: () => {},
@@ -1170,25 +1171,24 @@ test("multi-level dropdown: recursive template can be rendered", async () => {
         }
     }
 
-    await mountWithCleanup(Parent, {
-        templates: {
-            ["recursive.Template"]: /* xml */ `
-                <Dropdown state="this.dropdown">
-                    <button><t t-out="name" /></button>
-                    <t t-set-slot="content">
-                        <t t-foreach="items" t-as="item" t-key="item_index">
+    registerTemplate(
+        "recursive.Template",
+        /* xml */ `
+        <Dropdown state="this.dropdown">
+            <button><t t-out="name" /></button>
+            <t t-set-slot="content">
+                <t t-foreach="items" t-as="item" t-key="item_index">
 
-                            <t t-if="!item.children.length">
-                                <DropdownItem><t t-out="item.name"/></DropdownItem>
-                            </t>
-
-                            <t t-else="" t-call="recursive.Template" name="item.name" items="item.children"/>
-                        </t>
+                    <t t-if="!item.children.length">
+                        <DropdownItem><t t-out="item.name"/></DropdownItem>
                     </t>
-                </Dropdown>
-            `,
-        },
-    });
+
+                    <t t-else="" t-call="recursive.Template" name="item.name" items="item.children"/>
+                </t>
+            </t>
+        </Dropdown>`
+    );
+    await mountWithCleanup(Parent);
 
     // Each sub-dropdown needs a tick to open
     await animationFrame();
@@ -1445,7 +1445,7 @@ test("multi-level dropdown: submenu keeps position when patched", async () => {
                 </Dropdown>
             `;
         setup() {
-            this.state = useState({ foo: false });
+            this.state = proxy({ foo: false });
             parentState = this.state;
         }
     }

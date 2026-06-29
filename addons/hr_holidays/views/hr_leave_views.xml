@@ -349,10 +349,10 @@
             <field name="employee_id" invisible="1"/> <!-- for the employee's default value-->
             <field name="user_id" invisible="1"/> <!-- for conditional rendering of buttons on card -->
             <header>
-                <button string="Approve" name="action_approve" type="object" class="oe_highlight" invisible="not can_approve or not id"/>
-                <button string="Validate" name="action_approve" invisible="not can_validate or can_approve or not id" type="object" class="oe_highlight"/>
+                <button string="Approve" name="action_approve" type="object" class="oe_highlight" invisible="not can_approve or not id" data-hotkey="q"/>
+                <button string="Validate" name="action_approve" invisible="not can_validate or can_approve or not id" type="object" class="oe_highlight" data-hotkey="v"/>
                 <button string="Back to Approval" name="action_back_to_approval" type="object" invisible="not can_back_to_approve or not id"/>
-                <button string="Refuse" name="action_refuse" type="object" invisible="not can_refuse or not id"/>
+                <button string="Refuse" name="action_refuse" type="object" invisible="not can_refuse or not id" data-hotkey="x"/>
                 <button string="Cancel" name="action_cancel" type="object" invisible="not can_cancel or not id" />
                 <field name="state" widget="statusbar" statusbar_visible="confirm,validate,validate1" invisible="validation_type != 'both'"/>
                 <field name="state" widget="statusbar" statusbar_visible="confirm,validate" invisible="validation_type == 'both'"/>
@@ -451,9 +451,6 @@
         <field name="mode">primary</field>
         <field name="priority">100</field>
         <field name="arch" type="xml">
-            <xpath expr="//group[@name='col_left']/*[1]" position="before">
-                <field name="employee_id" widget="many2one_avatar_employee" readonly="1"/>
-            </xpath>
             <xpath expr="//header" position="attributes">
                 <attribute name="invisible">1</attribute>
             </xpath>
@@ -493,6 +490,19 @@
         </field>
     </record>
 
+    <record id="hr_leave_view_form_dashboard_new_time_off_custom" model="ir.ui.view">
+        <field name="name">hr.leave.view.form.dashboard.new.time.off.custom</field>
+        <field name="model">hr.leave</field>
+        <field name="inherit_id" ref="hr_holidays.hr_leave_view_form_dashboard_new_time_off"/>
+        <field name="mode">primary</field>
+        <field name="priority">17</field>
+        <field name="arch" type="xml">
+            <field name="work_entry_type_id" position="attributes">
+                <attribute name="domain">[('id', 'in', allowed_work_entry_type_ids or [])]</attribute>
+            </field>
+        </field>
+    </record>
+
     <record id="hr_leave_view_form_dashboard_manager_new_time_off" model="ir.ui.view">
         <field name="name">hr.leave.view.form.dashboard.new.time.off</field>
         <field name="model">hr.leave</field>
@@ -500,9 +510,6 @@
         <field name="mode">primary</field>
         <field name="priority">17</field>
         <field name="arch" type="xml">
-            <xpath expr="//field[@widget='many2one_avatar_employee']" position="attributes"> 
-                <attribute name="readonly">0</attribute>
-            </xpath>
             <field name="work_entry_type_id" position="before">
                 <field name="user_id" invisible="1"/> <!-- Used in HolidaysFormViewDialog -->
             </field>
@@ -568,6 +575,7 @@
             <xpath expr="//calendar" position="attributes">
                 <attribute name="mode">month</attribute>
                 <attribute name="month_overflow">0</attribute>
+                <attribute name="form_view_id">%(hr_holidays.hr_leave_view_form_dashboard_new_time_off_custom)d</attribute>
             </xpath>
         </field>
 
@@ -614,6 +622,7 @@
                     <button type="action"
                         name="%(hr_holidays.action_hr_leave_generate_multi_wizard)d"
                         string="New Group Time Off" class="btn btn-secondary"
+                        invisible="context.get('default_employee_id', False)"
                         groups="hr_holidays.group_hr_holidays_responsible" display="always"
                     />
                     <button type="object"
@@ -731,7 +740,7 @@
     </record>
 
     <record id="hr_leave_action_new_request" model="ir.actions.act_window">
-        <field name="name">Dashboard</field>
+        <field name="name">My Time Off</field>
         <field name="path">time-off</field>
         <field name="res_model">hr.leave</field>
         <field name="view_mode">calendar,list,form,activity</field>

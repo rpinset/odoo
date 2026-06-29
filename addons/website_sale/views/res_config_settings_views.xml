@@ -18,16 +18,6 @@
         <field name="model">res.config.settings</field>
         <field name="inherit_id" ref="website_payment.res_config_settings_view_form"/>
         <field name="arch" type="xml">
-            <setting id="shared_user_account_setting" position="after">
-                <setting
-                    id="autocomplete_googleplaces_setting"
-                    string="Google Address Validation"
-                    help="Use Google Places API to validate addresses"
-                    documentation="/applications/websites/website/configuration/address_autocomplete.html"
-                >
-                    <field name="module_website_sale_autocomplete"/>
-                </setting>
-            </setting>
             <block id="website_payment_block" position="attributes">
                 <attribute name="title">eCommerce</attribute>
             </block>
@@ -81,15 +71,15 @@
                            created but not of products already existing."
                     info="This setting is common to all websites."
                 >
-                    <field name="default_invoice_policy" widget="radio" class="o_light_label"/>
+                    <field name="sale_invoice_policy" widget="radio" class="o_light_label"/>
                 </setting>
                 <setting
                     id="automatic_invoice_generation_setting"
                     help="Invoice automatically on payment."
-                    invisible="default_invoice_policy == 'delivery'"
+                    invisible="sale_invoice_policy == 'delivery'"
                 >
-                    <field name="automatic_invoice"/>
-                    <div invisible="not automatic_invoice">
+                    <field name="sale_automatic_invoice"/>
+                    <div invisible="not sale_automatic_invoice">
                         <label for="invoice_mail_template_id" class="o_light_label me-2"/>
                         <field name="invoice_mail_template_id" class="oe_inline"/>
                     </div>
@@ -327,7 +317,7 @@
                         for="journal_id"
                         class="o_light_label col-lg-3"
                     />
-                    <field 
+                    <field
                         name="journal_id"
                         context="{'default_type': 'sale'}"
                         domain="[('type', '=', 'sale')]"

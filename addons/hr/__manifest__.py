@@ -19,7 +19,6 @@
     ],
     'data': [
         'security/hr_security.xml',
-        'security/ir.model.access.csv',
         'data/digest_data.xml',
         'data/report_paperformat.xml',
         'wizard/mail_activity_schedule_views.xml',
@@ -49,9 +48,13 @@
         'data/hr_data.xml',
         'data/ir_cron_data.xml',
         'data/hr_employee_type_data.xml',
+        'security/ir.access.csv',
     ],
     'demo': [
         'data/hr_demo.xml',
+    ],
+    'other_files': [
+        'data/scenarios/hr_scenario.xml',
     ],
     'application': True,
     'assets': {
@@ -91,4 +94,5 @@
     },
     'author': 'Odoo S.A.',
     'license': 'LGPL-3',
+    'uninstall_hook': 'uninstall_hook',
 }

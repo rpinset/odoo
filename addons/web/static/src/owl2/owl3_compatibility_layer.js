@@ -64,14 +64,6 @@ class Component extends owl.Component {
 owl.Component = Component;
 
 /**
- * @param {any} value
- * @param {any} descr
- */
-owl.validate = function validate(value, descr) {
-    // return owl.validate(...arguments);
-};
-
-/**
  * @param {() => void} cb
  */
 owl.onWillRender = function onWillRender(cb) {
@@ -135,28 +127,6 @@ owl.useExternalListener = function useExternalListener(target, eventName, handle
     const boundHandler = handler.bind(node.component);
     owl.onMounted(() => target.addEventListener(eventName, boundHandler, eventParams));
     owl.onWillUnmount(() => target.removeEventListener(eventName, boundHandler, eventParams));
-};
-
-/**
- * @template T
- * @param {T} data
- */
-owl.useState = function useState(data) {
-    return owl.proxy(data);
-};
-
-/**
- * @template T
- * @param {T} data
- * @param {() => void} [callback]
- */
-owl.reactive = function reactive(data, callback) {
-    if (callback) {
-        throw new Error(
-            "owl.reactive is used with callback, replace callback by an effect and make sure to dispose the effect!"
-        );
-    }
-    return owl.proxy(data);
 };
 
 /**
@@ -306,7 +276,7 @@ class Portal extends owl.Component {
         owl.onMounted(() => {
             const portal = node.bdom;
             if (!portal.target) {
-                const target = document.querySelector(node.props.selector);
+                const target = portal.el.ownerDocument.querySelector(node.props.selector);
                 if (target) {
                     portal.content.moveBeforeDOMNode(target.firstChild, target);
                 } else {

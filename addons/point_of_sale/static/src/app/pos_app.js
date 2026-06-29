@@ -9,6 +9,7 @@ import { useIdleTimer } from "./utils/use_idle_timer";
 import useTours from "./hooks/use_tours";
 import { init as initDebugFormatters } from "./utils/debug-formatter";
 import { debounce } from "@web/core/utils/timing";
+import { getColorScheme } from "@point_of_sale/utils";
 /**
  * Chrome is the root component of the PoS App.
  */
@@ -48,27 +49,28 @@ export class Chrome extends Component {
 
         onMounted(this.props.disableLoader);
 
-        const debouncedSendOrderToCustomerDisplay = debounce((pos, routerState) => {
-            this.sendOrderToCustomerDisplay(pos, routerState);
-        });
+        this.adapter = new CustomerDisplayPosAdapter();
+        this.dispatchDebounced = debounce(() => this.adapter.dispatch(this.pos));
+
         useEffect(() => {
-            debouncedSendOrderToCustomerDisplay(this.pos, this.router.state);
+            this.sendOrderToCustomerDisplay(this.pos, this.router.state);
         });
     }
 
     sendOrderToCustomerDisplay({ selectedOrder }, routerState) {
-        const adapter = new CustomerDisplayPosAdapter();
         if (routerState.current === "SaverScreen" || routerState.current === "LoginScreen") {
-            adapter.displayScreenSaver();
+            this.adapter.displayScreenSaver();
         } else if (selectedOrder) {
-            adapter.formatOrderData(selectedOrder);
+            this.adapter.formatOrderData(selectedOrder);
         }
-        adapter.setExtraData(this.getCustomerDisplayExtraData(...arguments));
-        adapter.dispatch(this.pos);
+        this.adapter.setExtraData(this.getCustomerDisplayExtraData(...arguments));
+        this.dispatchDebounced();
     }
 
     getCustomerDisplayExtraData(pos, routerState) {
-        return {};
+        return {
+            displayTheme: getColorScheme(),
+        };
     }
 
     // GETTERS //

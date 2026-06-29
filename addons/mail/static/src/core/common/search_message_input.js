@@ -1,10 +1,11 @@
-import { useExternalListener } from "@web/owl2/utils";
-import { Component } from "@odoo/owl";
+import { MessageSearchState } from "@mail/core/common/message_search_hook";
+import { Component, props, t, useListener } from "@odoo/owl";
 import { browser } from "@web/core/browser/browser";
 import { SearchInput } from "@mail/core/common/search_input";
 import { Dropdown } from "@web/core/dropdown/dropdown";
 import { DropdownItem } from "@web/core/dropdown/dropdown_item";
 import { _t } from "@web/core/l10n/translation";
+import { useService } from "@web/core/utils/hooks";
 
 /**
  * @typedef {Object} SearchFilter
@@ -13,21 +14,19 @@ import { _t } from "@web/core/l10n/translation";
  * @property {true|false|undefined} [is_notification]
  */
 
-/**
- * @typedef {Object} Props
- * @property {ReturnType<typeof import("@mail/core/common/message_search_hook").useMessageSearch>} messageSearch
- * @property {import("@mail/core/common/thread_model").Thread} thread
- * @property {function} [closeSearch]
- * @extends {Component<Props, Env>}
- */
 export class SearchMessageInput extends Component {
     static template = "mail.SearchMessageInput";
-    static props = ["closeSearch?", "messageSearch", "thread"];
     static components = { Dropdown, DropdownItem, SearchInput };
 
     setup() {
         super.setup();
-        useExternalListener(
+        this.store = useService("mail.store");
+        this.props = props({
+            closeSearch: t.function([]).optional(),
+            messageSearch: t.instanceOf(MessageSearchState),
+            thread: t.instanceOf(this.store["mail.thread"].Class),
+        });
+        useListener(
             browser,
             "keydown",
             (ev) => {

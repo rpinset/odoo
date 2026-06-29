@@ -129,6 +129,7 @@
             "@quality_control_iot/*": ["./quality_control_iot/static/src/*"],
             "@quality_iot/*": ["./quality_iot/static/src/*"],
             "@whatsapp_pos/*": ["./whatsapp_pos/static/src/*"],
+            "@pos_cashmatic/*": ["pos_cashmatic/static/src/*"],
 
             "@voip/*": ["./voip/static/src/*"],
 
@@ -145,7 +146,6 @@
         "**/lib/Chart",
         "**/lib/chartjs-adapter-luxon",
         "**/lib/fullcalendar",
-        "**/lib/jquery",
         "**/lib/luxon",
         "**/lib/odoo_ui_icons",
         "**/lib/owl",

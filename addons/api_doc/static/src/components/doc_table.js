@@ -1,5 +1,5 @@
-import { onWillRender, useExternalListener, useRef } from "@web/owl2/utils";
-import { Component, proxy } from "@odoo/owl";
+import { useRef } from "@web/owl2/utils";
+import { Component, computed, proxy, useListener } from "@odoo/owl";
 import { localeCompare } from "@web/core/l10n/utils";
 
 export const TABLE_TYPES = {
@@ -16,6 +16,8 @@ export class DocTable extends Component {
         data: true,
     };
 
+    items = computed(() => this.computeItems());
+
     setup() {
         this.subTableRef = useRef("subTableRef");
         this.tooltipRef = useRef("tooltipRef");
@@ -30,11 +32,7 @@ export class DocTable extends Component {
         this.hideTimeout = null;
         this.requestAnim = null;
 
-        onWillRender(() => {
-            this.items = this.computeItems();
-        });
-
-        useExternalListener(window, "click", (event) => {
+        useListener(window, "click", (event) => {
             if (
                 this.subTableRef.el &&
                 this.subTableRef.el !== event.target &&
@@ -44,7 +42,7 @@ export class DocTable extends Component {
             }
         });
 
-        useExternalListener(window, "scroll", () => (this.state.subTable = null));
+        useListener(window, "scroll", () => (this.state.subTable = null));
     }
 
     showDynamicTooltip(event, content) {

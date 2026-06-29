@@ -4,7 +4,7 @@ from lxml import etree
 from odoo import api, fields, models
 from odoo.addons.account.tools import dict_to_xml
 from odoo.addons.l10n_fr_pdp.utils import drom_com_territories
-from odoo.tools import float_is_zero, float_round, frozendict, html2plaintext, ormcache
+from odoo.tools import float_is_zero, float_round, frozendict, html2plaintext
 
 
 VALID_TAX_CODES = {
@@ -63,7 +63,7 @@ class PdpFlow10XMLBuilder(models.AbstractModel):
                 },
             },
             'Issuer': {
-                'Id': {'schemeId': '0002', '_text': flow.company_id.company_registry[:9]},
+                'Id': {'schemeId': '0002', '_text': flow.company_id.partner_id._l10n_fr_pdp_get_siren()},
                 'Name': {'_text': flow.company_id.name[:99]},
                 'RoleCode': {'_text':  'BY' if flow.operation_type == 'purchase' else 'SE'},
                 **({'URIUniversalCommunication': {
@@ -277,11 +277,11 @@ class PdpFlow10XMLBuilder(models.AbstractModel):
         if move.narration:
             invoice['IncludedNote'] = {
                 'Subject': {'_text': 'AAB'},
-                'Content': html2plaintext(move.narration).strip(),
+                'Content':  {'_text': html2plaintext(move.narration).strip()},
             }
 
     @api.model
-    @ormcache('move.id')
+    @api.ormcache('move.id')
     def _get_move_tax_data(self, move):
         scopes = set()
         tax_exigibility_on_invoice = False
@@ -338,10 +338,10 @@ class PdpFlow10XMLBuilder(models.AbstractModel):
             # Use specific identifier for territories like NC (RIDET), PF (TAHITI), WF
             company_scheme = specific_scheme['qualifier']
             company_id = partner.ref
-        elif partner.company_registry:
+        elif siren := partner._l10n_fr_pdp_get_siren():
             # Standard French SIREN
             company_scheme = '0002'
-            company_id = partner.company_registry[:9]
+            company_id = siren
         elif len(partner.vat) > 1:
             # VAT scheme
             company_scheme = '0223'
@@ -528,7 +528,7 @@ class PdpFlow10XMLBuilder(models.AbstractModel):
             res = {
                 'BilledQuantity': {
                     '_text': line.quantity,
-                    'UnitCode': self._get_uom_unece_code(line.product_uom_id),
+                    'UnitCode': line.product_uom_id._get_unece_code(),
                 },
             }
             if sale_line_ids_in_fields:

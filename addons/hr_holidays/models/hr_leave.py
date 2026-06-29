@@ -730,6 +730,8 @@ class HrLeave(models.Model):
                 else:
                     work_days_data = work_days_data_mapped[leave.date_from, leave.date_to, leave.work_entry_type_id.include_public_holidays_in_duration, calendar][leave.employee_id.id]
                     hours, days = work_days_data['hours'], work_days_data['days']
+                    if (hours, days) == (0, 0) and leave.work_entry_type_id.count_as == "working_time":
+                        hours = leave.request_hour_to - leave.request_hour_from
             else:
                 today_hours = calendar.get_work_hours_count(
                     datetime.combine(leave.date_from.date(), time.min),
@@ -1315,10 +1317,12 @@ class HrLeave(models.Model):
             'LEAVE280',  # Long Term Sick
             'LEAVE264',  # Incapacity for work with guaranteed salary - 1st week
             'LEAVE218',  # Incapacity for work with guaranteed salary system for workers - 2nd week
+            'LEAVE272',  # Incapacity for work with guaranteed salary system for workers - 2nd week (Short Term Employee)
             'LEAVE219',  # Incapacity for work with salary supplement for workers - after the 2nd week CCT 12bis/13bis
             'LEAVE214',  # Sick Time Off (Without Guaranteed Salary)
             'LEAVE227',  # Work accident or occupational illness with normal daily pay at 100% for the first week
             'LEAVE229',  # Work accident or occupational illness with employer supplement from the 2nd week of CCT 12bis/13bis
+            'LEAVE271',  # Work accident or occupational illness with employer supplement from the 2nd week of CCT 12bis/13bis (Short Term Employee)
             'LEAVE117',  # Work Accident (Unpaid)
         ]
         return self.filtered(
@@ -1663,6 +1667,8 @@ class HrLeave(models.Model):
                 responsible = self.employee_id.leave_manager_id
             elif self.employee_id.parent_id.user_id:
                 responsible = self.employee_id.parent_id.user_id
+            elif self.employee_id.hr_responsible_id:
+                responsible = self.employee_id.hr_responsible_id
         elif self.validation_type == 'hr' or (self.validation_type == 'both' and self.state == 'validate1'):
             if self.employee_id.hr_responsible_id:
                 responsible = self.employee_id.hr_responsible_id
@@ -1822,9 +1828,11 @@ class HrLeave(models.Model):
         If there are no attendances on the exact days of the request, return
         the earliest hour_from and latest hour_to that exist in the schedule.
         """
-
-        hour_from, _ = self.employee_id.sudo()._get_hours_for_date(request_date_from, day_period, count_non_working_days)
-        _, hour_to = self.employee_id.sudo()._get_hours_for_date(request_date_to, day_period, count_non_working_days)
+        if self.work_entry_type_id.request_unit == "hour" and self.work_entry_type_id.count_as == "working_time":
+            hour_from, hour_to = self.request_hour_from, self.request_hour_to
+        else:
+            hour_from, _ = self.employee_id.sudo()._get_hours_for_date(request_date_from, day_period, count_non_working_days)
+            _, hour_to = self.employee_id.sudo()._get_hours_for_date(request_date_to, day_period, count_non_working_days)
 
         return (hour_from, hour_to)
 

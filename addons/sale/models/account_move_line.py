@@ -44,7 +44,7 @@ class AccountMoveLine(models.Model):
 
     def _related_analytic_distribution(self):
         vals = super()._related_analytic_distribution()
-        if self.sale_line_ids and not self.analytic_distribution:
+        if self.sale_line_ids:
             vals |= self.sale_line_ids[0].analytic_distribution or {}
         return vals
 
@@ -275,10 +275,7 @@ class AccountMoveLine(models.Model):
         currency_id = self.company_id.currency_id
         if currency_id and currency_id != order.currency_id:
             price_unit = currency_id._convert(
-                price_unit,
-                order.currency_id,
-                order.company_id,
-                order.date_order,
+                price_unit, order.currency_id, order.company_id, order.date_order
             )
         return price_unit
 

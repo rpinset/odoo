@@ -1,19 +1,32 @@
-import { Model, Spreadsheet } from "@odoo/o-spreadsheet";
+import { Model, Spreadsheet, stores } from "@odoo/o-spreadsheet";
 import { loadBundle } from "@web/core/assets";
 
 import { getFixture } from "@odoo/hoot";
 import { animationFrame } from "@odoo/hoot-mock";
-import { Component, xml } from "@odoo/owl";
+import { Component, xml, onMounted, onWillUnmount } from "@odoo/owl";
 import { useSpreadsheetNotificationStore } from "@spreadsheet/hooks";
-import { PublicReadonlySpreadsheet } from "@spreadsheet/public_readonly_app/public_readonly";
-import { getMockEnv, mountWithCleanup } from "@web/../tests/web_test_helpers";
+import { mountWithCleanup } from "@web/../tests/web_test_helpers";
+import { MainComponentsContainer } from "@web/core/main_components_container";
+
+const { useStoreProvider, ModelStore } = stores;
 
 class Parent extends Component {
     static template = xml`<Spreadsheet model="this.props.model"/>`;
-    static components = { Spreadsheet };
+    static components = { Spreadsheet, MainComponentsContainer };
     static props = { model: Model };
     setup() {
         useSpreadsheetNotificationStore();
+
+        const stores = useStoreProvider();
+        stores.inject(ModelStore, this.props.model);
+        onMounted(() => {
+            this.props.model.on("update", this, () => this.render(true));
+            stores.on("store-updated", this, this.render.bind(this, true));
+        });
+        onWillUnmount(() => {
+            this.props.model.off("update", this);
+            stores.off("store-updated", this);
+        });
     }
 }
 
@@ -32,33 +45,10 @@ export async function mountSpreadsheet(model) {
             model,
         },
         env: model.config.custom.env,
-        noMainContainer: true,
+        noMainContainer: false,
     });
     await animationFrame();
     return getFixture();
-}
-
-/**
- * Mount public spreadsheet component with the given data
- * @returns {Promise<HTMLElement>}
- */
-export async function mountPublicSpreadsheet(dataUrl, mode, downloadExcelUrl = "") {
-    const env = getMockEnv();
-    env.isFrozenSpreadsheet = () => true;
-    const component = await mountWithCleanup(PublicReadonlySpreadsheet, {
-        props: {
-            dataUrl,
-            downloadExcelUrl,
-            mode,
-        },
-        noMainContainer: true,
-        env,
-    });
-    await animationFrame();
-    return {
-        fixture: getFixture(),
-        model: component.model,
-    };
 }
 
 export async function doMenuAction(registry, path, env) {

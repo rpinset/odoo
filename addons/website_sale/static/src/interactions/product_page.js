@@ -288,6 +288,21 @@ export class ProductPage extends Interaction {
         });
     }
 
+    /**
+     * Returns product images and sorts them by their visual position in grid
+     * layout so that navigation matches the rendered order.
+     *
+     * @param {HTMLElement} salePage
+     * @returns {HTMLImageElement[]}
+     */
+    _getVisuallyOrderedProductImages(salePage) {
+        const images = [...salePage.querySelectorAll(".product_detail_img")];
+        if (this._getProductImageContainerSelector() === "#o-grid-product") {
+            return images.sort((a, b) => a.offsetTop - b.offsetTop);
+        }
+        return images;
+    }
+
     _getProductImageContainerSelector() {
         const imageLayout = this.el.querySelector('#product_detail_main').dataset.imageLayout;
         return {
@@ -302,7 +317,7 @@ export class ProductPage extends Interaction {
         // Zoom on click
         if (this.el.dataset.ecomZoomClick) {
             // In this case we want all the images not just the ones that are "zoomables"
-            const images = this.el.querySelectorAll('.product_detail_img');
+            const images = this._getVisuallyOrderedProductImages(this.el);
             const { imageRatio, imageRatioMobile } = this.el.dataset;
             for (const [idx, image] of images.entries()) {
                 const handler = () =>
@@ -336,11 +351,13 @@ export class ProductPage extends Interaction {
         // editable (depending on whether the images are updated before or after the editor is
         // ready).
         if (images && !isEditorEnabled && newImages) {
+            this.services["public.interactions"].stopInteractions(images);
             images.insertAdjacentHTML('beforebegin', markup(newImages));
             images.remove();
 
             // Re-query the latest images.
             images = productContainer.querySelector(this._getProductImageContainerSelector());
+            this.services["public.interactions"].startInteractions(images);
             // Update the sharable image (only works for Pinterest).
             const shareImageSrc = images.querySelector('img').src;
             document.querySelector('meta[property="og:image"]')

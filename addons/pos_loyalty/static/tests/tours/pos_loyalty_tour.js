@@ -241,15 +241,7 @@ registry.category("web_tour.tours").add("PosLoyaltyTour6", {
             ProductScreen.clickPayButton(),
             PaymentScreen.clickPaymentMethod("Cash"),
             PaymentScreen.clickValidate(),
-            FeedbackScreen.isShown(),
-            FeedbackScreen.checkTicketData({
-                cssRules: [
-                    {
-                        css: ".loyalty",
-                    },
-                ],
-            }),
-            FeedbackScreen.isShown(),
+            FeedbackScreen.isContinueEnabled(),
             FeedbackScreen.checkTicketData({
                 cssRules: [
                     {
@@ -708,6 +700,44 @@ registry.category("web_tour.tours").add("test_min_qty_points_awarded", {
         ].flat(),
 });
 
+registry.category("web_tour.tours").add("PosOrderAwardLoyaltyPointsToCustomer", {
+    steps: () =>
+        [
+            Chrome.startPoS(),
+            Dialog.confirm("Open Register"),
+            ProductScreen.clickPartnerButton(),
+            ProductScreen.clickCustomer("AA Partner"),
+            ProductScreen.clickDisplayedProduct("Whiteboard Pen"),
+            PosLoyalty.pointsAwardedAre("+3.2"),
+            PosLoyalty.pointsTotalIs("3.2"),
+            PosLoyalty.orderTotalIs("3.2"),
+            PosLoyalty.finalizeOrder("Cash", "3.2"),
+        ].flat(),
+});
+
+registry.category("web_tour.tours").add("PosOrderRefundLoyaltyPoints", {
+    steps: () =>
+        [
+            Chrome.startPoS(),
+            ...ProductScreen.clickRefund(),
+            TicketScreen.filterIs("Paid"),
+            TicketScreen.selectOrder("001"),
+            ProductScreen.clickNumpad("1"),
+            TicketScreen.confirmRefund(),
+            PaymentScreen.isShown(),
+            PaymentScreen.clickBack(),
+            ProductScreen.isShown(),
+            PosLoyalty.pointsAwardedAre("-3.2"),
+            PosLoyalty.pointsTotalIs("0"),
+            PosLoyalty.orderTotalIs("3.2"),
+            ProductScreen.clickPayButton(),
+            PaymentScreen.clickPaymentMethod("Cash"),
+            PaymentScreen.clickValidate(),
+            FeedbackScreen.isShown(),
+            FeedbackScreen.clickNextOrder(),
+        ].flat(),
+});
+
 registry.category("web_tour.tours").add("test_confirm_coupon_programs_one_by_one", {
     steps: () =>
         [
@@ -832,5 +862,18 @@ registry.category("web_tour.tours").add("test_race_conditions_update_program", {
                     }
                 },
             },
+        ].flat(),
+});
+
+registry.category("web_tour.tours").add("test_discount_count_sale_report", {
+    steps: () =>
+        [
+            Chrome.startPoS(),
+            Dialog.confirm("Open Register"),
+            ProductScreen.addOrderline("Test Product 1", "1"),
+            ProductScreen.totalAmountIs("57.50"),
+            ProductScreen.clickNumpad("%", "5"),
+            ProductScreen.totalAmountIs("54.62"),
+            PosLoyalty.finalizeOrder("Cash", "54.62"),
         ].flat(),
 });

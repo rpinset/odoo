@@ -3,11 +3,20 @@ from collections import defaultdict, Counter
 import math
 
 from odoo import api, fields, models, modules, tools
+from odoo.tools.date_utils import get_quarter_number
 from odoo.exceptions import LockError, UserError
 from odoo.tools.float_utils import float_round
 from markupsafe import Markup
 
 L10N_ES_SII_MAX_BATCH_SIZE = 1000
+
+SII_REFUND_REASONS = [
+    ('R1', "R1: Art. 80.1, 80.2, 80.6 and rights founded error"),
+    ('R2', "R2: Art. 80.3"),
+    ('R3', "R3: Art. 80.4"),
+    ('R4', "R4: Art. 80 - other"),
+    ('R5', "R5: Factura rectificativa en facturas simplificadas"),
+]
 
 
 class AccountMove(models.Model):
@@ -48,6 +57,13 @@ class AccountMove(models.Model):
     l10n_es_edi_sii_error = fields.Html(
         string="SII Error",
         compute='_compute_l10n_es_edi_sii_data',
+    )
+    l10n_es_sii_refund_reason = fields.Selection(
+        selection=SII_REFUND_REASONS,
+        string="Invoice Refund Reason Code (SII)",
+        help="BOE-A-1992-28740. Ley 37/1992, de 28 de diciembre, del Impuesto sobre el "
+        "Valor Añadido. Artículo 80. Modificación de la base imponible.",
+        copy=False,
     )
 
     # -------------------------------------------------------------------------
@@ -275,7 +291,22 @@ class AccountMove(models.Model):
                 )
             )
 
+        if self.is_refund():
+            if not self.l10n_es_sii_refund_reason:
+                errors.append(self.env._("You must set a Refund Reason for this credit note (SII)."))
+            elif self.l10n_es_is_simplified and self.l10n_es_sii_refund_reason != 'R5':
+                errors.append(self.env._("Refund reason must be R5 for simplified invoices (SII)."))
+            elif not self.l10n_es_is_simplified and self.l10n_es_sii_refund_reason == 'R5':
+                errors.append(self.env._("Refund reason cannot be R5 for non-simplified invoices (SII)."))
+
         return errors
+
+    def _l10n_es_edi_get_period(self):
+        self.ensure_one()
+        if 'account_return_periodicity' in self.company_id._fields:
+            if self.company_id.account_return_periodicity == 'trimester':
+                return f'{get_quarter_number(self.date)}T'
+        return str(self.date.month).zfill(2)
 
     def _l10n_es_edi_get_invoices_info(self):
         info_list = []
@@ -286,7 +317,7 @@ class AccountMove(models.Model):
             info = {
                 'PeriodoLiquidacion': {
                     'Ejercicio': str(move.date.year),
-                    'Periodo': str(move.date.month).zfill(2),
+                    'Periodo': move._l10n_es_edi_get_period(),
                 },
                 'IDFactura': {
                     'FechaExpedicionFacturaEmisor': move.invoice_date.strftime('%d-%m-%Y'),
@@ -360,8 +391,8 @@ class AccountMove(models.Model):
 
             if move.move_type == 'out_invoice':
                 invoice_node['TipoFactura'] = 'F2' if is_simplified else 'F1'
-            elif move.move_type == 'out_refund':
-                invoice_node['TipoFactura'] = 'R5' if is_simplified else 'R1'
+            elif move.is_refund():
+                invoice_node['TipoFactura'] = move.l10n_es_sii_refund_reason
                 invoice_node['TipoRectificativa'] = 'I'
             elif move.move_type == 'in_invoice':
                 if reagyp:
@@ -370,9 +401,6 @@ class AccountMove(models.Model):
                     invoice_node['TipoFactura'] = 'F5'
                 else:
                     invoice_node['TipoFactura'] = 'F1'
-            elif move.move_type == 'in_refund':
-                invoice_node['TipoFactura'] = 'R4'
-                invoice_node['TipoRectificativa'] = 'I'
 
             sign = -1 if move.is_refund() else 1
 

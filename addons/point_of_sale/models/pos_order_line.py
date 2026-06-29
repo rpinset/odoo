@@ -12,7 +12,7 @@ class PosOrderLine(models.Model):
     _name = 'pos.order.line'
     _description = "Point of Sale Order Line"
     _rec_name = 'product_id'
-    _inherit = ['pos.load.mixin']
+    _inherit = ['pos.load.mixin', 'res.currency.rate.consolidation.mixin']
 
     company_id = fields.Many2one('res.company', string='Company', related='order_id.company_id', store=True)
     name = fields.Char(string='Line No', required=True, copy=False)
@@ -282,3 +282,9 @@ class PosOrderLine(models.Model):
     def _get_product_cost(self, at_closing=False):
         self.ensure_one()
         return self.product_id.standard_price
+
+    def _get_discount_amount_for_report(self):
+        return self._get_discount_amount()
+
+    def _has_discount(self):
+        return self.discount > 0

@@ -1,11 +1,10 @@
-import { mailDataHelpers } from "@mail/../tests/mock_server/mail_mock_server";
-
 import { Domain } from "@web/core/domain";
 import { fields, models } from "@web/../tests/web_test_helpers";
 
 export class HrEmployee extends models.ServerModel {
     _name = "hr.employee";
 
+    active = fields.Boolean({ related: false });
     department_id = fields.Many2one({ relation: "hr.department" });
     name = fields.Char();
     user_id = fields.Many2one({ relation: "res.users" });
@@ -16,30 +15,24 @@ export class HrEmployee extends models.ServerModel {
     job_title = fields.Char();
     company_id = fields.Many2one({ relation: "res.company" });
 
-    _get_store_avatar_card_fields({ add_user = true, ...args } = {}) {
-        const res = [
+    _store_avatar_card_fields(res) {
+        res.one("department_id", ["name"]);
+        res.one("user_id", "_store_avatar_card_fields");
+        res.one("work_location_id", ["location_type", "name"]);
+        res.extend([
+            "active",
             "company_id",
-            mailDataHelpers.Store.one("department_id", ["name"]),
             "hr_icon_display",
             "job_title",
             "name",
             "show_hr_icon_display",
-            "work_email",
-            mailDataHelpers.Store.one("work_location_id", ["location_type", "name"]),
-            "work_phone",
-        ];
-        if (add_user) {
-            res.push(
-                mailDataHelpers.Store.one(
-                    "user_id",
-                    this.env["res.users"]._get_store_avatar_card_fields({
-                        ...args,
-                        add_employee: false,
-                    })
-                )
-            );
-        }
-        return res;
+        ]);
+        res.extend(["work_email", "work_phone"]);
+    }
+
+    _store_im_status_fields(res) {
+        res.one("user_id", "_store_im_status_fields");
+        res.extend(["active", "company_id", "work_location_type"]);
     }
 
     _get_working_periods_by_field(employeeIds, start_time, end_time, field_key) {

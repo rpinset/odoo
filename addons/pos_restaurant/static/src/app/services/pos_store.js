@@ -149,7 +149,7 @@ patch(PosStore.prototype, {
             const firstCourse = order.getFirstCourse();
             if (firstCourse && !firstCourse.fired) {
                 firstCourse.fired = true;
-                this.getOrder().deselectCourse();
+                order.deselectCourse();
             }
         }
 
@@ -168,6 +168,7 @@ patch(PosStore.prototype, {
     async mergeOrders(sourceOrder, destOrder) {
         let whileGuard = 0;
         const mergedCourses = this.mergeCourses(sourceOrder, destOrder);
+        const sourceLastPrint = sourceOrder.lastPrints.at(-1);
         // Sum the guest counts from both orders
         const totalGuests = sourceOrder.getCustomerCount() + destOrder.getCustomerCount();
         destOrder.setCustomerCount(totalGuests);
@@ -222,7 +223,40 @@ patch(PosStore.prototype, {
                 });
             }
         }
-
+        const destLastPrint = destOrder.lastPrints.at(-1);
+        const combinedPrint = {
+            addedQuantity: [
+                ...(destLastPrint?.addedQuantity || []),
+                ...(sourceLastPrint?.addedQuantity || []),
+            ],
+            removedQuantity: [
+                ...(destLastPrint?.removedQuantity || []),
+                ...(sourceLastPrint?.removedQuantity || []),
+            ],
+            noteUpdate: [
+                ...(destLastPrint?.noteUpdate || []),
+                ...(sourceLastPrint?.noteUpdate || []),
+            ],
+            noteChange: destLastPrint?.noteChange || sourceLastPrint?.noteChange || false,
+        };
+        if (destLastPrint?.internal_note || sourceLastPrint?.internal_note) {
+            combinedPrint.internal_note =
+                destLastPrint?.internal_note || sourceLastPrint?.internal_note;
+        }
+        if (destLastPrint?.general_customer_note || sourceLastPrint?.general_customer_note) {
+            combinedPrint.general_customer_note =
+                destLastPrint?.general_customer_note || sourceLastPrint?.general_customer_note;
+        }
+        if (
+            combinedPrint.addedQuantity.length ||
+            combinedPrint.removedQuantity.length ||
+            combinedPrint.noteUpdate.length ||
+            combinedPrint.noteChange ||
+            combinedPrint.internal_note ||
+            combinedPrint.general_customer_note
+        ) {
+            destOrder.pushLastPrints(combinedPrint);
+        }
         if (typeof destOrder.id === "number") {
             await this.syncAllOrders({ orders: [destOrder] });
         }
@@ -392,9 +426,16 @@ patch(PosStore.prototype, {
     async submitOrder() {
         const order = this.getOrder();
         await this.ensureGuestCustomerCount(order);
+        this.showDefault();
         await this.sendOrderInPreparationUpdateLastChange(order);
         this.addPendingOrder([order.id]);
-        this.showDefault();
+        if (order.isDirty()) {
+            // showDefault() triggers unsetTable() which calls syncAllOrders(),
+            // but sendOrderInPreparationUpdateLastChange holds the order in syncingOrders,
+            // preventing that sync from picking it up. Sync only if still dirty after the lock
+            // is released.
+            await this.syncAllOrders({ orders: [order] });
+        }
     },
     async reprintOrder() {
         const order = this.getOrder();
@@ -495,6 +536,9 @@ patch(PosStore.prototype, {
         return false;
     },
     async setTableFromUi(table, orderUuid = null) {
+        if (this.isOrderSyncing(table.getOrder())) {
+            return;
+        }
         try {
             if (!orderUuid && this.getOrder()?.isFilledDirectSale) {
                 this.transferOrder(this.getOrder().uuid, table);
@@ -894,6 +938,10 @@ patch(PosStore.prototype, {
 
     get showEditPlanButton() {
         return true;
+    },
+
+    get showSaveOrderButton() {
+        return !this.getOrder().table_id && super.showSaveOrderButton;
     },
 
     async onFloorPlanUpdate(payload) {

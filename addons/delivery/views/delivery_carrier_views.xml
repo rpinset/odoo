@@ -222,8 +222,9 @@
     </record>
 
     <menuitem id="sale_menu_action_delivery_carrier_form"
+        name="Deliveries"
         action="action_delivery_carrier_form"
-        parent="sale.menu_sales_config"
-        sequence="4"/>
+        parent="sale.menu_sale_config"
+        sequence="15"/>
 
 </odoo>

@@ -137,7 +137,7 @@ class HrVersion(models.Model):
         check_company=True,
         tracking=1)
     work_location_id = fields.Many2one('hr.work.location', 'Work Location',
-                                       domain="[('address_id', '=', address_id)]", tracking=1)
+                                       domain="[('address_id', '=', address_id)]", index=True, tracking=1)
 
     departure_id = fields.Many2one('hr.employee.departure', string="Departure", copy=False, index='btree_not_null')
     departure_reason_id = fields.Many2one(related='departure_id.departure_reason_id', readonly=False, groups="hr.group_hr_user", tracking=1)
@@ -156,19 +156,19 @@ class HrVersion(models.Model):
     tz = fields.Selection(_tz_get, string='Timezone', required=True, default=lambda self: self.env.context.get('tz') or self.env.user.tz or 'UTC')
 
     # Contract Information
-    contract_date_start = fields.Date('Contract Start Date', tracking=1, groups="hr.group_hr_manager")
+    contract_date_start = fields.Date('Contract Start Date', tracking=1, groups="hr.group_hr_user")
     contract_date_end = fields.Date(
         'Contract End Date', tracking=1, help="End date of the contract (if it's a fixed-term contract).",
-        groups="hr.group_hr_manager")
-    fixed_term = fields.Boolean('Fixed Term', tracking=1, groups='hr.group_hr_manager')
+        groups="hr.group_hr_user")
+    fixed_term = fields.Boolean('Fixed Term', tracking=1, groups='hr.group_hr_user')
     trial_date_end = fields.Date('End of Trial Period', help="End date of the trial period (if there is one).",
-                                 groups="hr.group_hr_manager", tracking=1)
-    date_start = fields.Date(compute='_compute_dates', groups="hr.group_hr_manager", search="_search_start_date")
-    date_end = fields.Date(compute='_compute_dates', groups="hr.group_hr_manager", search="_search_end_date")
-    is_current = fields.Boolean(compute='_compute_is_current', groups="hr.group_hr_manager")
-    is_past = fields.Boolean(compute='_compute_is_past', groups="hr.group_hr_manager")
-    is_future = fields.Boolean(compute='_compute_is_future', groups="hr.group_hr_manager")
-    is_in_contract = fields.Boolean(compute='_compute_is_in_contract', groups="hr.group_hr_manager")
+                                 groups="hr.group_hr_user", tracking=1)
+    date_start = fields.Date(compute='_compute_dates', groups="hr.group_hr_user", search="_search_start_date")
+    date_end = fields.Date(compute='_compute_dates', groups="hr.group_hr_user", search="_search_end_date")
+    is_current = fields.Boolean(compute='_compute_is_current', groups="hr.group_hr_user")
+    is_past = fields.Boolean(compute='_compute_is_past', groups="hr.group_hr_user")
+    is_future = fields.Boolean(compute='_compute_is_future', groups="hr.group_hr_user")
+    is_in_contract = fields.Boolean(compute='_compute_is_in_contract', groups="hr.group_hr_user")
 
     contract_template_id = fields.Many2one(
         'hr.version', string="Contract Template", groups="hr.group_hr_user",
@@ -185,9 +185,9 @@ class HrVersion(models.Model):
     company_country_id = fields.Many2one('res.country', string="Company country",
                                          related='company_id.country_id', readonly=True)
     country_code = fields.Char(related='company_country_id.code', depends=['company_country_id'], readonly=True)
-    employee_type_id = fields.Many2one('hr.employee.type', "Employee Type", tracking=1,
+    employee_type_id = fields.Many2one('hr.employee.type', "Employee Type", tracking=1, index=True,
                                        groups="hr.group_hr_manager")
-    additional_note = fields.Text(string='Additional Note', groups="hr.group_hr_user", tracking=1)
+    additional_note = fields.Text(string='Additional Note', groups="hr.group_hr_user", tracking=1, copy=False)
 
     hr_responsible_id = fields.Many2one(
         'res.users', 'HR Responsible', tracking=1,
@@ -737,24 +737,26 @@ class HrVersion(models.Model):
     def _get_days_per_week(self):
         self.ensure_one()
         if self.resource_calendar_id:
-            return self.resource_calendar_id._get_days_per_week()
-        return 5
+            return self.resource_calendar_id.days_per_week
+        if not self.hours_per_day:
+            return 0
+        return self.hours_per_week / self.hours_per_day
 
     def _get_hours_per_week(self):
         self.ensure_one()
         if self.resource_calendar_id:
-            return self.resource_calendar_id._get_hours_per_week()
+            return self.resource_calendar_id.hours_per_week
         elif self.is_flexible:
             return self.hours_per_week
-        return self.company_id.resource_calendar_id._get_hours_per_week()
+        return self.company_id.resource_calendar_id.hours_per_week
 
     def _get_hours_per_day(self):
         self.ensure_one()
         if self.resource_calendar_id:
-            return self.resource_calendar_id._get_hours_per_day()
+            return self.resource_calendar_id.hours_per_day
         if self.is_flexible:
             return self.hours_per_day
-        return self.company_id.resource_calendar_id._get_hours_per_day()
+        return self.company_id.resource_calendar_id.hours_per_day
 
     def _get_field_block_start_date(self, field_name):
         """

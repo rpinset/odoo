@@ -1,6 +1,6 @@
 import { after, expect, test } from "@odoo/hoot";
 import { click, queryOne, queryValue, setInputFiles, waitFor } from "@odoo/hoot-dom";
-import { Deferred, animationFrame } from "@odoo/hoot-mock";
+import { animationFrame } from "@odoo/hoot-mock";
 import {
     clickSave,
     contains,
@@ -82,7 +82,7 @@ test("BinaryField is correctly rendered (readonly)", async () => {
 
     // Testing the download button in the field
     // We must avoid the browser to download the file effectively
-    const deferred = new Deferred();
+    const deferred = Promise.withResolvers();
     const downloadOnClick = (ev) => {
         const target = ev.target;
         if (target.tagName === "A" && "download" in target.attributes) {
@@ -95,7 +95,7 @@ test("BinaryField is correctly rendered (readonly)", async () => {
     after(() => document.removeEventListener("click", downloadOnClick));
 
     await contains(`.o_field_widget[name="document"] a`).click();
-    await deferred;
+    await deferred.promise;
     expect.verifySteps(["/web/content"]);
 });
 
@@ -183,7 +183,7 @@ test("BinaryField is correctly rendered", async () => {
 
     // Testing the download button in the field
     // We must avoid the browser to download the file effectively
-    const deferred = new Deferred();
+    const deferred = Promise.withResolvers();
     const downloadOnClick = (ev) => {
         const target = ev.target;
         if (target.tagName === "A" && "download" in target.attributes) {
@@ -196,7 +196,7 @@ test("BinaryField is correctly rendered", async () => {
     after(() => document.removeEventListener("click", downloadOnClick));
 
     await click(`.fa-download`);
-    await deferred;
+    await deferred.promise;
     expect.verifySteps(["/web/content"]);
 
     await click(`.o_field_binary .o_clear_file_button`);
@@ -527,4 +527,45 @@ test("doesn't crash if value is not a string", async () => {
             </form>`,
     });
     expect(".o_field_binary input").toHaveValue("");
+});
+
+test("Binary field in list view doesn't open the record when clicked", async () => {
+    Partner._records[0]["document"] = BINARY_FILE;
+    onRpc("/web/content", async (request) => {
+        expect.step("/web/content");
+        const body = await request.formData();
+        return new Blob([body.get("data")], { type: "text/plain" });
+    });
+    await mountView({
+        resModel: "res.partner",
+        type: "list",
+        arch: `
+            <list>
+                <field name="document" filename="foo" widget="binary"/>
+                <field name="foo"/>
+            </list>
+        `,
+        selectRecord: () => {
+            expect.step("selectRecord");
+        },
+    });
+
+    expect(`.o_data_row .o_data_cell`).toHaveText("coucou.txt");
+    const deferred = Promise.withResolvers();
+    const downloadOnClick = (ev) => {
+        const target = ev.target;
+        if (target.tagName === "A" && "download" in target.attributes) {
+            ev.preventDefault();
+            document.removeEventListener("click", downloadOnClick);
+            deferred.resolve();
+        }
+    };
+    document.addEventListener("click", downloadOnClick);
+    after(() => document.removeEventListener("click", downloadOnClick));
+    await contains(".o_field_widget[name='document'] .o_form_uri").click();
+    await deferred.promise;
+    expect.verifySteps(["/web/content"]);
+
+    await contains(`.o_data_row .o_data_cell:eq(1)`).click();
+    expect.verifySteps(["selectRecord"]);
 });

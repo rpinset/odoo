@@ -69,6 +69,7 @@ For more specific needs, you may also assign custom-defined actions
         'wizard/mail_followers_edit_views.xml',
         'wizard/mail_template_reset_views.xml',
         'views/fetchmail_views.xml',
+        'views/ir_access_views.xml',
         'views/ir_cron_views.xml',
         'views/ir_filters_views.xml',
         'views/ir_mail_server_views.xml',
@@ -102,8 +103,6 @@ For more specific needs, you may also assign custom-defined actions
         'data/security_notifications_templates.xml',
         'data/ir_cron_data.xml',
         'data/ir_actions_data.xml',
-        'security/mail_security.xml',
-        'security/ir.model.access.csv',
         'views/discuss_public_templates.xml',
         'views/mail_alias_domain_views.xml',
         'views/mail_alias_views.xml',
@@ -126,12 +125,14 @@ For more specific needs, you may also assign custom-defined actions
         "data/mail_canned_response_data.xml",
         'data/mail_templates_invite.xml',
         'data/web_tour_tour.xml',
+        'security/ir.access.csv',
     ],
     'demo': [
         'demo/mail_activity_demo.xml',
         'demo/discuss_channel_demo.xml',
         'demo/discuss/public_channel_demo.xml',
         "demo/discuss/readonly_channel_demo.xml",
+        'demo/discuss/call_debrief_discuss_demo.xml',
         "demo/mail_poll_demo.xml",
         "demo/mail_canned_response_demo.xml",
     ],
@@ -213,7 +214,6 @@ For more specific needs, you may also assign custom-defined actions
             "web/static/lib/odoo_ui_icons/style.css",
         ],
         'mail.assets_public': [
-            'web/static/lib/jquery/jquery.js',
             ('include', 'web._assets_helpers'),
             ('include', 'web._assets_backend_helpers'),
             'web/static/src/scss/pre_variables.scss',
@@ -295,7 +295,7 @@ For more specific needs, you may also assign custom-defined actions
         ],
         'im_livechat.assets_embed_cors': [
             ('include', 'im_livechat.assets_embed_external'),
-            ('remove', 'web/static/src/core/browser/title_service.js'),
+            ('remove', 'web/static/src/core/browser/title_plugin.js'),
         ],
         'im_livechat.embed_assets_unit_tests_setup': [
             ('include', 'web.assets_unit_tests_setup'),

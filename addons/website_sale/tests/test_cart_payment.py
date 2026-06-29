@@ -32,7 +32,7 @@ class WebsiteSaleCartPayment(PaymentHttpCommon, WebsiteSaleCommon):
         'cancel', or 'error' returns the orders.
         """
         for unpaid_order_tx_state in ("draft", "cancel", "error"):
-            self.tx.state = unpaid_order_tx_state
+            self._update_transaction(self.tx, state=unpaid_order_tx_state)
             with self.mock_request(sale_order_id=self.cart.id) as request:
                 self.assertEqual(
                     request.cart,
@@ -47,7 +47,7 @@ class WebsiteSaleCartPayment(PaymentHttpCommon, WebsiteSaleCommon):
         """
         self.tx.provider_id.support_manual_capture = "full_only"
         for paid_order_tx_state in ("pending", "authorized", "done"):
-            self.tx.state = paid_order_tx_state
+            self._update_transaction(self.tx, state=paid_order_tx_state)
             with self.mock_request(sale_order_id=self.cart.id) as request:
                 self.assertFalse(
                     request.cart,
@@ -72,32 +72,12 @@ class WebsiteSaleCartPayment(PaymentHttpCommon, WebsiteSaleCommon):
         salesperson = self.env.ref("base.user_admin")
         self.website.salesperson_id = salesperson
         self.cart.user_id = False
-        self.tx._set_pending()
+        self._update_transaction(self.tx, state="pending")
         with patch.object(self.env.registry["sale.order"], "_send_order_notification_mail") as mock:
-            self.tx._post_process()
+            self._run_post_processing(self.tx)
             self.assertEqual(mock.call_count, 1, "One payment confirmation mail should be sent")
             self.assertEqual(
                 self.cart.user_id,
                 salesperson,
                 "Salesperson should get assigned when sending payment confirmation mail",
             )
-
-    def test_payment_archives_customer_if_automatic_invoice(self):
-        # Async emails must be disabled otherwise invoice (and partner archiving) will be handled in
-        # a cron.
-        self.env["ir.config_parameter"].set_bool("sale.async_emails", False)
-        self.env["ir.config_parameter"].set_bool("sale.automatic_invoice", True)
-        self.tx._set_done()
-        self.tx._post_process()
-        self.assertFalse(self.cart.partner_id.active)
-
-    def test_payment_doesnt_archive_partner_if_manual_invoicing(self):
-        """Customers shouldn't be archived if automatic invoice is disabled, otherwise their address
-        won't be considered when sending the invoice later on."""
-        # Async emails must be disabled otherwise invoice (and partner archiving) will be handled in
-        # a cron.
-        self.env["ir.config_parameter"].set_bool("sale.async_emails", False)
-        self.env["ir.config_parameter"].set_bool("sale.automatic_invoice", False)
-        self.tx._set_done()
-        self.tx._post_process()
-        self.assertTrue(self.cart.partner_id.active)

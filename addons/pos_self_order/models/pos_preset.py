@@ -1,7 +1,7 @@
 from odoo import models, api, fields, _
 from odoo.exceptions import UserError, ValidationError
 
-ADDRESS_FIELDS = ('delivery_from_stret', 'delivery_from_zip', 'delivery_from_city', 'delivery_from_state_id', 'delivery_from_country_id')
+ADDRESS_FIELDS = ('delivery_from_street', 'delivery_from_zip', 'delivery_from_city', 'delivery_from_state_id', 'delivery_from_country_id')
 
 # Countries that use miles instead of kilometers for distance
 _IMPERIAL_COUNTRY_CODES = {'US', 'GB', 'MM', 'LR'}
@@ -69,10 +69,20 @@ class PosPreset(models.Model):
         domain="[('model', '=', 'pos.order')]",
     )
 
-    @api.depends('delivery_from_street', 'delivery_from_city', 'delivery_from_zip', 'delivery_from_state_id', 'delivery_from_country_id')
+    def _get_delivery_from_address_parts(self):
+        self.ensure_one()
+        company = self.env.company
+        street = self.delivery_from_street or company.street
+        city = self.delivery_from_city or company.city
+        zip_code = self.delivery_from_zip or company.zip
+        state = self.delivery_from_state_id.name or company.state_id.name
+        country = self.delivery_from_country_id.name or company.country_id.name
+        return [part for part in (street, zip_code, city, state, country) if part]
+
+    @api.depends(*ADDRESS_FIELDS)
     def _compute_delivery_from_address(self):
         for preset in self:
-            preset.delivery_from_address = f"{preset.delivery_from_street}, {preset.delivery_from_city}, {preset.delivery_from_state_id.name}, {preset.delivery_from_country_id.name}"
+            preset.delivery_from_address = ", ".join(preset._get_delivery_from_address_parts())
 
     @api.model
     def default_get(self, fields):
@@ -131,7 +141,7 @@ class PosPreset(models.Model):
 
     def _geo_localize_delivery_address(self):
         self.ensure_one()
-        if not self.delivery_from_address:
+        if not self.delivery_from_address or not any(self[field] for field in ADDRESS_FIELDS):
             self.delivery_from_latitude = 0.0
             self.delivery_from_longitude = 0.0
             return
@@ -162,13 +172,14 @@ class PosPreset(models.Model):
     @api.model
     def _load_pos_self_data_fields(self, config):
         params = super()._load_pos_self_data_fields(config)
-        params.extend(['service_at', 'mail_template_id', 'free_delivery_min_amount', 'delivery_product_id', 'delivery_product_price'])
+        params.extend(['service_at', 'mail_template_id', 'free_delivery_min_amount', 'delivery_product_id', 'delivery_product_price',
+                       'service_fee', 'service_fee_product_id', 'service_fee_type', 'service_fee_amount', 'service_fee_based_on'])
         return params
-    
+
     @api.model
     def _load_pos_data_fields(self, config):
         params = super()._load_pos_data_fields(config)
-        params.extend(['mail_template_id'])
+        params.extend(['mail_template_id', 'service_at'])
         return params
 
     def _can_return_content(self, field_name=None, access_token=None):

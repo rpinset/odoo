@@ -187,6 +187,8 @@ class AccountEdiXmlUBLHR(models.AbstractModel):
             vals['document_node']['cbc:CreditNoteTypeCode']['_text'] = '386'
         elif invoice.l10n_hr_process_type == 'P9':
             vals['document_node']['cbc:CreditNoteTypeCode']['_text'] = '381'
+        elif invoice.l10n_hr_process_type == 'P10':
+            vals['document_node']['cbc:CreditNoteTypeCode']['_text'] = '384'
 
     def _ubl_add_billing_reference_nodes(self, vals):
         # EXTENDS account.edi.xml.ubl_bis3
@@ -274,8 +276,8 @@ class AccountEdiXmlUBLHR(models.AbstractModel):
         if commercial_partner.l10n_hr_personal_oib:
             endpoint = commercial_partner.l10n_hr_personal_oib
             scheme_id = '9934'
-        elif commercial_partner.company_registry:
-            endpoint = commercial_partner.company_registry
+        elif hr_en := commercial_partner._get_additional_identifier('HR_EN'):
+            endpoint = hr_en
             scheme_id = '0088'
         else:
             endpoint = commercial_partner.vat.strip('HR')
@@ -289,15 +291,15 @@ class AccountEdiXmlUBLHR(models.AbstractModel):
         partner = vals['party_vals']['partner']
         commercial_partner = partner.commercial_partner_id
         if commercial_partner.l10n_hr_business_unit_code:
-            bu_code = '::HR99:' + commercial_partner.l10n_hr_business_unit_code
+            bu_code = f'::HR99:{commercial_partner.l10n_hr_business_unit_code}'
         else:
             bu_code = ''
         if commercial_partner.l10n_hr_personal_oib:
-            ident = '9934:' + commercial_partner.l10n_hr_personal_oib + bu_code
-        elif commercial_partner.company_registry:
-            ident = '0088:' + commercial_partner.company_registry
+            ident = f'9934:{commercial_partner.l10n_hr_personal_oib}{bu_code}'
+        elif hr_en := commercial_partner._get_additional_identifier('HR_EN'):
+            ident = f'0088:{hr_en}'
         else:
-            ident = '9934:' + commercial_partner.vat.strip('HR') + bu_code
+            ident = f'9934:{commercial_partner.vat.strip("HR")}{bu_code}'
         vals['party_node']['cac:PartyIdentification'] = [{
             'cbc:ID': {
                 '_text': ident,

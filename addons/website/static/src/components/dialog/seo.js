@@ -1,4 +1,4 @@
-import { reactive, useLayoutEffect, useRef, useState } from "@web/owl2/utils";
+import { useLayoutEffect, useRef } from "@web/owl2/utils";
 import { _t } from "@web/core/l10n/translation";
 import { deduceURLfromText } from "@html_editor/main/link/utils";
 import { pyToJsLocale, jsToPyLocale } from "@web/core/l10n/utils";
@@ -11,7 +11,7 @@ import { CheckBox } from "@web/core/checkbox/checkbox";
 import { MediaDialog } from "@html_editor/main/media/media_dialog/media_dialog";
 import { getMimetype } from "@html_editor/utils/image";
 import { WebsiteDialog } from "./dialog";
-import { Component, onMounted, onWillStart } from "@odoo/owl";
+import { Component, onMounted, onWillStart, proxy, useApp } from "@odoo/owl";
 import wUtils from "@website/js/utils";
 
 // This replaces \b, because accents(e.g. à, é) are not seen as word boundaries.
@@ -19,7 +19,7 @@ import wUtils from "@website/js/utils";
 const WORD_SEPARATORS_REGEX =
     "([\\u2000-\\u206F\\u2E00-\\u2E7F'!\"#\\$%&\\(\\)\\*\\+,\\-\\.\\/:;<=>\\?¿¡@\\[\\]\\^_`\\{\\|\\}~\\s]+|^|$)";
 
-export const seoContext = reactive({
+export const seoContext = proxy({
     description: "",
     keywords: [],
     title: "",
@@ -201,7 +201,7 @@ class ImageSelector extends Component {
         this.dialogs = useService("dialog");
         this.notification = useService("notification");
 
-        this.seoContext = useState(seoContext);
+        this.seoContext = proxy(seoContext);
 
         const firstImageId = this.props.hasSocialDefaultImage ? "social_default_image" : "logo";
         const firstImageSrc = `/web/image/website/${encodeURIComponent(
@@ -213,7 +213,7 @@ class ImageSelector extends Component {
             custom: false,
         };
 
-        this.state = useState({
+        this.state = proxy({
             images: [
                 firstImage,
                 ...this.props.pageImages.map((src) => ({
@@ -311,9 +311,9 @@ class Keyword extends Component {
     setup() {
         this.website = useService("website");
 
-        this.seoContext = useState(seoContext);
+        this.seoContext = proxy(seoContext);
 
-        this.state = useState({
+        this.state = proxy({
             suggestions: [],
         });
 
@@ -413,9 +413,9 @@ class MetaKeywords extends Component {
     setup() {
         this.website = useService("website");
 
-        this.seoContext = useState(seoContext);
+        this.seoContext = proxy(seoContext);
 
-        this.state = useState({
+        this.state = proxy({
             language: "",
             keyword: "",
         });
@@ -473,7 +473,7 @@ class SEOPreview extends Component {
 
     setup() {
         this.website = useService("website");
-        this.seoContext = useState(seoContext);
+        this.seoContext = proxy(seoContext);
         this.logo = `/web/image/website/${encodeURIComponent(this.website.currentWebsite.id)}/logo`;
     }
 
@@ -562,11 +562,11 @@ export class TitleDescription extends Component {
     };
 
     setup() {
-        this.seoContext = useState(seoContext);
+        this.seoContext = proxy(seoContext);
         this.website = useService("website");
         useAutofocus();
 
-        this.state = useState({
+        this.state = proxy({
             language: this.getLanguage(),
         });
         this.previousSeoName = this.seoContext.seoName;
@@ -683,10 +683,11 @@ export class BrokenLink extends Component {
         this.urlInputRef = useRef("url-input");
         this.link = this.props.link;
 
-        this.state = useState({
+        this.state = proxy({
             checkingLink: false,
         });
 
+        const app = useApp();
         useLayoutEffect(
             (input) => {
                 if (!input) {
@@ -700,9 +701,9 @@ export class BrokenLink extends Component {
                     },
                 };
                 const unmountAutocompleteWithPages = wUtils.autocompleteWithPages(
+                    app,
                     input,
-                    options,
-                    this.env
+                    options
                 );
                 return () => unmountAutocompleteWithPages();
             },
@@ -761,12 +762,12 @@ export class SeoChecks extends Component {
 
     async setup() {
         this.website = useService("website");
-        this.seoContext = useState(seoContext);
+        this.seoContext = proxy(seoContext);
         const {
             metadata: { mainObject, seoObject },
         } = this.website.currentWebsite;
         this.object = seoObject || mainObject;
-        this.state = useState({
+        this.state = proxy({
             altAttributes: [],
             checkingLinks: false,
             checkedLinks: false,

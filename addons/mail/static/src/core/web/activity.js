@@ -1,36 +1,32 @@
 import { useAttachmentUploader } from "@mail/core/common/attachment_uploader_hook";
+import { ActivityAssignPopover } from "@mail/core/web/activity_assign_popover";
 import { ActivityMailTemplate } from "@mail/core/web/activity_mail_template";
 import { ActivityMarkAsDone } from "@mail/core/web/activity_markasdone_popover";
 import { computeDelay, getMsToTomorrow } from "@mail/utils/common/dates";
 import { AvatarCard } from "@mail/core/web/avatar_card/avatar_card";
-import { toggleFn } from "@mail/utils/common/signal";
 
-import { Component, onMounted, onWillUnmount, signal } from "@odoo/owl";
+import { Component, onMounted, onWillUnmount, props, types } from "@odoo/owl";
 
 import { browser } from "@web/core/browser/browser";
-import { _t } from "@web/core/l10n/translation";
 import { usePopover } from "@web/core/popover/popover_hook";
 import { useService } from "@web/core/utils/hooks";
+import { pick } from "@web/core/utils/objects";
 import { render } from "@web/owl2/utils";
 import { FileUploader } from "@web/views/fields/file_handler";
 
-/**
- * @typedef {Object} Props
- * @property {import("models").Activity} activity
- * @property {function} onActivityChanged
- * @property {function} reloadParentView
- * @extends {Component<Props, Env>}
- */
 export class Activity extends Component {
     static components = { ActivityMailTemplate, FileUploader };
-    static props = ["activity", "onActivityChanged", "reloadParentView"];
     static template = "mail.Activity";
 
     setup() {
         super.setup();
         this.store = useService("mail.store");
-        this.showDetails = signal(false);
-        this.toggleFn = toggleFn;
+        this.props = props({
+            activity: types.instanceOf(this.store["mail.activity"].Class),
+            onActivityChanged: types.function([]),
+            reloadParentView: types.function([]),
+        });
+        this.assignPopover = usePopover(ActivityAssignPopover, { position: "bottom" });
         this.markDonePopover = usePopover(ActivityMarkAsDone, { position: "right" });
         this.avatarCard = usePopover(AvatarCard);
         onMounted(() => {
@@ -41,10 +37,21 @@ export class Activity extends Component {
     }
 
     get displayName() {
-        if (this.props.activity.summary) {
-            return _t("“%s”", this.props.activity.summary);
-        }
-        return this.props.activity.display_name;
+        return this.props.activity.summary || this.props.activity.display_name;
+    }
+
+    get tooltipInfo() {
+        const activity = this.props.activity;
+        return JSON.stringify({
+            activity: {
+                activity_type_id: pick(activity.activity_type_id || {}, "name"),
+                dateCreateFormatted: activity.dateCreateFormatted,
+                dateDeadlineFormatted: activity.dateDeadlineFormatted,
+                create_uid_name: activity.create_uid?.name,
+                user_id_name: activity.user_id?.name,
+                role_id_name: activity.role_id?.name,
+            },
+        });
     }
 
     updateDelayAtNight() {
@@ -57,6 +64,17 @@ export class Activity extends Component {
 
     get delay() {
         return computeDelay(this.props.activity.date_deadline);
+    }
+
+    async onClickAssign(ev) {
+        if (this.assignPopover.isOpen) {
+            this.assignPopover.close();
+            return;
+        }
+        this.assignPopover.open(ev.currentTarget, {
+            activity: this.props.activity,
+            onActivityChanged: this.props.onActivityChanged,
+        });
     }
 
     async onClickMarkAsDone(ev) {

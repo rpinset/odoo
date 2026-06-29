@@ -21,6 +21,7 @@ PROJECT_TASK_READABLE_FIELDS = {
     'remaining_hours',
     'subtask_effective_hours',
     'subtask_allocated_hours',
+    'show_portal_timesheets',
     'timesheet_ids',
     'total_hours_spent',
 }
@@ -53,6 +54,8 @@ class ProjectTask(models.Model):
         !!! Set the task a urgent priority\n
         Make sure to use the right format and order e.g. Improve the configuration screen 5h #feature #v16 @Mitchell !""",
     )
+    show_portal_timesheets = fields.Boolean(default=lambda self: self.env['account.analytic.line']._show_portal_timesheets(), store=False)
+
     @property
     def TASK_PORTAL_READABLE_FIELDS(self):
         return super().TASK_PORTAL_READABLE_FIELDS | PROJECT_TASK_READABLE_FIELDS
@@ -132,10 +135,10 @@ class ProjectTask(models.Model):
         )""", SQL.identifier(self._table), SQL(operator), value)
         return [('id', 'in', sql)]
 
-    @api.depends('effective_hours', 'subtask_effective_hours', 'allocated_hours')
+    @api.depends('effective_hours', 'subtask_effective_hours', 'allocated_hours', 'parent_id.allocated_hours', 'project_id.allocated_hours')
     def _compute_remaining_hours(self):
         for task in self:
-            if not task.allocated_hours:
+            if not task.allocated_hours and (task.parent_id or task.project_id).allocated_hours <= 0.0:
                 task.remaining_hours = 0.0
             else:
                 task.remaining_hours = task.allocated_hours - task.effective_hours - task.subtask_effective_hours

@@ -1,7 +1,7 @@
 /** @odoo-module */
 
 import { on, queryAll } from "@odoo/hoot-dom";
-import { App, types as t, useEffect, useListener, validateType } from "@odoo/owl";
+import { t, useEffect, useListener, validateType } from "@odoo/owl";
 import { isNode } from "@web/../lib/hoot-dom/helpers/dom";
 import {
     isInstanceOf,
@@ -126,8 +126,8 @@ export const T_NULL = t.literal(null);
 export const T_UNDEFINED = t.literal(undefined);
 
 export const T_DEEP_EQUAL_OPTIONS = t.object({
-    "ignoreOrder?": t.boolean(),
-    "partial?": t.boolean(),
+    ignoreOrder: t.boolean().optional(),
+    partial: t.boolean().optional(),
 });
 
 //-----------------------------------------------------------------------------
@@ -803,18 +803,6 @@ export function deepCopy(value) {
  */
 export function deepEqual(a, b, options) {
     return _deepEqual(a, b, !!options?.ignoreOrder, !!options?.partial, makeObjectCache());
-}
-
-/**
- * @param {App | import("@odoo/owl").Component} target
- */
-export function destroy(target) {
-    const app = isInstanceOf(target, App) ? target : target.__owl__.app;
-    if (destroyed.has(app)) {
-        return;
-    }
-    destroyed.add(app);
-    app.destroy();
 }
 
 /**
@@ -1516,7 +1504,7 @@ export function toExplicitString(value) {
 
 /**
  * @template {HTMLElement} T
- * @param {typeof types.ref<T>} ref
+ * @param {typeof t.ref<T>} ref
  */
 export function useAutofocus(ref) {
     let displayed = new Set();

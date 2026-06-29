@@ -58,8 +58,7 @@ import { TableUIPlugin } from "./main/table/table_ui_plugin";
 import { TabulationPlugin } from "./main/tabulation_plugin";
 import { TextDirectionPlugin } from "./main/text_direction_plugin";
 import { ToolbarPlugin } from "./main/toolbar/toolbar_plugin";
-import { VideoPlugin } from "./main/media/video_plugin";
-import { YoutubePlugin } from "./main/youtube_plugin";
+import { VideoPlugin } from "./main/media/video/video_plugin";
 import { PlaceholderPlugin } from "./main/placeholder_plugin";
 import { CollaborationOdooPlugin } from "./others/collaboration/collaboration_odoo_plugin";
 import { CollaborationPlugin } from "./others/collaboration/collaboration_plugin";
@@ -69,7 +68,6 @@ import { EmbeddedComponentPlugin } from "./others/embedded_component_plugin";
 import { TableOfContentPlugin } from "@html_editor/others/embedded_components/plugins/table_of_content_plugin/table_of_content_plugin";
 import { ToggleBlockPlugin } from "@html_editor/others/embedded_components/plugins/toggle_block_plugin/toggle_block_plugin";
 import { EmbeddedVideoPlugin } from "@html_editor/others/embedded_components/plugins/video_plugin/embedded_video_plugin";
-import { EmbeddedYoutubePlugin } from "./others/embedded_components/plugins/video_plugin/embedded_youtube_plugin";
 import { CaptionPlugin } from "@html_editor/others/embedded_components/plugins/caption_plugin/caption_plugin";
 import { SyntaxHighlightingPlugin } from "@html_editor/others/embedded_components/plugins/syntax_highlighting_plugin/syntax_highlighting_plugin";
 import { QWebPlugin } from "./others/qweb_plugin";
@@ -83,6 +81,7 @@ import { ResizePlugin } from "./main/resize_plugin";
 import { UserSignaturePlugin } from "./main/user_signature_plugin";
 import { DomReferenceMapPlugin } from "./core/dom_reference_map_plugin";
 import { DomObserverPlugin } from "./core/dom_observer_plugin";
+import { TableBorderPlugin } from "./main/table/table_border_plugin";
 
 export const CORE_PLUGINS = [
     LegacyCompatibilityPlugin,
@@ -130,6 +129,7 @@ export const MAIN_PLUGINS = [
     MediaUrlPastePlugin,
     StarPlugin,
     TablePlugin,
+    TableBorderPlugin,
     TableAlignPlugin,
     TableUIPlugin,
     TabulationPlugin,
@@ -173,12 +173,11 @@ export const EMBEDDED_COMPONENT_PLUGINS = [
     TableOfContentPlugin,
     ToggleBlockPlugin,
     EmbeddedVideoPlugin,
-    EmbeddedYoutubePlugin,
     CaptionPlugin,
     SyntaxHighlightingPlugin,
 ];
 
-export const NO_EMBEDDED_COMPONENTS_FALLBACK_PLUGINS = [VideoPlugin, YoutubePlugin];
+export const NO_EMBEDDED_COMPONENTS_FALLBACK_PLUGINS = [VideoPlugin];
 
 export const EXTRA_PLUGINS = [
     ...COLLABORATION_PLUGINS,
@@ -188,4 +187,4 @@ export const EXTRA_PLUGINS = [
     QWebPlugin,
 ];
 
-export const TOUCH_EXCLUDED_PLUGINS = [MoveNodePlugin];
+export const TOUCH_EXCLUDED_PLUGINS = [MoveNodePlugin, ResizePlugin];

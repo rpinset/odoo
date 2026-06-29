@@ -35,7 +35,7 @@ class PaymentTransaction(models.Model):
             order_reference = False
 
         invoice_journal = self.env["account.journal"].search(
-            [("type", "=", "sale"), ("company_id", "=", self.env.company.id)], limit=1
+            [("type", "=", "sale"), ("company_id", "=", self.company_id.id)], limit=1
         )
         if invoice_journal:
             order_reference = invoice_journal._process_reference_for_sale_order(order_reference)
@@ -59,6 +59,7 @@ class PaymentTransaction(models.Model):
             sales_orders = pending_tx.sale_order_ids.filtered(
                 lambda so: so.state in ["draft", "sent"]
             )
+
             sales_orders.filtered(lambda so: so.state == "draft").with_context(
                 tracking_disable=True
             ).action_quotation_sent()
@@ -99,7 +100,7 @@ class PaymentTransaction(models.Model):
                 confirmed_orders = done_tx._check_amount_and_confirm_order()
                 (done_tx.sale_order_ids - confirmed_orders)._send_payment_succeeded_for_order_mail()
 
-            auto_invoice = self.env["ir.config_parameter"].sudo().get_bool("sale.automatic_invoice")
+            auto_invoice = done_tx.company_id.sale_automatic_invoice
             if auto_invoice:
                 # Invoice the sales orders of confirmed transactions instead of only confirmed
                 # orders to create the invoice even if only a partial payment was made.
@@ -179,9 +180,6 @@ class PaymentTransaction(models.Model):
 
     def _cron_send_invoice(self):
         """Send invoices that where not ready to be send directly after posting."""
-        if not self.env["ir.config_parameter"].sudo().get_bool("sale.automatic_invoice"):
-            return
-
         # No need to retrieve old transactions
         retry_limit_date = datetime.now() - relativedelta.relativedelta(days=2)
         # Retrieve all transactions matching the criteria for post-processing
@@ -198,6 +196,7 @@ class PaymentTransaction(models.Model):
             ),
             ("sale_order_ids.state", "=", "sale"),
             ("last_state_change", ">=", retry_limit_date),
+            ("company_id.sale_automatic_invoice", "=", True),
         ])._send_invoice()
 
     def _invoice_sale_orders(self):

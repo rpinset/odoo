@@ -55,6 +55,7 @@ class HrEmployee(models.Model):
         'hr.attendance.overtime.line', 'employee_id', groups="hr_attendance.group_hr_attendance_own,hr_attendance.group_hr_attendance_officer,hr.group_hr_user")
     total_overtime = fields.Float(compute='_compute_total_overtime')
     display_extra_hours = fields.Boolean(related='company_id.hr_attendance_display_overtime')
+    display_attendances = fields.Boolean(compute="_compute_display_attendances")
 
     ruleset_id = fields.Many2one(readonly=False, related="version_id.ruleset_id", inherited=True, groups="hr.group_hr_manager")
 
@@ -84,6 +85,10 @@ class HrEmployee(models.Model):
         old_officers.sudo()._clean_attendance_officers()
 
         return res
+
+    def _has_attendance_check_in_ability(self):
+        self.ensure_one()
+        return self.company_id.attendance_from_systray
 
     @api.depends('parent_id')
     def _compute_attendance_manager(self):
@@ -204,6 +209,17 @@ class HrEmployee(models.Model):
         for employee in self:
             att = employee.last_attendance_id.sudo()
             employee.attendance_state = att and not att.check_out and 'checked_in' or 'checked_out'
+
+    @api.depends_context('uid')
+    @api.depends('user_id', 'user_id.group_ids')
+    def _compute_display_attendances(self):
+        current_user = self.env.user
+        for employee in self:
+            if current_user.has_group('hr_attendance.group_hr_attendance_officer'):
+                employee.display_attendances = True
+            else:
+                employee.display_attendances = current_user.has_group('hr_attendance.group_hr_attendance_own_reader') \
+                                                and employee in current_user.employee_ids
 
     def _notify_employee_presence_status(self):
         self.ensure_one()

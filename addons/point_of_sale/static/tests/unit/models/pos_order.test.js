@@ -566,6 +566,23 @@ test("priceDoesntChangeWhenChangingPreset", async () => {
     expect(order4.amount_total).toBe(total);
 });
 
+test("finalized", async () => {
+    const store = await setupPosEnv();
+    const order = store.addNewOrder();
+
+    order.state = "draft";
+    expect(order.finalized).toBe(false);
+
+    order.state = "paid";
+    expect(order.finalized).toBe(true);
+
+    order.state = "done";
+    expect(order.finalized).toBe(true);
+
+    order.state = "cancel";
+    expect(order.finalized).toBe(true);
+});
+
 describe("print history", () => {
     test("lastPrints", async () => {
         const store = await setupPosEnv();
@@ -611,7 +628,42 @@ describe("print history", () => {
                 noteChange: [{ product_id: 1, note: "New note" }],
                 noteUpdate: [{ product_id: 1, note: "Updated note" }],
                 removedQuantity: [{ product_id: 1, quantity: -1 }],
+                internal_note: undefined,
+                general_customer_note: undefined,
             },
         ]);
     });
+});
+
+test("Ignore attribute always extra price with combo", async () => {
+    const store = await setupPosEnv();
+    store.models["pos.preset"].get(1).pricelist_id = false;
+    const combo = store.models["product.combo"].get(1);
+    const comboItem = store.models["product.combo.item"].get(1);
+    comboItem.product_id = store.models["product.product"].get(52);
+    const comboTemplate = store.models["product.template"].get(7);
+    const comboProduct = store.models["product.product"].get(7);
+    comboTemplate.combo_ids = [combo.id];
+
+    const order = store.addNewOrder();
+    await store.addLineToOrder(
+        {
+            product_tmpl_id: comboTemplate,
+            payload: [
+                [
+                    {
+                        combo_item_id: comboItem,
+                        configuration: {
+                            attribute_value_ids: [6],
+                        },
+                        qty: 1,
+                    },
+                ],
+            ],
+            qty: 1,
+        },
+        order
+    );
+    order.setOrderPrices();
+    expect(order.amount_total).toBe(comboProduct.lst_price);
 });

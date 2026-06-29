@@ -1,10 +1,9 @@
-import { cleanTerm } from "@mail/utils/common/format";
-
-import { Component, proxy } from "@odoo/owl";
+import { Component, props, proxy, t } from "@odoo/owl";
 
 import { DiscussAvatar } from "@mail/core/common/discuss_avatar";
 import { Dialog } from "@web/core/dialog/dialog";
 import { _t } from "@web/core/l10n/translation";
+import { normalize } from "@web/core/l10n/utils";
 import { registry } from "@web/core/registry";
 import { useService } from "@web/core/utils/hooks";
 import { highlightText } from "@web/core/utils/html";
@@ -17,11 +16,14 @@ const VIEW_HIDDEN = "VIEW_HIDDEN";
 
 class CreateChannelDialog extends Component {
     static components = { Dialog };
-    static props = ["close", "name?"];
     static template = "mail.CreateChannelDialog";
 
     setup() {
         super.setup();
+        this.props = props({
+            close: t.function([t.instanceOf(MouseEvent)]),
+            name: t.string().optional(),
+        });
         this.store = useService("mail.store");
         this.orm = useService("orm");
         this.state = proxy({
@@ -56,22 +58,31 @@ class CreateChannelDialog extends Component {
 export class DiscussCommand extends Component {
     static components = { DiscussAvatar };
     static template = "mail.DiscussCommand";
-    static props = {
-        counter: { type: Number, optional: true },
-        executeCommand: Function,
-        imgUrl: { type: String, optional: true },
-        name: String,
-        persona: { type: Object, optional: true },
-        channel: { type: Object, optional: true },
-        action: { type: Object, optional: true },
-        searchValue: String,
-        slots: Object,
-    };
 
     setup() {
         super.setup();
         this.store = useService("mail.store");
         this.ui = useService("ui");
+        this.props = props({
+            action: t
+                .object({
+                    icon: t.string().optional(),
+                    searchValueSuffix: t.boolean().optional(),
+                })
+                .optional(),
+            channel: t.instanceOf(this.store["discuss.channel"].Class).optional(),
+            counter: t.number().optional(),
+            executeCommand: t.function([]),
+            name: t.string(),
+            persona: t
+                .or([
+                    t.instanceOf(this.store["res.partner"].Class),
+                    t.instanceOf(this.store["mail.guest"].Class),
+                ])
+                .optional(),
+            searchValue: t.string(),
+            slots: t.object().optional(),
+        });
     }
 
     get formattedEmail() {
@@ -122,7 +133,7 @@ export class DiscussCommandPalette {
         this.ui = env.services.ui;
         this.commands = [];
         this.options = options;
-        this.cleanedTerm = cleanTerm(this.options.searchValue);
+        this.cleanedTerm = normalize(this.options.searchValue);
     }
 
     async fetch() {
@@ -139,8 +150,8 @@ export class DiscussCommandPalette {
             partners = Object.values(this.store["res.partner"].records).filter(
                 (partner) =>
                     partner.main_user_id?.share === false &&
-                    (cleanTerm(partner.displayName).includes(this.cleanedTerm) ||
-                        cleanTerm(partner.email).includes(this.cleanedTerm)) &&
+                    (normalize(partner.displayName || "").includes(this.cleanedTerm) ||
+                        normalize(partner.email || "").includes(this.cleanedTerm)) &&
                     (!filtered || !filtered.has(partner))
             );
             partners = this.suggestion
@@ -159,7 +170,8 @@ export class DiscussCommandPalette {
                 (channel) =>
                     channel.channel_type &&
                     channel.channel_type !== "chat" &&
-                    cleanTerm(channel.displayName).includes(this.cleanedTerm) &&
+                    channel.displayName &&
+                    normalize(channel.displayName).includes(this.cleanedTerm) &&
                     (!filtered || !filtered.has(channel))
             )
             .sort((c1, c2) => {
@@ -172,33 +184,28 @@ export class DiscussCommandPalette {
             })
             .slice(0, TOTAL_LIMIT);
         // balance remaining: half personas, half channels
-        const elligiblePersonas = [];
-        const elligibleChannels = [];
-        let i = 0;
-        while ((channels.length || partners.length) && i < remaining) {
-            const p = partners.shift();
-            const c = channels.shift();
-            if (p) {
-                elligiblePersonas.push(p);
-                i++;
-            }
-            if (i >= remaining) {
-                break;
-            }
-            if (c) {
-                elligibleChannels.push(c);
-                i++;
-            }
+        const numberOfChannels = Math.floor(remaining / 2);
+        const numberOfPersonas = numberOfChannels + (remaining % 2);
+        const elligiblePersonas = partners.slice(0, numberOfPersonas);
+        const elligibleChannels = channels.slice(0, numberOfChannels);
+        elligiblePersonas.push(
+            ...partners.slice(
+                numberOfPersonas,
+                numberOfPersonas + elligibleChannels.length - numberOfChannels
+            )
+        );
+        elligibleChannels.push(
+            ...channels.slice(
+                numberOfChannels,
+                numberOfChannels + elligiblePersonas.length - numberOfPersonas
+            )
+        );
+        const records = [...elligiblePersonas, ...elligibleChannels];
+        if (selfPartner && elligiblePersonas.length + elligibleChannels.length < remaining) {
+            records.push(selfPartner);
         }
-        for (const persona of elligiblePersonas) {
-            this.commands.push(this.makeDiscussCommand(persona));
-        }
-        for (const channel of elligibleChannels) {
-            this.commands.push(this.makeDiscussCommand(channel));
-        }
-        if (selfPartner && i < remaining) {
-            // put self persona as lowest priority item
-            this.commands.push(this.makeDiscussCommand(selfPartner));
+        for (const record of records) {
+            this.commands.push(this.makeDiscussCommand(record));
         }
     }
 

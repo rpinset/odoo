@@ -39,7 +39,7 @@ class PaymentTransaction(models.Model):
             return {}
 
         api_url = response_content[
-            "init_point" if self.provider_id.state == "enabled" else "sandbox_init_point"
+            "init_point" if self.provider_id.is_live else "sandbox_init_point"
         ]
         return {
             "api_url": api_url,
@@ -157,7 +157,7 @@ class PaymentTransaction(models.Model):
             json=data,
             idempotency_key=payment_utils.generate_idempotency_key(self, scope="token_payment"),
         )
-        self._process("mercado_pago", response_content)
+        self._record(response_content)
 
     def _mercado_pago_convert_amount(self):
         """Convert the transaction amount according to Mercado Pago's currency requirements.
@@ -207,13 +207,9 @@ class PaymentTransaction(models.Model):
             payment_method_code = payment_data.get("payment_method_id")
         else:
             payment_method_code = payment_method_type
-        payment_method = self.env["payment.method"]._get_from_code(
+        payment_method = self.provider_id._get_pm_from_code(
             payment_method_code, mapping=const.PAYMENT_METHODS_MAPPING
         )
-        # Fall back to "unknown" if the payment method is not found (and if "unknown" is found), as
-        # the user might have picked a different payment method than on Odoo's payment form.
-        if not payment_method:
-            payment_method = self.env["payment.method"].search([("code", "=", "unknown")], limit=1)
         self.payment_method_id = payment_method or self.payment_method_id
 
         # Update the payment state.

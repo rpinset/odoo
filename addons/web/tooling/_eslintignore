@@ -281,6 +281,8 @@ addons/spreadsheet/static/src/o_spreadsheet/o_spreadsheet.js
 !addons/mail/**/*
 !addons/portal
 !addons/portal/**/*
+!addons/rating
+!addons/rating/**/*
 !addons/snailmail
 !addons/snailmail/**/*
 !addons/survey/static/src/interactions
@@ -442,6 +444,8 @@ voip/static/lib/**/*
 !addons/pos_viva_com/**/*
 !addons/spreadsheet_dashboard_pos_hr
 !addons/spreadsheet_dashboard_pos_hr/**/*
+!addons/pos_cashmatic
+!addons/pos_cashmatic/**/*
 
 # Whitelist enterprise pos/iot modules
 !l10n_cl_edi_pos

@@ -46,7 +46,7 @@ export function isShown() {
         },
     ];
 }
-export function checkTicketData(data, basic = false) {
+export function checkTicketData(data, basic = false, simplified = false) {
     // data is an object like:
     // {
     //   logo,
@@ -64,6 +64,7 @@ export function checkTicketData(data, basic = false) {
     //   is_cashier,
     //   cashier_name,
     //   is_qr_code,
+    //   has_portal_url
     //   payment_lines: [{
     // 	  name,
     // 	  amount,
@@ -87,15 +88,19 @@ export function checkTicketData(data, basic = false) {
     //     length: number of elements that should be found with the css selector
     //   }],
     // }
-    const check = async (data, basic) => {
+    const check = async (data, basic, simplified) => {
         const order = posmodel.getOrder();
-        const orderData = posmodel.ticketPrinter.getOrderReceiptData(order, basic);
+        const orderData = posmodel.ticketPrinter.getOrderReceiptData(order, { basic, simplified });
         const iframe = await posmodel.ticketPrinter.generateIframe(
             "point_of_sale.pos_order_receipt",
             orderData
         );
         const doc = iframe.contentDocument || iframe.contentWindow.document;
         const ticket = doc.getElementById("pos-receipt");
+        const getElementInTicketByText = (selector, text) =>
+            Array.from(ticket.querySelectorAll(selector)).find((el) =>
+                el.textContent.includes(text)
+            );
 
         if (!ticket && !Object.keys(data).length) {
             return true;
@@ -112,7 +117,7 @@ export function checkTicketData(data, basic = false) {
             }
             if (!img.src.includes(data.logo)) {
                 throw new Error(
-                    `Logo mismatch. Expected URL containing 
+                    `Logo mismatch. Expected URL containing
                     '${data.logo.substring(0, 10)}...
                     got '${img.src.substring(0, 10)}...'`
                 );
@@ -194,6 +199,16 @@ export function checkTicketData(data, basic = false) {
         } else if (data.is_qr_code === false) {
             if (ticket.querySelector(".invoice-qr-code")) {
                 throw new Error("A QR code has been found in receipt.");
+            }
+        }
+
+        if (data.has_portal_url) {
+            const selfInvoicingURL = getElementInTicketByText(
+                "#pos-receipt .text-small",
+                `${order.config._base_url}/pos/ticket`
+            );
+            if (!selfInvoicingURL) {
+                throw new Error("No valid self invoicing URL has been found in receipt.");
             }
         }
 
@@ -285,10 +300,10 @@ export function checkTicketData(data, basic = false) {
                 if (line.cssRules) {
                     for (const rule of line.cssRules) {
                         const statement = orderline.querySelectorAll(rule.css);
-                        if (!statement && rule.negation) {
+                        if (!statement.length && rule.negation) {
                             continue; // No statement found and negation is true so the rule is validated
                         }
-                        if (!statement) {
+                        if (!statement.length) {
                             throw new Error(`CSS rule ${rule.css} not found in receipt.`);
                         }
                         if (rule.length && rule.length !== statement.length) {
@@ -300,8 +315,16 @@ export function checkTicketData(data, basic = false) {
                             const ruleFound = [...statement].some((s) =>
                                 s.textContent.includes(rule.text)
                             );
-                            if (ruleFound == rule.negation) {
+                            if (ruleFound === (rule.negation || false)) {
                                 throw new Error(`Rule ${rule.css} not found in printed receipt.`);
+                            }
+                        }
+                        if (rule.empty) {
+                            const isEmpty = [...statement].some((s) => s.textContent.trim() === "");
+                            if (isEmpty === (rule.negation || false)) {
+                                throw new Error(
+                                    `Rule ${rule.css} should be empty in printed receipt.`
+                                );
                             }
                         }
                     }
@@ -312,16 +335,22 @@ export function checkTicketData(data, basic = false) {
         if (data.cssRules) {
             for (const rule of data.cssRules) {
                 const statement = ticket.querySelectorAll(rule.css);
-                if (!statement && rule.negation) {
+                if (!statement.length && rule.negation) {
                     continue; // No statement found and negation is true so the rule is validated
                 }
-                if (!statement) {
+                if (!statement.length) {
                     throw new Error(`CSS rule ${rule.css} not found in receipt.`);
                 }
                 if (rule.text) {
                     const ruleFound = [...statement].some((s) => s.textContent.includes(rule.text));
-                    if (ruleFound == rule.negation) {
+                    if (ruleFound === (rule.negation || false)) {
                         throw new Error(`Rule ${rule.css} not found in printed receipt.`);
+                    }
+                }
+                if (rule.empty) {
+                    const isEmpty = [...statement].some((s) => s.textContent.trim() === "");
+                    if (isEmpty === (rule.negation || false)) {
+                        throw new Error(`Rule ${rule.css} should be empty in printed receipt.`);
                     }
                 }
             }
@@ -333,7 +362,7 @@ export function checkTicketData(data, basic = false) {
     return [
         {
             trigger: "body",
-            run: async () => await check(data, basic),
+            run: async () => await check(data, basic, simplified),
         },
     ];
 }
@@ -413,4 +442,11 @@ export function printTicket(ticketLabel) {
             run: "click",
         },
     ];
+}
+
+export function isSuccess() {
+    return {
+        content: "feedback screen shows success state with icon, Amount Paid and amount",
+        trigger: ".feedback-screen:has(svg):has(.amount-paid):has(.amount)",
+    };
 }

@@ -334,10 +334,11 @@ class TestDiscussChannelAccess(MailCommon):
                     ) from e
             else:
                 try:
-                    with self.assertRaises(AccessError), mute_logger("odoo.sql_db"), mute_logger(
-                        "odoo.addons.base.models.ir_model"
-                    ), mute_logger("odoo.addons.base.models.ir_rule"), mute_logger(
-                        "odoo.models.unlink"
+                    with (
+                        self.assertRaises(AccessError),
+                        mute_logger("odoo.sql_db"),
+                        mute_logger("odoo.addons.base.models.ir_access"),
+                        mute_logger("odoo.models.unlink"),
                     ):
                         self._execute_action_channel(
                             user_key, channel_key, membership, operation, result, for_sub_channel
@@ -416,10 +417,11 @@ class TestDiscussChannelAccess(MailCommon):
                     ) from e
             else:
                 try:
-                    with self.assertRaises(AccessError), mute_logger("odoo.sql_db"), mute_logger(
-                        "odoo.addons.base.models.ir_model"
-                    ), mute_logger("odoo.addons.base.models.ir_rule"), mute_logger(
-                        "odoo.models.unlink"
+                    with (
+                        self.assertRaises(AccessError),
+                        mute_logger("odoo.sql_db"),
+                        mute_logger("odoo.addons.base.models.ir_access"),
+                        mute_logger("odoo.models.unlink"),
                     ):
                         try:
                             self._execute_action_member(
@@ -486,7 +488,10 @@ class TestDiscussChannelAccess(MailCommon):
             partners += partner
         DiscussChannel = self.env["discuss.channel"].with_user(self.other_user)
         if channel_key == "group":
-            channel = DiscussChannel._create_group(partners.ids)
+            users_to = self.other_user
+            if membership == "member":
+                users_to = self.other_user | user
+            channel = DiscussChannel._create_group(users_to)
             if membership == "member":
                 channel._add_members(users=user, guests=guest)
         elif channel_key == "chat":

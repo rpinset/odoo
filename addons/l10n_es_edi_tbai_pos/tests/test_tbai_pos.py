@@ -21,8 +21,6 @@ class TestPosEdi(TestEsEdiTbaiCommonGipuzkoa, CommonPosEsEdiTest):
             'odoo.addons.l10n_es_edi_tbai.models.l10n_es_edi_tbai_document.requests.Session.request',
             return_value=None if with_error else self.mock_response_post_invoice_success,
             side_effect=self.mock_request_error if with_error else None,
-        ), patch(
-            'odoo.addons.account_peppol.models.res_partner.ResPartner._peppol_lookup_participant', return_value=None
         ):
             pos_make_payment.with_context(context_make_payment).check()
 
@@ -81,6 +79,10 @@ class TestPosEdi(TestEsEdiTbaiCommonGipuzkoa, CommonPosEsEdiTest):
 
         self.assertEqual(pos_refund.state, 'paid')
         self.assertEqual(pos_refund.l10n_es_tbai_state, 'sent')
+
+        orig_num = order.l10n_es_tbai_post_document_id._get_tbai_sequence_and_number()[1]
+        refund_num = pos_refund.l10n_es_tbai_post_document_id._get_tbai_sequence_and_number()[1]
+        self.assertNotEqual(orig_num, refund_num)
 
     def test_tbai_refund_invoiced_pos_order(self):
         self.ten_dollars_with_10_incl.product_variant_id.lst_price = 100

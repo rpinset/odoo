@@ -4,6 +4,7 @@ from functools import wraps
 from unittest.mock import patch
 
 from odoo.http import request
+
 from odoo.addons.im_livechat.controllers.main import LivechatController
 from odoo.addons.im_livechat.tests.common import TestImLivechatCommon
 
@@ -18,10 +19,16 @@ class TestImLivechatCalls(TestImLivechatCommon):
                 self.env.flush_all()
                 channel = request.env["discuss.channel"].search([("id", "=", result["channel_id"])])  # nosemgrep: requests-in-models
                 agent = channel.channel_member_ids.filtered(lambda m: m.partner_id)
-                agent.sudo()._rtc_join_call()
+                # Return the freshly-started call in the get_session response itself, so the guest
+                # learns about it deterministically (no bus-timing dependency).
+                agent.sudo()._rtc_join_call(result["store_data"])
             return result
 
         with patch.object(LivechatController, "get_session", wraps(og_get_session)(_patched_get_session)):
+            # The routing map is cached (the "routing" ormcache) with the controller endpoints
+            # baked in. When it was already built with the original method, the monkeypatch above
+            # is ignored and the call is never started.
+            self.env.transaction.invalidate_ormcache("routing")
             self.start_tour(
                 f"/im_livechat/support/{self.livechat_channel.id}",
                 "im_livechat.meeting_view_tour",

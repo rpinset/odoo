@@ -185,7 +185,6 @@ class SaleOrder(models.Model):
             quantity <= 0
             and order_line.coupon_id
             and order_line.reward_id
-            and order_line.reward_id.reward_type == "discount"
         ):
             # When a reward line is deleted we remove it from the auto claimable rewards
             order_line = order_line.with_context(website_sale_loyalty_delete=True)
@@ -207,10 +206,15 @@ class SaleOrder(models.Model):
         self.ensure_one()
         return self.order_line.filtered(lambda line: line.reward_id.reward_type == "shipping")
 
+    def _get_no_effect_on_threshold_lines(self):
+        lines = super()._get_no_effect_on_threshold_lines()
+        return lines + self.order_line.filtered("is_donation")
+
     def _allow_nominative_programs(self):
-        if not request or not hasattr(request, "website"):
+        website = self.env.website
+        if not website:
             return super()._allow_nominative_programs()
-        return not request.website.is_public_user() and super()._allow_nominative_programs()
+        return not website.is_public_user() and super()._allow_nominative_programs()
 
     @api.autovacuum
     def _gc_abandoned_coupons(self, *_args, **_kwargs):
@@ -354,9 +358,7 @@ class SaleOrder(models.Model):
 
         # --- Compute order-line data only for unapplied programs ---
         # Mirrors the logic in _program_check_compute_points.
-        order_lines = self._get_not_rewarded_order_lines().filtered(
-            lambda line: not line.combo_item_id
-        )
+        order_lines = self._get_not_rewarded_order_lines()
         products = order_lines.product_id
         products_qties = dict.fromkeys(products, 0)
         for line in order_lines:

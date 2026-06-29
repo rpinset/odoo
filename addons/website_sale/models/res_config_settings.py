@@ -26,7 +26,6 @@ class ResConfigSettings(models.TransientModel):
     )
 
     # Modules
-    module_website_sale_autocomplete = fields.Boolean("Address Autocomplete")
     module_website_sale_collect = fields.Boolean("Click & Collect")
 
     # Website-dependent settings
@@ -58,9 +57,7 @@ class ResConfigSettings(models.TransientModel):
     rating_email_template_id = fields.Many2one(
         related="website_id.rating_email_template_id", readonly=False
     )
-    restricted_uom_ids = fields.Many2many(
-        related="website_id.restricted_uom_ids", readonly=False
-    )
+    restricted_uom_ids = fields.Many2many(related="website_id.restricted_uom_ids", readonly=False)
     journal_id = fields.Many2one(related="website_id.journal_id", readonly=False)
 
     # Additional settings

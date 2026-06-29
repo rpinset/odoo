@@ -130,10 +130,8 @@ class TestMrpOrder(TestMrpCommon, MailCase):
         action = man_order.button_mark_done()
         self.assertEqual(man_order.state, 'progress', "Production order should be open a backorder wizard, then not done yet.")
 
-        quantity_issues = man_order._get_consumption_issues()
-        action = man_order._action_generate_consumption_wizard(quantity_issues)
-        backorder = Form(self.env['mrp.production.backorder'].with_context(**action['context']))
-        backorder.save().action_close_mo()
+        backorder = Form(self.env['mrp.production.backorder'].with_context(**action['context'])).save()
+        Form.from_action(self.env, backorder.action_close_mo()).save().action_confirm()
         self.assertEqual(man_order.state, 'done', "Production order should be done.")
 
         # check that copy handles moves correctly
@@ -1306,13 +1304,13 @@ class TestMrpOrder(TestMrpCommon, MailCase):
 
         finished_good_ub_form = Form(self.env["mrp.unbuild"])
         finished_good_ub_form.mo_id = finished_good_mo
-        finished_good_ub_form.lot_id = finished_good_mo.lot_producing_ids[:1]
+        finished_good_ub_form.lot_ids = finished_good_mo.lot_producing_ids[:1]
         finished_good_ub = finished_good_ub_form.save()
         finished_good_ub.action_unbuild()
 
         subassembly_ub_form = Form(self.env["mrp.unbuild"])
         subassembly_ub_form.mo_id = subassembly_mo1
-        subassembly_ub_form.lot_id = subassembly_mo1.lot_producing_ids[:1]
+        subassembly_ub_form.lot_ids = subassembly_mo1.lot_producing_ids[:1]
         subassembly_ub = subassembly_ub_form.save()
         subassembly_ub.action_unbuild()
 
@@ -1350,7 +1348,7 @@ class TestMrpOrder(TestMrpCommon, MailCase):
 
         ub_form = Form(self.env["mrp.unbuild"])
         ub_form.mo_id = mo1
-        ub_form.lot_id = sn
+        ub_form.lot_ids = sn
         ub = ub_form.save()
         ub.action_unbuild()
 
@@ -3339,6 +3337,7 @@ class TestMrpOrder(TestMrpCommon, MailCase):
                 }),
             ],
             'type': 'normal',
+            'continuous': True,
             'bom_line_ids': [
                 Command.create({'product_id': self.product_2.id, 'product_qty': 1}),
             ]})
@@ -4099,7 +4098,7 @@ class TestMrpOrder(TestMrpCommon, MailCase):
 
         production.button_mark_done()
 
-        self.assertEqual(production.workorder_ids.duration_expected, init_duration_expected + 5)
+        self.assertEqual(production.workorder_ids.duration_expected, round(init_duration_expected + 5, 2))
 
     def test_multi_edit_start_date_wo(self):
         """
@@ -5411,12 +5410,17 @@ class TestMrpOrder(TestMrpCommon, MailCase):
 
     def test_consumption_issue_only_for_compatible_variant(self):
         """A consumption issue should not be triggered for components that are not compatible with the produced variant."""
-        # Case 1: Product variant = red
-        self.product_4.product_template_attribute_value_ids = self.color_attribute.template_value_ids[0]
+        self.product_4.product_tmpl_id.attribute_line_ids = [Command.create({
+            'attribute_id': self.color_attribute.id,
+            'value_ids': [Command.set(self.color_attribute.value_ids[0:2].ids)],
+        })]
+        product_red, product_blue = self.product_4.product_variant_ids
         # First BoM line applies only to Blue variant
-        self.bom_1.bom_line_ids[0].bom_product_template_attribute_value_ids = self.color_attribute.template_value_ids[1]
+        self.bom_1.bom_line_ids[0].bom_product_template_attribute_value_ids = self.product_4.attribute_line_ids.product_template_value_ids[1]
+        # Case 1: Product variant = red
         mo = self.env['mrp.production'].create({
             'bom_id': self.bom_1.id,
+            'product_id': product_red.id,
         })
         # The BoM contains 2 lines but only 1 raw move should be created
         self.assertEqual(len(self.bom_1.bom_line_ids), 2)
@@ -5425,9 +5429,9 @@ class TestMrpOrder(TestMrpCommon, MailCase):
         mo.button_mark_done()
         self.assertEqual(mo.state, 'done', "The MO should be completed without any consumption issue since the missing component is not compatible with the variant to produce.")
         # Case 2: Blue variant
-        self.product_4.product_template_attribute_value_ids = self.color_attribute.template_value_ids[1]
         mo_2 = self.env['mrp.production'].create({
             'bom_id': self.bom_1.id,
+            'product_id': product_blue.id,
         })
         self.assertEqual(len(mo_2.move_raw_ids), 2)
         mo_2.move_raw_ids[0].unlink()  # Remove one component to simulate missing consumption

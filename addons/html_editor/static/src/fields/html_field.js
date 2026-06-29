@@ -15,7 +15,7 @@ import {
 } from "@html_editor/others/embedded_components/embedding_sets";
 import { normalizeHTML } from "@html_editor/utils/html";
 import { Wysiwyg } from "@html_editor/wysiwyg";
-import { Component, markup, status, proxy } from "@odoo/owl";
+import { Component, markup, props, status, proxy, t, useApp } from "@odoo/owl";
 import { localization } from "@web/core/l10n/localization";
 import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
@@ -48,29 +48,30 @@ function computeContainsComplexHTML(value) {
     return !!parsedOriginal.head.innerHTML.trim();
 }
 
+export const htmlFieldProps = {
+    ...standardFieldProps,
+    isCollaborative: t.boolean().optional(),
+    collaborativeTrigger: t.string().optional(),
+    dynamicField: t.boolean().optional(false),
+    dynamicFieldReferenceModel: t.string().optional(),
+    migrateHTML: t.boolean().optional(),
+    cssReadonlyAssetId: t.string().optional(),
+    sandboxedPreview: t.boolean().optional(),
+    codeview: t.boolean().optional(),
+    editorConfig: t.object().optional(),
+    embeddedComponents: t.boolean().optional(),
+};
+
 export class HtmlField extends Component {
     static template = "html_editor.HtmlField";
-    static props = {
-        ...standardFieldProps,
-        isCollaborative: { type: Boolean, optional: true },
-        collaborativeTrigger: { type: String, optional: true },
-        dynamicField: { type: Boolean, optional: true },
-        dynamicFieldReferenceModel: { type: String, optional: true },
-        migrateHTML: { type: Boolean, optional: true },
-        cssReadonlyAssetId: { type: String, optional: true },
-        sandboxedPreview: { type: Boolean, optional: true },
-        codeview: { type: Boolean, optional: true },
-        editorConfig: { type: Object, optional: true },
-        embeddedComponents: { type: Boolean, optional: true },
-    };
-    static defaultProps = {
-        dynamicField: false,
-    };
     static components = {
         Wysiwyg,
         HtmlViewer,
         TranslationButton,
     };
+
+    app = useApp();
+    props = props(htmlFieldProps);
 
     setup() {
         this.htmlUpgradeManager = new HtmlUpgradeManager();
@@ -85,6 +86,7 @@ export class HtmlField extends Component {
         );
         this.busService = this.env.services.bus_service;
         this.ormService = useService("orm");
+        this.pendingAttachmentsService = useService("pending_attachment_service");
 
         this.isDirty = false;
         this.lastChangeId = 0;
@@ -128,6 +130,25 @@ export class HtmlField extends Component {
                 this.editor.trigger("on_model_changed_handlers", value);
             }
         });
+
+        const onRecordDiscarded = model.hooks.onRecordDiscarded;
+        const onWillSaveRecord = model.hooks.onWillSaveRecord;
+        const onRecordSaved = model.hooks.onRecordSaved;
+        model.hooks.onRecordDiscarded = (...args) => {
+            if (this.props.record.isNew) {
+                this.pendingAttachmentsService.unlinkPendingAttachments(this.props.record?.resId);
+            }
+            return onRecordDiscarded(...args);
+        };
+        model.hooks.onWillSaveRecord = (...args) => {
+            this.pendingAttachmentsService.addAttachmentsIdsToContext(this.props.record);
+            return onWillSaveRecord(...args);
+        };
+        model.hooks.onRecordSaved = (...args) => {
+            this.pendingAttachmentsService.clearPendingAttachments(false);
+            this.pendingAttachmentsService.clearAttachmentsIdsFromContext(this.props.record);
+            return onRecordSaved(...args);
+        };
     }
 
     get value() {
@@ -223,6 +244,10 @@ export class HtmlField extends Component {
             }
             const changeId = this.lastChangeId;
             const el = await this.getEditorContent();
+            this.pendingAttachmentsService.addPendingAttachments(
+                this.props.record?.resId,
+                this.editor?.shared?.media?.extractUnmappedAttachmentsIds(this.editor.editable)
+            );
             const content = el.innerHTML;
             this.clearElementToCompare(el);
             const comparisonValue = el.innerHTML;
@@ -300,6 +325,15 @@ export class HtmlField extends Component {
                 return { resModel, resId, data, fields, id };
             },
             resources: {},
+            getPendingAttachmentsIds: () => {
+                this.pendingAttachmentsService.addPendingAttachments(
+                    this.props.record?.resId,
+                    this.editor?.shared?.media?.extractUnmappedAttachmentsIds(this.editor.editable)
+                );
+                return this.pendingAttachmentsService.pendingAttachmentIds[
+                    this.props.record?.resId
+                ];
+            },
             ...this.props.editorConfig,
         };
 
@@ -309,7 +343,7 @@ export class HtmlField extends Component {
 
         if (this.props.embeddedComponents) {
             config.resources.embedded_components = [...MAIN_EMBEDDINGS];
-            config.embeddedComponentInfo = { app: this.__owl__.app, env: this.env };
+            config.embeddedComponentInfo = { app: this.app, env: this.env };
         }
 
         const { sanitize_tags, sanitize } = this.props.record.fields[this.props.name];
@@ -457,3 +491,43 @@ export function setHtmlFieldMetadata(content, metadata) {
     }
     return contentDocument.body.innerHTML;
 }
+
+const pendingAttachmentsService = {
+    dependencies: ["orm"],
+    start(env, { orm }) {
+        const pendingAttachmentIds = {};
+        async function unlinkPendingAttachments(recordId) {
+            if (pendingAttachmentIds[recordId]?.length) {
+                orm.unlink("ir.attachment", [...new Set(pendingAttachmentIds[recordId])]);
+                clearPendingAttachments(recordId);
+            }
+        }
+        function addPendingAttachments(recordId, ids) {
+            if (!pendingAttachmentIds[recordId]) {
+                pendingAttachmentIds[recordId] = [];
+            }
+            pendingAttachmentIds[recordId].push(...ids);
+        }
+        function clearPendingAttachments(recordId) {
+            delete pendingAttachmentIds[recordId];
+        }
+        function addAttachmentsIdsToContext(record) {
+            if (pendingAttachmentIds[record?.resId]) {
+                record.context["pending_attachment_ids"] = pendingAttachmentIds[record?.resId];
+            }
+        }
+        function clearAttachmentsIdsFromContext(record) {
+            delete record.context["pending_attachment_ids"];
+        }
+        return {
+            unlinkPendingAttachments,
+            addPendingAttachments,
+            clearPendingAttachments,
+            pendingAttachmentIds,
+            addAttachmentsIdsToContext,
+            clearAttachmentsIdsFromContext,
+        };
+    },
+};
+
+registry.category("services").add("pending_attachment_service", pendingAttachmentsService);

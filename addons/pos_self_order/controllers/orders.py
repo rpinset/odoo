@@ -51,6 +51,9 @@ class PosSelfOrderController(http.Controller):
             order_ids._process_saved_order(False)
             order_ids._send_self_order_receipt()
 
+        for order in order_ids:
+            order._send_order()
+
         return self._generate_return_values(order_ids, pos_config)
 
     def _generate_return_values(self, order, config):
@@ -106,9 +109,10 @@ class PosSelfOrderController(http.Controller):
         pos_config = self._verify_pos_config(access_token)
         preset = pos_config.env['pos.preset'].browse(int(preset_id)) if preset_id else False
         existing_partner = pos_config.env['res.partner'].sudo().browse(int(partner_id)) if partner_id else False
+        google_places_api_key = request.env['ir.config_parameter'].sudo().get_str('google_address_autocomplete.google_places_api_key') or None
 
         if existing_partner and existing_partner.exists():
-            if preset and preset.exists() and preset.service_at == 'delivery':
+            if google_places_api_key and preset and preset.exists() and preset.service_at == 'delivery':
                 error = self._check_delivery_address_for_partner(preset, existing_partner)
                 if error:
                     return {'error': error}
@@ -129,7 +133,7 @@ class PosSelfOrderController(http.Controller):
             'state_id': state_id.id if state_id else False,
             'company_id': pos_config.company_id.id,
         })
-        if preset and preset.exists() and preset.service_at == 'delivery':
+        if google_places_api_key and preset and preset.exists() and preset.service_at == 'delivery':
             error = self._check_delivery_address_for_partner(preset, partner_sudo)
             if error:
                 return {'error': error}
@@ -194,22 +198,6 @@ class PosSelfOrderController(http.Controller):
             # Remove orders that no longer exist on the server but are still shown in the self-order UI
             pos_config._notify('REMOVE_ORDERS', {'deleted_order_tokens': deleted_order_tokens})
         return self._generate_return_values(orders, pos_config) if orders else {}
-
-    @http.route('/pos-self-order/update-last-changes', auth='public', type='jsonrpc', website=True)
-    def update_last_changes(self, access_token, order_id, order_access_token, update=False):
-        """
-        This route can be used to update the preparation changes
-        field of the order or to simply retrieve the current value
-        """
-        pos_config = self._verify_pos_config(access_token)
-        pos_order = pos_config.env['pos.order'].browse(order_id)
-        if not pos_order.exists() or not consteq(pos_order.access_token, order_access_token):
-            raise MissingError(self.env._("Your order does not exist or has been removed"))
-
-        if update:
-            request.env['pos.prep.order'].sudo().update_last_order_change(pos_order)
-
-        return self._generate_return_values(pos_order, pos_config)
 
     @http.route('/kiosk/payment/<int:pos_config_id>/<device_type>', auth='public', type='jsonrpc', website=True)
     def pos_self_order_kiosk_payment(self, pos_config_id, order, payment_method_id, access_token, device_type):
@@ -280,33 +268,33 @@ class PosSelfOrderController(http.Controller):
     @http.route('/pos-self/autocomplete/address', methods=['POST'], type='jsonrpc', auth='public', website=True)
     def pos_self_order_autocomplete_address(self, access_token, partial_address, **kwargs):
         self._verify_pos_config(access_token)
-        api_key = request.env['ir.config_parameter'].sudo().get_str('google_address_autocomplete.google_places_api_key') or None
-        if not api_key:
+        google_places_api_key = request.env['ir.config_parameter'].sudo().get_str('google_address_autocomplete.google_places_api_key') or None
+        if not google_places_api_key:
             return {'results': []}
-        return AutoCompleteController()._perform_place_search(partial_address, api_key=api_key)
+        return AutoCompleteController()._perform_place_search(partial_address, api_key=google_places_api_key)
 
     @http.route('/pos-self/autocomplete/address_full', methods=['POST'], type='jsonrpc', auth='public', website=True)
     def pos_self_order_autocomplete_address_full(self, access_token, address, google_place_id=None, **kwargs):
         self._verify_pos_config(access_token)
-        api_key = request.env['ir.config_parameter'].sudo().get_str('google_address_autocomplete.google_places_api_key') or None
-        if not api_key:
+        google_places_api_key = request.env['ir.config_parameter'].sudo().get_str('google_address_autocomplete.google_places_api_key') or None
+        if not google_places_api_key:
             return {'address': None}
-        return AutoCompleteController()._perform_complete_place_search(address, api_key=api_key, google_place_id=google_place_id)
+        return AutoCompleteController()._perform_complete_place_search(address, api_key=google_places_api_key, google_place_id=google_place_id)
 
-    def _verify_pos_config(self, access_token, check_active_session=True):
+    def _verify_pos_config(self, access_token):
         """
         Finds the pos.config with the given access_token and returns a record with reduced privileges.
         The record is has no sudo access and is in the context of the record's company and current pos.session's user.
         """
         pos_config_sudo = request.env['pos.config'].sudo().search([('access_token', '=', access_token)], limit=1)
-        if self._verify_config_constraint(pos_config_sudo, check_active_session):
+        if self._verify_config_constraint(pos_config_sudo):
             raise Unauthorized("Invalid access token")
         company = pos_config_sudo.company_id
         user = pos_config_sudo.self_ordering_default_user_id
         return pos_config_sudo.sudo(False).with_company(company).with_user(user).with_context(allowed_company_ids=company.ids)
 
-    def _verify_config_constraint(self, pos_config_sudo, check_active_session=True):
-        return not pos_config_sudo or (pos_config_sudo.self_ordering_mode != 'mobile' and pos_config_sudo.self_ordering_mode != 'kiosk') or (check_active_session and not pos_config_sudo.has_active_session)
+    def _verify_config_constraint(self, pos_config_sudo):
+        return not pos_config_sudo or (pos_config_sudo.self_ordering_mode != 'mobile' and pos_config_sudo.self_ordering_mode != 'kiosk')
 
     def _verify_authorization(self, access_token, table_identifier, order):
         """
@@ -327,5 +315,5 @@ class PosSelfOrderController(http.Controller):
 
     @http.route(['/pos-self/ping'], type='jsonrpc', auth='public')
     def pos_ping(self, access_token):
-        self._verify_pos_config(access_token, check_active_session=False)
+        self._verify_pos_config(access_token)
         return {'response': 'pong'}

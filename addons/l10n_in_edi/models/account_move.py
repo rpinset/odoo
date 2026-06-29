@@ -10,6 +10,7 @@ from requests import RequestException
 from odoo import Command, _, api, fields, models
 from odoo.exceptions import LockError, UserError
 from odoo.tools import float_is_zero, float_compare
+from odoo.tools import BinaryBytes
 
 from odoo.addons.l10n_in.models.account_invoice import EDI_CANCEL_REASON
 
@@ -73,7 +74,7 @@ class AccountMove(models.Model):
                 and move.company_id.l10n_in_edi_feature
                 and move.is_sale_document(include_receipts=True)
                 and move.journal_id.type == 'sale'
-                and json.dumps(move._l10n_in_edi_generate_invoice_json())
+                and BinaryBytes(json.dumps(move._l10n_in_edi_generate_invoice_json()).encode())
             )
 
     def _compute_l10n_in_warning(self):
@@ -339,6 +340,7 @@ class AccountMove(models.Model):
             'mimetype': 'application/json',
             'company_id': self.company_id.id,
         })
+        self.l10n_in_edi_attachment_id = attachment.id
         self.l10n_in_edi_status = 'sent'
         message = []
         for partner in partners:

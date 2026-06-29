@@ -1,5 +1,6 @@
 from odoo.tools.sql import column_exists, create_column
 
+from . import controllers
 from . import models
 from . import wizard
 from . import tools
@@ -26,6 +27,12 @@ def _post_init_pdp(env):
     ]:
         view = env.ref(view_name).sudo()
         view.reset_arch(mode="hard")
+
+    demo_company_partner = env.ref('base.partner_demo_company_fr', raise_if_not_found=False)
+    if demo_company_partner and demo_company_partner not in demo_company_partner._get_partners_to_skip_peppol_computation():
+        demo_company_partner.routing_scheme = False
+        demo_company_partner.routing_endpoint = False
+        demo_company_partner._compute_routing_scheme_endpoint()
 
 
 def uninstall_hook(env):

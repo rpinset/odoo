@@ -76,10 +76,16 @@ class ResPartner(models.Model):
         return iap_data
 
     @api.model
+    def _iap_add_duns_additional_identifiers(self, iap_data):
+        if iap_data.get('duns'):
+            iap_data['additional_identifiers'] = {'DUNS': iap_data['duns']}
+
+    @api.model
     def _format_data_company(self, iap_data):
         self._iap_replace_location_codes(iap_data)
         self._iap_replace_industry_code(iap_data)
         self._iap_replace_language_codes(iap_data)
+        self._iap_add_duns_additional_identifiers(iap_data)
         return iap_data
 
     @api.model
@@ -215,7 +221,7 @@ class ResPartner(models.Model):
             'name': self.name,
             'email': self.email,
             'company_type': data.get('entity_type', ''),
-            'vat': self.vat or self.company_registry,
+            'vat': self.vat,
             'website': self.website,
             'logo': self.image_1920,
             'street': self.street,

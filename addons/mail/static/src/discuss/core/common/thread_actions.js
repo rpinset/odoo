@@ -106,10 +106,10 @@ registerThreadAction("remove-from-favorites", {
 registerThreadAction("notification-settings", {
     actionPanelComponent: NotificationSettings,
     actionPanelComponentProps: ({ channel }) => ({ channel }),
-    actionPanelOpen({ owner }) {
+    actionPanelOpen({ owner, rootRef }) {
         if (owner.isDiscussContent) {
             this.popover?.open(
-                owner.root.el.querySelector(`[name="${this.id}"]`),
+                rootRef().querySelector(`[name="${this.id}"]`),
                 this.actionPanelComponentProps
             );
         }
@@ -154,20 +154,19 @@ registerThreadAction("attachments", {
 registerThreadAction("invite-people", {
     actionPanelComponent: ChannelInvitation,
     actionPanelComponentProps: ({ channel }) => ({ channel }),
-    actionPanelOpen({ owner, store, channel }) {
+    actionPanelOpen({ owner, store, channel, rootRef }) {
         if (owner.isDiscussSidebarChannelActions) {
             store.env.services.dialog?.add(ChannelActionDialog, {
                 title: channel.displayName,
                 contentComponent: ChannelInvitation,
                 contentProps: {
-                    autofocus: true,
                     channel,
                     close: () => store.env.services.dialog.closeAll(),
                 },
             });
         } else if (!owner.env.inMeetingView) {
             this.popover?.open(
-                owner.root.el.querySelector(`[name="${this.id}"]`),
+                rootRef().querySelector(`[name="${this.id}"]`),
                 this.actionPanelComponentProps
             );
         }
@@ -218,14 +217,7 @@ registerThreadAction("member-list", {
         }
     },
     actionPanelComponent: ChannelMemberList,
-    actionPanelComponentProps: ({ actions, channel }) => ({
-        openChannelInvitePanel({ keepPrevious } = {}) {
-            actions.actions
-                .find(({ id }) => id === "invite-people")
-                ?.actionPanelOpen({ keepPrevious });
-        },
-        channel,
-    }),
+    actionPanelComponentProps: ({ channel }) => ({ channel }),
     actionPanelOpen: ({ owner, store }) => {
         if (owner.env.inDiscussApp) {
             store.discuss.isMemberPanelOpenByDefault = true;

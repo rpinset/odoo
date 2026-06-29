@@ -46,6 +46,13 @@ class ProductTemplate(models.Model):
         if missing_delivery:
             products.extend(self.browse(missing_delivery).read(fields, load=False))
 
+        service_fee_tmpl_ids = self.env['pos.preset'].sudo().search([
+            ('service_fee_product_id', '!=', False),
+        ]).service_fee_product_id.product_tmpl_id.ids
+        missing_service_fee = [tid for tid in service_fee_tmpl_ids if tid not in loaded_ids]
+        if missing_service_fee:
+            products.extend(self.browse(missing_service_fee).read(fields, load=False))
+
         self._process_pos_self_ui_products(products)
 
         return products
@@ -116,7 +123,7 @@ class ProductProduct(models.Model):
     def _send_availability_status(self):
         config_self = self.env['pos.config'].sudo().search([('self_ordering_mode', '!=', 'nothing')])
         for config in config_self:
-            if config.current_session_id and config.access_token:
+            if config.access_token:
                 records = self.env["product.template"].load_product_from_pos(config.id, [('id', '=', self.product_tmpl_id.id)])
                 payload = {}
                 self_models = self.env["pos.config"]._load_self_data_models()

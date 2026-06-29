@@ -6,7 +6,9 @@ import { isImageCorsProtected } from "@html_editor/utils/image";
 import { TABS } from "@html_editor/main/media/media_dialog/media_dialog_utils";
 import { WebsiteConfigAction, PreviewableWebsiteConfigAction } from "@website/builder/plugins/customize_website_plugin";
 import { BuilderAction } from "@html_builder/core/builder_action";
+import { generateImageVariants } from "@web/core/utils/image_library";
 import wSaleUtils from "@website_sale/js/website_sale_utils";
+import { getDataURLFromFile } from "@web/core/utils/urls";
 
 export class ProductPageOptionPlugin extends Plugin {
     static id = "productPageOption";
@@ -45,15 +47,15 @@ export class ProductPageOptionPlugin extends Plugin {
 
             const mainEl = el.querySelector(PRODUCT_PAGE_OPTION_SELECTOR);
             if (!mainEl) {
-                return;
+                return el;
             }
             const productDetailMain = mainEl.querySelector("#product_detail_main");
             if (!productDetailMain) {
-                return;
+                return el;
             }
             const accordionEl = productDetailMain.querySelector("#product_accordion");
             if (!accordionEl) {
-                return;
+                return el;
             }
 
             const accordionItemsEls = accordionEl.querySelectorAll(".accordion-item");
@@ -66,6 +68,7 @@ export class ProductPageOptionPlugin extends Plugin {
                     accordionCollapseEl.classList.remove("show");
                 }
             });
+            return el;
         },
         builder_options_render_context: {
             productPageOptionSelector: PRODUCT_PAGE_OPTION_SELECTOR,
@@ -210,6 +213,22 @@ export class BaseProductPageAction extends BuilderAction {
                     await this.convertAttachmentToWebp(attachment, extraImageEls[index]);
                 }
             }
+        } else if(type === "video") {
+            attachments = await Promise.all(attachments.map(async attachment => {
+                const thumbnailUrl = await attachment.thumbnailUrl;
+                let thumbnailData = null;
+                if (thumbnailUrl) {
+                    const fetchResult = await fetch(thumbnailUrl);
+                    const blob = await fetchResult.blob();
+                    thumbnailData = await getDataURLFromFile(blob);
+                }
+
+                return {
+                    name: attachment.platform + " - [Video]",
+                    video_url: attachment.embedUrl,
+                    image_1920:  thumbnailData ? thumbnailData.split(",")[1] : null
+                }
+            }));
         }
         await rpc("/shop/product/extra-media", {
             media: attachments,
@@ -229,66 +248,19 @@ export class BaseProductPageAction extends BuilderAction {
             return;
         }
         // Generate alternate sizes and format for reports.
-        const imgEl = document.createElement("img");
-        imgEl.src = imageEl.src;
-        await new Promise((resolve) => imgEl.addEventListener("load", resolve));
-        const originalSize = Math.max(imgEl.width, imgEl.height);
-        const smallerSizes = [1920, 1024, 512, 256, 128].filter((size) => size < originalSize);
-        const extension = attachment.name.match(/\.(jpe?|pn)g$/i)?.[0] ?? ".jpeg";
-        const webpName = attachment.name.replace(extension, ".webp");
-        const format = extension.substr(1).toLowerCase().replace(/^jpg$/, "jpeg");
-        const mimetype = `image/${format}`;
-        let referenceId = undefined;
-        for (const size of [originalSize, ...smallerSizes]) {
-            const ratio = size / originalSize;
-            const canvas = document.createElement("canvas");
-            canvas.width = imgEl.width * ratio;
-            canvas.height = imgEl.height * ratio;
-            const ctx = canvas.getContext("2d");
-            ctx.fillStyle = "transparent";
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(
-                imgEl,
-                0,
-                0,
-                imgEl.width,
-                imgEl.height,
-                0,
-                0,
-                canvas.width,
-                canvas.height
-            );
-            const [resizedId] = await this.services.orm.call("ir.attachment", "create_unique", [
-                [
-                    {
-                        name: webpName,
-                        description: size === originalSize ? "" : `resize: ${size}`,
-                        raw: canvas.toDataURL("image/webp").split(",")[1],
-                        res_id: referenceId,
-                        res_model: "ir.attachment",
-                        mimetype: "image/webp",
-                    },
-                ],
-            ]);
-            if (size === originalSize) {
-                attachment.original_id = attachment.id;
-                attachment.id = resizedId;
-                attachment.image_src = `/web/image/${resizedId}-autowebp/${attachment.name}`;
-                attachment.mimetype = "image/webp";
-            }
-            referenceId = referenceId || resizedId; // Keep track of original.
-            await this.services.orm.call("ir.attachment", "create_unique", [
-                [
-                    {
-                        name: attachment.name,
-                        description: `format: ${format}`,
-                        raw: canvas.toDataURL(mimetype).split(",")[1],
-                        res_id: resizedId,
-                        res_model: "ir.attachment",
-                        mimetype: mimetype,
-                    },
-                ],
-            ]);
+        const variants = await generateImageVariants({
+            source: { url: imageEl.src },
+            name: attachment.name,
+        });
+        const attachmentIds = await this.services.orm.call("ir.attachment", "web_create_image_variants", [
+            variants,
+        ]);
+        const originalWebpId = attachmentIds[0];
+        if (originalWebpId) {
+            attachment.original_id = attachment.id;
+            attachment.id = originalWebpId;
+            attachment.image_src = `/web/image/${originalWebpId}-autowebp/${attachment.name}`;
+            attachment.mimetype = "image/webp";
         }
     }
 }

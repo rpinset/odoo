@@ -58,7 +58,8 @@ import odoo.orm.registry
 from odoo import api
 from odoo.exceptions import AccessError
 from odoo.fields import Command
-from odoo.http.requestlib import Request, _request_stack, request
+from odoo.http import request, request_var
+from odoo.http.requestlib import Request
 from odoo.http.session import (
     DEFAULT_LANG,
     get_default_session,
@@ -67,12 +68,14 @@ from odoo.http.session import (
     session_store,
 )
 from odoo.http.session import Session as OdooHttpSession
+from odoo.orm.environments import CacheLayer
 from odoo.modules.registry import Registry
 from odoo.sql_db import Cursor
 from odoo.tools import SQL, DotDict, config, file_open, float_compare, mute_logger, profiler
 from odoo.tools.binary import BinaryBytes
+from odoo.tools.lru import LRU
 from odoo.tools.mail import single_email_re
-from odoo.tools.misc import diff_zip, find_in_path, str2bool
+from odoo.tools.misc import diff_zip, find_in_path, real_time, str2bool
 from odoo.tools.safe_eval import safe_whitelist
 from odoo.tools.xml_utils import _validate_xml
 
@@ -185,21 +188,43 @@ def flushing_cursor(cr: Cursor):
         return
 
     # simluate cr.commit()
-    state_stack, closing = cr.transaction._state_stack__, cr._closing
+    state_stack = cr.transaction._state_stack__
+    registry_invalidated = cr.transaction._registry_invalidated
+    closing = cr._closing
+    # preserve registry_invalidated flag which is reset when committing
+    # sum them after yielding
     try:
+        # Since we simulate an empty stack, make sure the parent layer is set as
+        # the cache on the registry. This ensures that existing caches are not
+        # affected by updating parent layers.
+        registry_caches = cr.transaction.registry.registry_caches__
+        for name in registry_caches:
+            layer = cr.transaction.ormcaches__[name]
+            parent = layer.parent
+            if parent is None:
+                # simulate signaling already here
+                layer.parent = parent = LRU(999999)
+                layer.update_parent()
+            registry_caches[name] = (registry_caches[name][0], parent)
+
         cr._closing = True  # do a quick clean
         cr.transaction._state_stack__ = []  # replace the stack
         with cr.transaction.committing():
             pass  # no real commit
-    finally:
+        # restore the stack
         cr.transaction._state_stack__ = state_stack
         cr._closing = closing
 
-    yield
+        try:
+            yield
+        finally:
+            # the registry may be invalidated during the yield
+            registry_invalidated += cr.transaction._registry_invalidated
 
-    # simulate cr.commit() again to flush changes made by the main cursor
-    state_stack, closing = cr.transaction._state_stack__, cr._closing
-    try:
+        # simulate cr.commit() again to flush changes made by the main cursor
+        state_stack = cr.transaction._state_stack__
+        closing = cr._closing
+
         cr._closing = False  # do a reset
         cr.transaction._state_stack__ = []  # replace the stack
         with cr.transaction.committing():
@@ -207,6 +232,7 @@ def flushing_cursor(cr: Cursor):
     finally:
         cr.transaction._state_stack__ = state_stack
         cr._closing = closing
+        cr.transaction._registry_invalidated = registry_invalidated
 
 
 def standalone(*tags):
@@ -745,16 +771,19 @@ class BaseCase(case.TestCase):
             env=self.env,
             session=DotDict(get_default_session(), debug='1', sid=''),
         )
+        reset_req = None
         try:
             self.env.flush_all()
             self.env.invalidate_all()
-            _request_stack.push(request)
+            reset_req = request_var.set(request)
             yield
             self.env.flush_all()
             self.env.invalidate_all()
         finally:
-            popped_request = _request_stack.pop()
-            if popped_request is not request:
+            current_request = request_var.get()
+            if reset_req is not None:
+                request_var.reset(reset_req)
+            if current_request is not request:
                 raise Exception('Wrong request stack cleanup.')
 
     @contextmanager
@@ -1046,13 +1075,6 @@ class BaseCase(case.TestCase):
             return BinaryBytes(f.read())
 
     @classmethod
-    def drop_ormcaches(cls) -> None:
-        """ Remove all data in ORM caches without signaling, just like in a new Registry. """
-        _logger.debug("Clearing all ORM caches")
-        for lru in cls.registry._Registry__caches.values():
-            lru.clear()
-
-    @classmethod
     @contextmanager
     def registry_test_mode(cls, *, cr: Cursor | None = None, registry: Registry | None = None):
         """ Entering registry test mode.
@@ -1101,10 +1123,16 @@ class BaseCase(case.TestCase):
             message = f"Trying to open a test cursor for {self.canonical_tag} while already in a test {odoo.modules.module.current_test.canonical_tag}"
             _logger.runbot(message)
             raise BadRequest(message)
+        if isinstance(request, Mock):
+            return
         if not request or self.http_request_allow_all:
             return
         http_request_required_key = self.http_request_key
-        http_request_key = request.cookies.get(TEST_CURSOR_COOKIE_NAME)
+        # Read from the raw transmitted cookies rather than request.cookies.
+        # The latter can be cleared by a handler (e.g. downgrade_to_public_user
+        # in livechat CORS flows) before a new cursor is opened, which would
+        # incorrectly fail this check even though the cookie was sent by the test.
+        http_request_key = request.httprequest.cookies.get(TEST_CURSOR_COOKIE_NAME)
         if http_request_key != http_request_required_key:
             expected = http_request_required_key
             if not expected:
@@ -1289,23 +1317,28 @@ class TransactionCase(BaseCase):
                     return
                 _logger.info('Simulating signal changes during tests')
                 cls.registry.registry_sequence += 1
-                for key, seq in cls.registry.cache_sequences.items():
-                    cls.registry.cache_sequences[key] = seq + 1
+                for key, (seq, data) in cls.registry.registry_caches__.items():
+                    cls.registry.registry_caches__[key] = (seq + 1, {})
             elif names:
                 _logger.debug('Simulating signal changes during tests')
                 for name in names:
-                    cls.registry.cache_sequences[name] += 1
+                    cls.registry.registry_caches__[name] = (cls.registry.registry_caches__[name][0] + 1, {})
 
         def get_sequences(cr):
-            return cls.registry.registry_sequence, cls.registry.cache_sequences.copy()
+            return cls.registry.registry_sequence, {name: val[0] for name, val in cls.registry.registry_caches__.items()}
 
-        def reset_registry(registry, *, registry_sequence):
+        def reset_registry(registry, *, registry_sequence, caches):
             registry.registry_sequence = registry_sequence
+            registry.registry_caches__ = caches
 
-        cls.addClassCleanup(reset_registry, cls.registry, registry_sequence=cls.registry.registry_sequence)
+        cls.addClassCleanup(
+            reset_registry, cls.registry,
+            registry_sequence=cls.registry.registry_sequence,
+            caches=cls.registry.registry_caches__.copy(),
+        )
+
         cls.startClassPatcher(patch.object(cls.registry, '_signal_changes', signal_changes))
         cls.startClassPatcher(patch.object(cls.registry, 'get_sequences', get_sequences))
-        cls.addClassCleanup(cls.drop_ormcaches)
         cls.addClassCleanup(cls._gc_filestore)
 
         cls.cr = cls.registry.cursor()
@@ -1334,6 +1367,7 @@ class TransactionCase(BaseCase):
         cls.startClassPatcher(cls.close_patcher)
 
         cls.env = api.Environment(cls.cr, api.SUPERUSER_ID, {})
+        cls.env.transaction._wrote__ = True  # isolate tests: avoid propagating cache on rollback
 
         # speedup CryptContext. Many user an password are done during tests, avoid spending time hasing password with many rounds
         def _crypt_context(self):  # noqa: ARG001
@@ -1347,6 +1381,17 @@ class TransactionCase(BaseCase):
     def setUp(self):
         super().setUp()
 
+        def reset_registry(registry, *, registry_sequence, caches):
+            registry.registry_sequence = registry_sequence
+            registry.registry_caches__ = caches
+
+        self.addCleanup(
+            # for flushing cursor
+            reset_registry, self.registry,
+            registry_sequence=self.registry.registry_sequence,
+            caches=self.registry.registry_caches__.copy(),
+        )
+
         def _check_registry_lock():
             if _registry_test_lock.count == 0:
                 _logger.warning('The registry test lock is still released at the end of %s', self.canonical_tag)
@@ -1357,8 +1402,6 @@ class TransactionCase(BaseCase):
                 )
 
         self.addCleanup(_check_registry_lock)
-
-        self.addCleanup(self.drop_ormcaches)
 
         # flush everything in setUpClass before introducing a savepoint
         cr = self.cr
@@ -1379,6 +1422,16 @@ class TransactionCase(BaseCase):
             self.addCleanup(_reset, callback, deque(callback._funcs), deepcopy(callback.data))
 
         self.addCleanup(self.savepoint.rollback)
+
+        # To keep tests isolated, add a CacheLayer.
+        # - L1: cursor cache
+        # - L2: savepoint cache
+        # - L3: this isolation layer
+        # flushing_cursor() may push data from the current to the parent layer
+        # (from L3 to L2) and we need L1 to be unaffected by tests.
+        transaction = self.env.transaction
+        for name, layer in transaction.ormcaches__.items():
+            transaction.ormcaches__[name] = CacheLayer(layer)
 
     @classmethod
     @contextmanager
@@ -1659,34 +1712,47 @@ class ChromeBrowser:
     ):
         headless_switches = {
             '--headless': '',
-            '--disable-extensions': '',
-            '--disable-background-networking' : '',
-            '--disable-background-timer-throttling' : '',
-            '--disable-backgrounding-occluded-windows': '',
-            '--disable-renderer-backgrounding' : '',
-            '--disable-breakpad': '',
-            '--disable-client-side-phishing-detection': '',
-            '--disable-crash-reporter': '',
-            '--disable-dev-shm-usage': '',
-            '--disable-namespace-sandbox': '',
-            '--disable-translate': '',
-            '--no-sandbox': '',
-            '--disable-gpu': '',
-            '--enable-unsafe-swiftshader': '',
-            '--mute-audio': '',
+            '--disable-extensions': '',  # Disable all chrome extensions
+            '--disable-component-extensions-with-background-pages': '',  # Disable built-in extensions (e.g., PDF viewer, Hangouts...)
+            '--disable-background-networking': '',  # Stop background requests (telemetry, updates, safe browsing)
+            '--disable-background-timer-throttling': '',  # Prevent Chrome from slowing down JS in inactive tabs
+            '--disable-backgrounding-occluded-windows': '',  # Prevent Chrome from suspending hidden windows
+            '--disable-renderer-backgrounding': '',  # Keep background rendering processes running at normal priority
+            '--disable-breakpad': '',  # Disable the Breakpad crash reporting system
+            '--disable-client-side-phishing-detection': '',  # Disable local machine-learning phishing analysis
+            '--disable-crash-reporter': '',  # Disable crash report generation
+            '--disable-dev-shm-usage': '',  # Use /tmp instead of /dev/shm
+            '--disable-namespace-sandbox': '',  # Disable Linux namespace sandboxing
+            '--disable-sync': '',  # Completely disable Google account synchronization engine
+            '--no-crash-upload': '',  # Prevent uploading crash dumps to Google servers
+            '--no-sandbox': '',  # Disable OS-level sandboxing
+            '--disable-gpu': '',  # Disable hardware GPU acceleration
+            '--enable-unsafe-swiftshader': '',  # Allow software rendering fallback for WebGL when GPU is disabled
+            '--mute-audio': '',  # Prevent audio playback from allocating system resources
+            '--font-render-hinting': 'none',  # Disable sub-pixel font rendering calculations
         }
         switches = {
             # required for tours that use Youtube autoplay conditions (namely website_slides' "course_tour")
-            '--autoplay-policy': 'no-user-gesture-required',
-            '--disable-default-apps': '',
-            '--disable-device-discovery-notifications': '',
-            '--no-default-browser-check': '',
+            '--autoplay-policy': 'no-user-gesture-required',  # Allow media autoplay without requiring a user click
+            '--disable-default-apps': '',  # Disable installation of default apps
+            '--disable-domain-reliability': '',  # Stop tracking and sending telemetry for failed network requests
+            '--disable-search-engine-choice-screen': '',  # Bypass the EU search engine selection prompt on startup
+            '--disable-features': ','.join([
+                'Translate',  # Disables Chrome translation
+                'MediaRouter',  # Stop scanning for local Cast or media devices
+                'InterestFeedContentSuggestions',  # Disables the Discover feed on NTP
+            ]),
+            '--ash-no-nudges': '',  # Avoids blue bubble "user education" nudges (eg., "… give your browser a new look", Memory Saver)
+            '--propagate-iph-for-testing': '',  # Disable all in-product help (IPH) features
+            '--no-default-browser-check': '',  # Bypass the prompt asking to make Chrome the default browser
+            '--no-first-run': '',  # Skip the welcome screen and first-run setup wizards
+            '--proxy-server': '"direct://"',  # Force a direct connection, bypassing any system proxies
+            '--proxy-bypass-list': '*',  # Bypass proxy for all domains (eliminates local resolution delays)
             '--remote-debugging-address': HOST,
             '--remote-debugging-port': str(self.remote_debugging_port),
             '--user-data-dir': user_data_dir,
             '--enable-logging': '',
             '--v': str(int(os.environ.get("ODOO_BROWSER_LOG_VERBOSITY", "0"))),
-            '--no-first-run': '',
             # FIXME: these next 2 flags are temporarily uncommented to allow client
             # code to manually run garbage collection. This is done as currently
             # the Chrome unit test process doesn't have access to its available
@@ -2617,17 +2683,21 @@ class HttpCase(TransactionCase):
     def _wait_remaining_requests(self, timeout=10):
 
         def get_http_request_threads():
-            return [t for t in threading.enumerate() if t.name.startswith('odoo.service.http.request.')]
+            return [
+                t for t in threading.enumerate()
+                if t.name.startswith('odoo.service.http.request')
+                if getattr(t, 'processing_http', False)
+            ]
 
-        start_time = time.time()
+        end_time = real_time() + timeout
         request_threads = get_http_request_threads()
         if not request_threads:
             return
 
         self._logger.info('waiting for threads: %s', request_threads)
 
-        for thread in request_threads:
-            thread.join(timeout - (time.time() - start_time))
+        while real_time() < end_time:
+            time.sleep(0.1)
 
         request_threads = get_http_request_threads()
         for thread in request_threads:
@@ -2661,6 +2731,7 @@ class HttpCase(TransactionCase):
             _trace_disable=True,  # saves a query on all requests
         )
         self.session.context['lang'] = DEFAULT_LANG
+        self.session.context['host_id'] = self.env['ir.http']._get_host_id_from_domain(self.base_url())
 
         if session_extra:
             if extra_ctx := session_extra.pop('context', None):
@@ -2680,7 +2751,7 @@ class HttpCase(TransactionCase):
             # patching to speedup the check in case the password is hashed with many hashround + avoid to update the password
             with flushing, patch('odoo.addons.base.models.res_users.ResUsersPatchedInTest._check_credentials', new=patched_check_credentials):
                 credential = {'login': user, 'password': password, 'type': 'password'}
-                auth_info = self.env['res.users'].authenticate(credential, {'interactive': False})
+                auth_info = self.env(context=self.session.context)['res.users'].authenticate(credential, {'interactive': False})
             uid = auth_info['uid']
             env = api.Environment(self.cr, uid, {})
             self.session['uid'] = uid
@@ -2863,11 +2934,12 @@ class HttpCase(TransactionCase):
             self._logger.warning('step_delay is only suitable for local testing')
         Users = self.registry['res.users']
 
-        def setup(_):
+        def _post_model_setup__(model):
+            super(Users, model)._post_model_setup__()
             Users.tour_enabled = False
 
         with patch.object(Users, 'tour_enabled', False),\
-                patch.object(Users, '_post_model_setup__', setup),\
+                patch.object(Users, '_post_model_setup__', _post_model_setup__),\
                 patch.object(Users, '_compute_tour_enabled', lambda _: None):
             self.browser_js(url_path=url_path, code=code, ready=ready, timeout=timeout, success_signal="tour succeeded", **kwargs)
 

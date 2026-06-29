@@ -17,7 +17,9 @@ class WebsiteSaleVisitorTests(WebsiteSaleCommon):
         existing_tracks = self.env["website.track"].search([])
 
         with self.mock_request(referrer=self.product.website_url):
-            cookies = self.WebsiteController.track(res_model='product.product', res_id=self.product.id)
+            cookies = self.WebsiteController.track(
+                res_model="product.product", res_id=self.product.id
+            )
 
         new_visitors = self.env["website.visitor"].search([("id", "not in", existing_visitors.ids)])
         new_tracks = self.env["website.track"].search([("id", "not in", existing_tracks.ids)])
@@ -29,7 +31,7 @@ class WebsiteSaleVisitorTests(WebsiteSaleCommon):
         )
 
         with self.mock_request(cookies=cookies, referrer=self.product.website_url):
-            self.WebsiteController.track(res_model='product.product', res_id=self.product.id)
+            self.WebsiteController.track(res_model="product.product", res_id=self.product.id)
 
         new_visitors = self.env["website.visitor"].search([("id", "not in", existing_visitors.ids)])
         self.assertEqual(
@@ -45,7 +47,7 @@ class WebsiteSaleVisitorTests(WebsiteSaleCommon):
         })
 
         with self.mock_request(cookies=cookies, referrer=product.website_url):
-            self.WebsiteController.track(res_model='product.product', res_id=product.id)
+            self.WebsiteController.track(res_model="product.product", res_id=product.id)
 
         new_visitors = self.env["website.visitor"].search([("id", "not in", existing_visitors.ids)])
         new_tracks = self.env["website.track"].search([("id", "not in", existing_tracks.ids)])
@@ -69,8 +71,9 @@ class WebsiteSaleVisitorTests(WebsiteSaleCommon):
             "website_published": True,
             "sale_ok": True,
         })
+        snippet_filter = self.env.ref("website_sale.dynamic_filter_newest_products").with_context(website_id=self.website.id)
+
         with self.mock_request():
-            snippet_filter = self.env.ref("website_sale.dynamic_filter_newest_products")
             res = snippet_filter._prepare_values(limit=16, search_domain=[])
 
         res_products = [res_product["_record"] for res_product in res]
@@ -100,7 +103,7 @@ class WebsiteSaleVisitorTests(WebsiteSaleCommon):
 
         self.website = self.website.with_user(public_user).with_context(website_id=self.website.id)
 
-        snippet_filter = self.env.ref("website_sale.dynamic_filter_latest_viewed_products")
+        snippet_filter = self.env.ref("website_sale.dynamic_filter_latest_viewed_products").with_context(website_id=self.website.id)
 
         # BEFORE VISITING THE PRODUCT
         res = snippet_filter._prepare_values(limit=16, search_domain=[])
@@ -108,7 +111,7 @@ class WebsiteSaleVisitorTests(WebsiteSaleCommon):
 
         # AFTER VISITING THE PRODUCT
         with self.mock_request(referrer=product.website_url):
-            cookies = self.WebsiteController.track(res_model='product.product', res_id=product.id)
+            cookies = self.WebsiteController.track(res_model="product.product", res_id=product.id)
         with self.mock_request(cookies=cookies):
             res = snippet_filter._prepare_values(limit=16, search_domain=[])
         res_products = [res_product["_record"] for res_product in res]

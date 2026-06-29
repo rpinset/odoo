@@ -36,7 +36,7 @@ export class DynamicSnippet extends Interaction {
          * Can be accessed when overriding the _render_content() function in order to generate
          * a new renderedContent from the original data.
          *
-         * @type {*|jQuery.fn.init|jQuery|HTMLElement}
+         * @type {*|HTMLElement}
          */
         this.data = [];
         this.renderedContentNode = document.createDocumentFragment();
@@ -54,7 +54,7 @@ export class DynamicSnippet extends Interaction {
 
     start() {
         // Re-render on media breakpoint change
-        this.registerCleanup(listenSizeChange(this.render.bind(this)));
+        this.registerCleanup(listenSizeChange(this.protectSyncAfterAsync(this.render.bind(this))));
         this.render();
     }
 
@@ -153,6 +153,7 @@ export class DynamicSnippet extends Interaction {
             unique_id: this.uniqueId,
             extraClasses: dataset.extraClasses || "",
             columnClasses: dataset.columnClasses || "",
+            is_single_record: this.isSingleMode,
         };
     }
 

@@ -12,14 +12,15 @@ export class GeneratePrinterData {
         this.setup(...arguments);
     }
 
-    setup({ models, order = false, basicReceipt = false }) {
+    setup({ models, order = false, basicReceipt = false, simplified = false }) {
         this.models = models;
         this.order = order;
         this.basicReceipt = basicReceipt;
+        this.simplified = simplified;
     }
 
     get config() {
-        return this.models["pos.config"].getFirst();
+        return this.models["pos.config"].get(odoo.pos_config_id);
     }
 
     get currency() {
@@ -34,7 +35,7 @@ export class GeneratePrinterData {
         return {
             company_state_name: this.company.state_id?.name || "",
             company_country_name: this.company.country_id?.name || "",
-            vat_label: this.company.country_id.vat_label || "Tax ID",
+            vat_label: this.company.country_id?.vat_label || "Tax ID",
         };
     }
 
@@ -100,7 +101,9 @@ export class GeneratePrinterData {
                 taxes: processedTaxes,
                 sold: processData(saleDetails.products),
                 refund: processData(saleDetails.refund_products),
+                cancel: processData(saleDetails.cancelled_products),
                 payments: processedPayments,
+                session_state: saleDetails.session_state,
             },
         };
     }
@@ -180,7 +183,6 @@ export class GeneratePrinterData {
         return this.order.lines.map((line) => {
             const productData = { ...line.product_id.raw };
             productData.display_name = line.getFullProductName();
-
             return {
                 ...line.raw,
                 product_data: productData,
@@ -188,6 +190,8 @@ export class GeneratePrinterData {
                 unit_price: line.currencyDisplayPriceUnit,
                 product_unit_price: line.product_id.displayPriceUnit,
                 price_subtotal_incl: line.currencyDisplayPrice,
+                is_service_fee_line: line.isServiceFeeLine(),
+                service_fee_display_info: line.getServiceFeeDisplayInfo(),
             };
         });
     }
@@ -218,6 +222,17 @@ export class GeneratePrinterData {
               ])
             : false;
 
+        const serviceFeeLines = this.order.serviceFeeLines;
+        let serviceFee = false;
+        const serviceFeeLine = serviceFeeLines?.[0];
+        if (serviceFeeLine) {
+            serviceFee = {
+                amount: serviceFeeLine.currencyDisplayPrice,
+                qty: serviceFeeLine.qty,
+                name: serviceFeeLine.getFullProductName(),
+            };
+        }
+
         return {
             order: this.order.raw,
             config: this.config.raw,
@@ -232,6 +247,7 @@ export class GeneratePrinterData {
             },
             conditions: {
                 basic_receipt: this.basicReceipt,
+                simplified_receipt: this.simplified,
                 display_vat: this.config._IS_VAT,
                 display_qr_code: useQrCode,
                 display_url: company.point_of_sale_ticket_portal_url_display_mode != "qr_code",
@@ -247,6 +263,7 @@ export class GeneratePrinterData {
                 prices: this.generateTaxData(),
                 cashier_name: this.order.getCashierName(),
                 formated_date_order: this.order.formatDateOrTime("date_order", "datetime"),
+                service_fee: serviceFee,
             },
         };
     }
@@ -321,7 +338,11 @@ export class GeneratePrinterData {
             );
         }
 
-        if (orderChange.internal_note || orderChange.general_customer_note) {
+        // Print a separate order note ticket only if no other tickets exist
+        if (
+            !receiptsData.length &&
+            (orderChange.internal_note || orderChange.general_customer_note)
+        ) {
             receiptsData.push(this.preparePreparationGroupedData({ title: "", data: [] }));
         }
         return receiptsData;
@@ -370,7 +391,7 @@ export class GeneratePrinterData {
                         reprint: Boolean(reprint),
                         time: DateTime.now().toFormat("HH:mm"),
                         internal_note: getStrNotes(change.internal_note) || false,
-                        general_customer_note: orderChange.general_customer_note || false,
+                        general_customer_note: change.general_customer_note || false,
                         employee_name: order.employee_id?.name || order.user_id?.name || false,
                         preset_time: order.presetDateTime || false,
                     },

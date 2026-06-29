@@ -1,4 +1,4 @@
-import { useComponent, useLayoutEffect, useRef, useState, useSubEnv } from "@web/owl2/utils";
+import { useComponent, useLayoutEffect, useRef, useSubEnv } from "@web/owl2/utils";
 import { LocalOverlayContainer } from "@html_editor/local_overlay_container";
 import {
     Component,
@@ -9,6 +9,7 @@ import {
     onWillUnmount,
     status,
     immediateEffect,
+    proxy,
 } from "@odoo/owl";
 import { loadBundle } from "@web/core/assets";
 import { LazyComponent } from "@web/core/lazy_component";
@@ -17,7 +18,7 @@ import { getActiveHotkey } from "@web/core/hotkeys/hotkey_service";
 import { _t } from "@web/core/l10n/translation";
 import { registry } from "@web/core/registry";
 import { ResizablePanel } from "@web/core/resizable_panel/resizable_panel";
-import { RPCError } from "@web/core/network/rpc";
+import { rpc, RPCError } from "@web/core/network/rpc";
 import { uniqueId } from "@web/core/utils/functions";
 import { useChildRef, useService, useBus } from "@web/core/utils/hooks";
 import { redirect } from "@web/core/utils/urls";
@@ -86,8 +87,8 @@ export class WebsiteBuilderClientAction extends Component {
         useSubEnv({
             builderRef: useRef("container"),
         });
-        this.state = useState({ isEditing: false, showSidebar: true, key: 1, is404: false });
-        this.websiteContext = useState(this.websiteService.context);
+        this.state = proxy({ isEditing: false, showSidebar: true, key: 1, is404: false });
+        this.websiteContext = proxy(this.websiteService.context);
         this.component = useComponent();
 
         useBus(
@@ -132,11 +133,11 @@ export class WebsiteBuilderClientAction extends Component {
                 updateWebsiteId(this.websiteId);
                 await Promise.all(proms);
             } else {
-                const [backendWebsiteRepr] = await Promise.all([
-                    this.orm.call("website", "get_current_website"),
+                const [backendWebsiteId] = await Promise.all([
+                    rpc("/website/get_current_website_id"),
                     ...proms,
                 ]);
-                updateWebsiteId(backendWebsiteRepr[0]);
+                updateWebsiteId(backendWebsiteId);
             }
         });
         onMounted(() => {
@@ -186,6 +187,9 @@ export class WebsiteBuilderClientAction extends Component {
                     // To avoid an abrupt disappearance, we delay adding the
                     // 'd-none' class
                     this.navBarTimeout = setTimeout(() => {
+                        if (!this.state.isEditing) {
+                            return;
+                        }
                         websiteSystrayRegistry.remove("website.WebsiteSystrayItem");
                         websiteSystrayRegistry.trigger("EDIT-WEBSITE");
                         document
@@ -199,6 +203,12 @@ export class WebsiteBuilderClientAction extends Component {
             },
             () => [this.state.isEditing]
         );
+        onMounted(() => {
+            document.body.classList.add("o_website_o_website_preview");
+        });
+        onWillUnmount(() => {
+            document.body.classList.remove("o_website_o_website_preview");
+        });
     }
 
     get testMode() {
@@ -518,7 +528,7 @@ export class WebsiteBuilderClientAction extends Component {
     }
 
     get websiteId() {
-        return this.props.websiteId || router.current.website_id || false;
+        return this.props.websiteId || router.current.website_id || this.websiteService.currentWebsiteId || false;
     }
 
     waitForIframeReady() {

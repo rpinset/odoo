@@ -1,25 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <odoo>
     <data>
-        <record id="project_project_view_form_simplified_inherit_timesheet" model="ir.ui.view">
-            <field name="name">project.project.view.form.simplified.inherit.timesheet</field>
-            <field name="model">project.project</field>
-            <field name="inherit_id" ref="project.project_project_view_form_simplified"/>
-            <field name="priority">24</field>
-            <field name="arch" type="xml">
-                <xpath expr="//div[hasclass('o_settings_container')]" position="inside">
-                    <setting string="Timesheets" help="Log time on tasks">
-                        <field name="allow_timesheets"/>
-                    </setting>
-                </xpath>
-            </field>
-        </record>
-
         <record id="project_invoice_form" model="ir.ui.view">
             <field name="name">Inherit project form : Invoicing Data</field>
             <field name="model">project.project</field>
             <field name="inherit_id" ref="project.edit_project"/>
-            <field name="priority">24</field>
             <field name="arch" type="xml">
                 <xpath expr="//header" position="after">
                     <field name="analytic_account_active" invisible="1"/>
@@ -30,13 +15,13 @@
                         </div>
                     </t>
                 </xpath>
-                <xpath expr="//t[@name='allocated_hours_placeholder']" position="replace">
+                <xpath expr="//group[@name='other_section']" position="inside">
                     <field name="allocated_hours" widget="timesheet_uom_no_toggle" invisible="not allow_timesheets" groups="hr_timesheet.group_hr_timesheet_user"/>
                 </xpath>
-                <xpath expr="//div[@name='group_time_managment']" position="attributes">
+                <xpath expr="//group[@name='group_time_managment']" position="attributes">
                     <attribute name="invisible">0</attribute>
                 </xpath>
-                <xpath expr="//div[@name='group_time_managment']" position="inside">
+                <xpath expr="//group[@name='group_time_managment']" position="inside">
                     <setting id="timesheet_settings" string="Timesheets" help="Log time on tasks">
                         <field name="allow_timesheets"/>
                     </setting>
@@ -82,10 +67,10 @@
             </field>
         </record>
 
-        <record id="view_project_kanban_inherited" model="ir.ui.view">
-            <field name="name">project.project.timesheet.kanban.inherited</field>
+        <record id="view_project_card_inherited" model="ir.ui.view">
+            <field name="name">project.project.timesheet.card.inherited</field>
             <field name="model">project.project</field>
-            <field name="inherit_id" ref="project.view_project_kanban"/>
+            <field name="inherit_id" ref="project.view_project_card"/>
             <field name="priority">24</field>
             <field name="arch" type="xml">
                 <xpath expr="//templates" position="before">

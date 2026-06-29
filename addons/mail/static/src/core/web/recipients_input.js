@@ -12,23 +12,20 @@ import { useTagNavigation } from "@web/core/record_selectors/tag_navigation_hook
 import { uniqueId } from "@web/core/utils/functions";
 import { RecipientTag, useRecipientChecker } from "./recipient_tag";
 
-import { Component, computed } from "@odoo/owl";
+import { Component, computed, props, types } from "@odoo/owl";
 
-/**
- * @typedef {Object} Props
- * @property {import("models").Thread} thread
- * @extends {Component<Props, Env>}
- */
 export class RecipientsInput extends Component {
     static template = "mail.RecipientsInput";
     static components = { AutoComplete, RecipientTag, BadgeTag };
-    static props = {
-        thread: { type: Object },
-    };
 
     setup() {
         this.orm = useService("orm");
         this.store = useService("mail.store");
+        this.props = props({
+            thread: types.instanceOf(this.store["mail.thread"].Class),
+            recipientType: types.string(),
+            placeholder: types.string(),
+        });
         this.tags = computed(() => this.getTagsFromMailThread());
         this.recipientCheckerBus = useRecipientChecker(this.tags);
         useTagNavigation("recipientsInputRef", {
@@ -165,7 +162,9 @@ export class RecipientsInput extends Component {
                             });
                         };
                     }
-                    options.push(createOption);
+                    if (name.trim() || email) {
+                        options.push(createOption);
+                    }
                     return options;
                 },
             },
@@ -223,11 +222,12 @@ export class RecipientsInput extends Component {
                 bus: this.recipientCheckerBus,
             });
         };
-        for (const recipient of this.props.thread.suggestedRecipients) {
-            createTagForRecipient(recipient, "suggestedRecipients");
-        }
-        for (const recipient of this.props.thread.additionalRecipients) {
-            createTagForRecipient(recipient, "additionalRecipients");
+        for (const recipientField of ["suggestedRecipients", "additionalRecipients"]) {
+            for (const recipient of this.props.thread[recipientField].filter(
+                (r) => r.recipient_type === this.props.recipientType
+            )) {
+                createTagForRecipient(recipient, recipientField);
+            }
         }
         return tags;
     }
@@ -237,7 +237,7 @@ export class RecipientsInput extends Component {
         return [
             ...this.props.thread.suggestedRecipients,
             ...this.props.thread.additionalRecipients,
-        ];
+        ].filter((r) => r.recipient_type === this.props.recipientType);
     }
 
     /**
@@ -260,14 +260,14 @@ export class RecipientsInput extends Component {
 
     /** @param {SuggestedRecipient} recipient */
     insertAdditionalRecipient(recipient) {
-        this.props.thread.additionalRecipients.push(recipient);
+        this.props.thread.additionalRecipients.push({
+            ...recipient,
+            recipient_type: this.props.recipientType,
+        });
     }
 
     /** @returns {string} */
     getPlaceholder() {
-        const hasRecipients =
-            this.props.thread.suggestedRecipients.length ||
-            this.props.thread.additionalRecipients.length;
-        return hasRecipients ? "" : _t("Followers only");
+        return this.getAllMailThreadRecipients().length ? "" : this.props.placeholder;
     }
 }

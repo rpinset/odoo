@@ -1,3 +1,4 @@
+import contextvars
 import functools
 import logging
 import pprint
@@ -9,7 +10,7 @@ from wsgiref.handlers import format_date_time
 
 import h11
 
-from odoo.netsvc import (
+from odoo.logging import (
     BOLD_SEQ,
     COLOR_PATTERN,
     CYAN,
@@ -21,9 +22,8 @@ from odoo.netsvc import (
     RESET_SEQ,
     TRUE_COLOR_PATTERN,
     YELLOW,
-    ColoredFormatter,
 )
-from odoo.tools import frozendict
+from odoo.tools import config, frozendict
 from odoo.tools.misc import real_time
 
 from .requestlib import DEFAULT_MAX_CONTENT_LENGTH, MAX_FORM_SIZE
@@ -73,6 +73,28 @@ def reset_thread_info():
     current_thread.cursor_mode = None
     current_thread.rpc_model_method = None
     current_thread.sess_id = None
+
+
+def run_in_isolated_context(callback, /, *a, **kw):
+    current_thread = threading.current_thread()
+    query_count = current_thread.query_count
+    query_time = current_thread.query_time
+    perf_t0 = current_thread.perf_t0
+    cursor_mode = current_thread.cursor_mode
+    rpc_model_method = current_thread.rpc_model_method
+    sess_id = current_thread.sess_id
+
+    reset_thread_info()
+
+    try:
+        return contextvars.Context().run(callback, *a, **kw)
+    finally:
+        current_thread.query_count += query_count  # +=
+        current_thread.query_time += query_time  # +=
+        current_thread.perf_t0 = perf_t0
+        current_thread.cursor_mode = cursor_mode
+        current_thread.rpc_model_method = rpc_model_method
+        current_thread.sess_id = sess_id
 
 
 def http_log(
@@ -129,33 +151,42 @@ def http_log(
         extra['date'] = res_http_date[5:-4].replace(' ', '/', 2)
 
     extra.update(kwargs.get('extra', {}))
-    kwargs['extra'] = extra.copy()  # before we set colors
-
-    if _has_color():
-        extra['query_count'] = _colorize_query_count(extra['query_count'])
-        extra['query_time'] = _colorize_query_time(extra['query_time'])
-        extra['remaining_time'] = _colorize_remaining_time(extra['remaining_time'])
-        if extra['http_response_status'] != '-':
-            extra['http_request_line'] = _colorize_request_line(
-                extra['http_request_line'], extra['http_response_status'])
-        if extra['cursor_mode'] != '-':
-            extra['cursor_mode'] = _colorize_cursor_mode(extra['cursor_mode'])
-        extra['http_response_body'] = _colorize_body_length(extra['http_response_body'])
-        extra['ident'] = _colorize_ident(extra['ident'])
-    else:
-        extra['query_time'] = round(extra['query_time'], 3)
-        extra['remaining_time'] = round(extra['remaining_time'], 3)
+    kwargs['extra'] = extra.copy()  # before we set colors and formating
 
     if extra['http_headers'] and _logger_headers.isEnabledFor(logging.DEBUG):
         extra['http_headers'] = pprint.pformat(list(extra['http_headers']))
 
-    msg += (
+    colored_extra = extra.copy()
+
+    # colors
+    if config.colors['perf']:
+        colored_extra['query_count'] = _colorize_query_count(colored_extra['query_count'])
+        colored_extra['query_time'] = _colorize_query_time(colored_extra['query_time'])
+        colored_extra['remaining_time'] = _colorize_remaining_time(colored_extra['remaining_time'])
+    else:
+        extra['query_time'] = round(extra['query_time'], 3)
+        extra['remaining_time'] = round(extra['remaining_time'], 3)
+
+    if config.colors['http_request_line'] and extra['http_response_status'] != '-':
+        colored_extra['http_request_line'] = _colorize_request_line(
+            colored_extra['http_request_line'], colored_extra['http_response_status'])
+    if config.colors['cursor_mode'] and extra['cursor_mode'] != '-':
+        colored_extra['cursor_mode'] = _colorize_cursor_mode(extra['cursor_mode'])
+    if config.colors['http_response_body']:
+        colored_extra['http_response_body'] = _colorize_body_length(colored_extra['http_response_body'])
+    if config.colors['session_id']:
+        colored_extra['ident'] = _colorize_ident(colored_extra['ident'])
+
+    msg_format = (
         _HTTP_FORMAT_HEADERS
         if extra['http_headers'] and _logger_headers.isEnabledFor(logging.DEBUG) else
         _HTTP_FORMAT
-    ) % extra
+    )
+    uncolored_message = msg + (msg_format % extra)
+    colored_message = msg + (msg_format % colored_extra)
+    kwargs['extra']['colored_message'] = colored_message
 
-    _logger.log(level, msg, *args, **kwargs)
+    _logger.log(level, uncolored_message, *args, **kwargs)
 
 
 def _colorize_ident(ident: str) -> str:
@@ -237,16 +268,6 @@ def _colorize_cursor_mode(cursor_mode: typing.Literal['ro', 'rw', 'ro->rw']) -> 
         else GREEN
     )
     return COLOR_PATTERN % (30 + cursor_mode_color, 40 + DEFAULT, cursor_mode)
-
-
-@functools.cache
-def _has_color():
-    """ Determine if the root logger supports colors. """
-    return any(
-        isinstance(handler.formatter, ColoredFormatter)
-        for handler
-        in logging.root.handlers
-    )
 
 
 _logger = logging.getLogger('odoo.http.server')

@@ -78,7 +78,7 @@ class TestChannelInternals(MailCommon, HttpCase):
         test_partner_write_date = fields.Datetime.to_string(self.test_partner.write_date)
 
         def notifications():
-            message = self.env["mail.message"].search([], order="id desc", limit=1)
+            message = self.env["mail.message"].sudo().search([], order="id desc", limit=1)
             member = self.env["discuss.channel.member"].search([], order="id desc", limit=1)
             return [
                 BusResult(test_group),
@@ -217,7 +217,6 @@ class TestChannelInternals(MailCommon, HttpCase):
                             {
                                 "all_employee_ids": [],
                                 "should_display_in_call_im_status": False,
-                                "employee_ids": [],
                                 "id": self.test_user.id,
                                 "im_status": "offline",
                                 "im_status_access_token": self.test_user._get_im_status_access_token(),
@@ -275,7 +274,6 @@ class TestChannelInternals(MailCommon, HttpCase):
                                 "id": self.test_user.id,
                                 "im_status": "offline",
                                 "im_status_access_token": self.test_user._get_im_status_access_token(),
-                                "employee_ids": [],
                                 "partner_id": self.test_partner.id,
                                 "share": False,
                             },
@@ -356,11 +354,17 @@ class TestChannelInternals(MailCommon, HttpCase):
     def test_channel_special_mention(self):
         """ Posting a message on a channel should support special mention """
         self.test_channel._add_members(users=self.user_employee | self.user_employee_nomail)
+        self.user_employee.im_status = "online"
         with self.mock_mail_gateway():
             new_msg = self.test_channel.message_post(
                 body="Test", special_mentions=["everyone"],
                 message_type="comment", subtype_xmlid="mail.mt_comment")
         self.assertEqual(new_msg.partner_ids, self.test_channel.channel_member_ids.partner_id)
+        with self.mock_mail_gateway():
+            new_msg = self.test_channel.message_post(
+                body="Test", special_mentions=["here"],
+                message_type="comment", subtype_xmlid="mail.mt_comment")
+        self.assertEqual(new_msg.partner_ids, self.user_employee.partner_id)
 
     @mute_logger('odoo.models.unlink')
     def test_channel_user_synchronize(self):
@@ -520,7 +524,6 @@ class TestChannelInternals(MailCommon, HttpCase):
                             {
                                 "all_employee_ids": [],
                                 "should_display_in_call_im_status": False,
-                                "employee_ids": [],
                                 "id": self.test_user.id,
                                 "im_status": self.test_user.im_status,
                                 "im_status_access_token": self.test_user._get_im_status_access_token(),
@@ -577,7 +580,6 @@ class TestChannelInternals(MailCommon, HttpCase):
                             {
                                 "all_employee_ids": [],
                                 "should_display_in_call_im_status": False,
-                                "employee_ids": [],
                                 "id": self.test_user.id,
                                 "im_status": self.test_user.im_status,
                                 "im_status_access_token": self.test_user._get_im_status_access_token(),
@@ -662,7 +664,7 @@ class TestChannelInternals(MailCommon, HttpCase):
         """ Test that a partner can leave a channel/group but not a chat."""
         group_restricted_channel = self.env['discuss.channel']._create_channel(name='Channel for Groups', group_id=self.env.ref('base.group_user').id)
         public_channel = self.env['discuss.channel']._create_channel(name='Channel for Everyone', group_id=None)
-        private_group = self.env['discuss.channel']._create_group(partners_to=self.user_employee.partner_id.ids, name="Group")
+        private_group = self.env['discuss.channel']._create_group(users_to=self.user_employee, name="Group")
         chat_user_current = self.env['discuss.channel']._get_or_create_chat(self.env.user.partner_id.ids)
         self.assertEqual(len(group_restricted_channel.channel_member_ids), 1)
         self.assertEqual(len(public_channel.channel_member_ids), 1)
@@ -737,7 +739,7 @@ class TestChannelInternals(MailCommon, HttpCase):
 
     def test_channel_should_generate_correct_default_avatar(self):
         test_channel = self.env['discuss.channel']._create_channel(name='Channel', group_id=self.env.ref('base.group_user').id)
-        private_group = self.env['discuss.channel']._create_group(partners_to=self.user_employee.partner_id.ids)
+        private_group = self.env['discuss.channel']._create_group(users_to=self.user_employee)
         bgcolor_channel = html_escape(get_random_ui_color_from_seed(str(test_channel.id)))
         bgcolor_group = html_escape(get_random_ui_color_from_seed(str(private_group.id)))
         expected_avatar_channel = (channel_avatar.replace('fill="#875a7b"', f'fill="{bgcolor_channel}"')).encode()
@@ -967,7 +969,6 @@ class TestChannelInternals(MailCommon, HttpCase):
                             "You are in <b>#&lt;strong&gt;R&amp;D&lt;/strong&gt;</b>."
                             "<br><br><b>@username</b> to mention someone"
                             "<br><b>@role</b> to notify multiple people"
-                            "<br><b>#channel</b> to link a channel"
                             "<br><b>/command</b> to run a command"
                             "<br><b>::shortcut</b> to insert a canned response"
                             "<br><b>:emoji:</b> to insert an emoji"
@@ -1006,7 +1007,6 @@ class TestChannelInternals(MailCommon, HttpCase):
                             f"and <a href=# data-oe-model='res.partner' data-oe-id='{self.partner_employee_nomail.id}' class=o_mail_redirect>@&lt;strong&gt;Evita Employee NoEmail&lt;/strong&gt;</a>."
                             "<br><br><b>@username</b> to mention someone"
                             "<br><b>@role</b> to notify multiple people"
-                            "<br><b>#channel</b> to link a channel"
                             "<br><b>/command</b> to run a command"
                             "<br><b>::shortcut</b> to insert a canned response"
                             "<br><b>:emoji:</b> to insert an emoji"
@@ -1041,6 +1041,7 @@ class TestChannelInternals(MailCommon, HttpCase):
                                 "parent_id": False,
                                 "partner_ids": message.partner_ids.ids,
                                 "pinned_at": message.pinned_at,
+                                "subject": message.subject,
                                 "translationValue": False,
                                 "write_date": fields.Datetime.to_string(message.write_date),
                             },
@@ -1154,3 +1155,42 @@ class TestChannelInternals(MailCommon, HttpCase):
         actual_member_ids = [m.partner_id.id if m.partner_id else m.guest_id.id for m in channel.channel_member_ids]
         expected_member_ids = [self.partner_employee.id, self.guest.id, self.env.user.partner_id.id]
         self.assertCountEqual(actual_member_ids, expected_member_ids)
+
+    def test_channel_add_members_push_notification(self):
+        invited_user = mail_new_test_user(self.env, login="invitee_push_lang", groups="base.group_user")
+        invited_user.partner_id.lang = False
+        channel = self.env["discuss.channel"].create({"name": "Push Invite", "channel_type": "channel"})
+        push_device = self._setup_push_devices_for_partners(invited_user.partner_id)
+        self.authenticate(self.user_employee.login, self.user_employee.login)
+        with self.mock_push_to_end_point():
+            self.make_jsonrpc_request(
+                "/mail/store",
+                {
+                    "fetch_params": [
+                        [
+                            "/discuss/channel/add_members",
+                            {
+                                "channel_id": channel.id,
+                                "user_ids": invited_user.ids,
+                                "post_joined_message": False,
+                            },
+                        ],
+                    ],
+                },
+            )
+        self.assertPushNotification(
+            endpoint=push_device.endpoint,
+            title=channel.name,
+            body=self.env._(
+                "%(user)s has invited you to this channel",
+                user=self.user_employee.partner_id.display_name,
+            ),
+            options={
+                "icon": f"/web/image/discuss.channel/{channel.id}/avatar_128",
+                "data": {
+                    "action": "mail.action_discuss",
+                    "model": "discuss.channel",
+                    "res_id": channel.id,
+                },
+            },
+        )

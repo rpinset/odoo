@@ -227,6 +227,7 @@ export class FontTypePlugin extends Plugin {
         ],
         delete_backward_overrides: withSequence(20, this.handleDeleteBackward.bind(this)),
         delete_backward_word_overrides: this.handleDeleteBackward.bind(this),
+        set_block_overrides: this.handleSetBlock.bind(this),
 
         /** Processors */
         clipboard_content_processors: this.processContentForClipboard.bind(this),
@@ -253,6 +254,7 @@ export class FontTypePlugin extends Plugin {
                 unwrapContents(el);
             }
         }
+        return root;
     }
 
     get fontTypeName() {
@@ -430,5 +432,18 @@ export class FontTypePlugin extends Plugin {
             }
         }
         return clonedContents;
+    }
+
+    handleSetBlock(params) {
+        const { block, newEl } = params;
+        if (
+            ["BLOCKQUOTE", "PRE"].includes(newEl?.nodeName) &&
+            block.parentElement === newEl.parentElement
+        ) {
+            const br = this.document.createElement("BR");
+            newEl.append(br, ...childNodes(block));
+            block.remove();
+            return true;
+        }
     }
 }

@@ -24,11 +24,10 @@ from odoo.addons.test_orm.tests.test_domain_expression import TransactionExpress
 _logger = logging.getLogger(__name__)
 
 
-@tagged('at_install', '-post_install')  # LEGACY at_install
+@tagged('at_install', '-post_install')
 class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
     def setUp(self):
         # for tests methods that create custom models/fields
-        self.addCleanup(self.drop_ormcaches)
         super().setUp()
         self.env.ref('test_orm.discussion_0').write({'participants': [Command.link(self.user_demo.id)]})
         # YTI FIX ME: The cache shouldn't be inconsistent (rco is gonna fix it)
@@ -437,9 +436,11 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         user2 = User.create({'name': 'Boooh', 'login': 'b'})
         user3 = User.create({'name': 'Crrrr', 'login': 'c'})
         # add a rule to not give access to user2
-        self.env['ir.rule'].create({
-            'model_id': self.env['ir.model'].search([('model', '=', 'res.users')]).id,
-            'domain_force': "[('id', '!=', %d)]" % user2.id,
+        self.env['ir.access'].create({
+            'name': 'Global access to forbid access to user2',
+            'model_id': self.env['ir.model']._get('res.users').id,
+            'operation': 'crud',
+            'domain': f"[('id', '!=', {user2.id})]",
         })
         # DLE P72: Since we decided that we do not raise security access errors for data to which we had the occassion
         # to put the value in the cache, we need to invalidate the cache for user1, user2 and user3 in order
@@ -606,7 +607,7 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
 
     def test_12_unlink_cascade_ir_rule_using_related(self):
         """ Test that `unlink` on many records doesn't raise a RecursionError
-        when there is an ir.rule with a stored related field to compute.
+        when there is an ir.access with a stored related field to compute.
         """
         message = self.env['test_orm.message'].create({
             'active': False,
@@ -615,11 +616,13 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
             [{'message': message.id}] * 101,
         )
 
-        # Create an ir.rule, which forces to flush field 'active'
-        self.env['ir.rule'].create({
+        # add ir.access to force field 'active' to be flushed
+        self.env['ir.access'].create({
+            'name': 'mail message active',
             'model_id': self.env['ir.model']._get_id('test_orm.emailmessage'),
-            'groups': [self.env.ref('base.group_user').id],
-            'domain_force': str([('active', '=', False)]),
+            'group_id': self.env.ref('base.group_user').id,
+            'operation': 'crud',
+            'domain': "[('active', '=', False)]",
         })
 
         message.with_user(self.user_demo).unlink()
@@ -903,7 +906,7 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
 
         # alter access rights: regular users cannot read 'records'
         access = self.env.ref('test_orm.access_test_orm_compute_unassigned')
-        access.perm_read = False
+        access.for_read = False
         self.env.flush_all()
 
         # switch to environment with user demo
@@ -1398,10 +1401,11 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         foo2 = self.env['test_orm.related_foo'].create({'name': 'F2', 'bar_id': bar2.id})
         record1 = model.create({'name': 'A1', 'foo_id': foo1.id})
         record2 = model.create({'name': 'A2', 'foo_id': foo2.id})
-        self.env['ir.rule'].create({
+        self.env['ir.access'].create({
             'name': 'related_foo',
             'model_id': self.env['ir.model']._get('test_orm.related_foo').id,
-            'domain_force': f"[('id', '=', {foo1.id})]",
+            'operation': 'crud',
+            'domain': f"[('id', '=', {foo1.id})]",
         })
 
         # check access to fields
@@ -1554,8 +1558,8 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         self.env['ir.default'].set('test_orm.company', 'tag_id', tag0.id)
 
         # assumption: users don't have access to 'ir.default'
-        accesses = self.env['ir.model.access'].search([('model_id.model', '=', 'ir.default')])
-        accesses.write(dict.fromkeys(['perm_read', 'perm_write', 'perm_create', 'perm_unlink'], False))
+        accesses = self.env['ir.access'].search([('model_id', '=', 'ir.default')])
+        accesses.active = False
 
         # create/modify a record, and check the value for each user
         record = self.env['test_orm.company'].create({
@@ -1628,13 +1632,10 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         user0.write({'group_ids': [Command.link(self.env.ref('base.group_system').id)]})
         record.with_user(user0).foo = 'yes we can'
 
-        # add ir.rule to prevent access on record
+        # modify ir.access to prevent access on record
         self.assertTrue(user0._is_internal())
-        self.env['ir.rule'].create({
-            'model_id': self.env['ir.model']._get_id(record._name),
-            'groups': [self.env.ref('base.group_user').id],
-            'domain_force': str([('id', '!=', record.id)]),
-        })
+        access = self.env.ref('test_orm.access_test_orm_company')
+        access.domain = f"[('id', '!=', {record.id})]"
         with self.assertRaises(AccessError):
             record.with_user(user0).foo = 'forbidden'
 
@@ -2052,18 +2053,9 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         """ Test that prefetching non-column fields works in the presence of deleted records. """
         Discussion = self.env['test_orm.discussion']
 
-        # add an ir.rule that forces reading field 'name'
-        self.env['ir.model.access'].create({
-            'name': 'demo',
-            'model_id': self.env['ir.model']._get(Discussion.categories._name).id,
-            'group_id': self.env.ref('base.group_user').id,
-            'perm_read': True,
-        })
-        self.env['ir.rule'].create({
-            'model_id': self.env['ir.model']._get(Discussion._name).id,
-            'groups': [self.env.ref('base.group_user').id],
-            'domain_force': "[('name', '!=', 'Super Secret discution')]",
-        })
+        # modify ir.access to force reading field 'name'
+        access = self.env.ref('test_orm.access_discussion')
+        access.domain = "[('name', '!=', 'Super Secret discussion')]"
 
         records = Discussion.with_user(self.user_demo).create([
             {'name': 'EXISTING'},
@@ -2083,21 +2075,17 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         # invalidate 'categories' for the assertQueryCount
         self.env.transaction.invalidate_access_cache()
         records.invalidate_model(['categories'])
-        with self.assertQueryCount(5):
+        with self.assertQueryCount(4):
             # <categories>.__get__(existing)
-            #  -> records.check_access('read')
-            #      -> records.has_access('read')
-            #          -> records.sudo().filtered_domain(...)
-            #              -> <name>.__get__(existing)
-            #                  -> records._fetch_field(<name>)
-            #                      -> records.fetch(['name', ...])
-            #                          -> ONE QUERY to read ['name', ...] of records
-            #                          -> ONE QUERY for deleted.exists() / code: forbidden = missing.exists()
-            #      -> ONE QUERY for records.exists() / MissingError during _check_access
-            #  -> ONE QUERY for records.exists()
-            #  -> records._fetch_field(<categories>)
-            #      -> records.fetch(['categories'])
-            #              -> ONE QUERY to read the many2many of existing
+            #  -> records.fetch(['categories'])
+            #      -> records.check_access('read')
+            #          -> records.__check_access_fill_cache(...)
+            #              -> records.filtered_domain(...)
+            #                  -> <name>.__get__(record)
+            #                      -> ONE QUERY to read ['name', ...] of records
+            #              -> ONE QUERY for records.exists() / MissingError
+            #      -> ONE QUERY for records.exists() / MissingError
+            #      -> ONE QUERY to read the many2many of existing
             existing.categories
 
         # this one must trigger a MissingError
@@ -2464,12 +2452,12 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         # the patches on new_group.all_user_ids should not have changed group.all_user_ids
         self.assertEqual(group.user_ids, user0)
 
-    @mute_logger('odoo.addons.base.models.ir_model')
+    @mute_logger('odoo.addons.base.models.ir_access')
     def test_41_new_related(self):
         """ test the behavior of related fields starting on new records. """
         # make discussions unreadable for demo user
         access = self.env.ref('test_orm.access_discussion')
-        access.write({'perm_read': False})
+        access.for_read = False
 
         # create an environment for demo user
         env = self.env(user=self.user_demo)
@@ -2489,12 +2477,12 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         # with self.assertRaises(AccessError):
         #     message.discussion.name
 
-    @mute_logger('odoo.addons.base.models.ir_model')
+    @mute_logger('odoo.addons.base.models.ir_access')
     def test_42_new_related(self):
         """ test the behavior of related fields traversing new records. """
         # make discussions unreadable for demo user
         access = self.env.ref('test_orm.access_discussion')
-        access.write({'perm_read': False})
+        access.for_read = False
 
         # create an environment for demo user
         env = self.env(user=self.user_demo)
@@ -3099,10 +3087,12 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
             record_user.invalidate_recordset(['tags'])
             record_user.read(['tags'])
 
-        # create a passing ir.rule
-        self.env['ir.rule'].create({
+        # create a passing ir.access
+        self.env['ir.access'].create({
+            'name': 'passing',
             'model_id': self.env['ir.model']._get(record._name).id,
-            'domain_force': "[('id', '=', %d)]" % record.id,
+            'operation': 'crud',
+            'domain': f"[('id', '=', {record.id})]",
         })
 
         # prep the following query count by caching access check related data
@@ -3116,13 +3106,15 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
             record_user.invalidate_recordset(['tags'])
             record_user.read(['tags'])
 
-        # create a blocking ir.rule
-        self.env['ir.rule'].create({
+        # create a blocking ir.access
+        self.env['ir.access'].create({
+            'name': 'blocking',
             'model_id': self.env['ir.model']._get(record._name).id,
-            'domain_force': "[('id', '!=', %d)]" % record.id,
+            'operation': 'crud',
+            'domain': f"[('id', '!=', {record.id})]",
         })
 
-        # ensure ir.rule is applied even when reading m2m
+        # ensure ir.access is applied even when reading m2m
         with self.assertRaises(AccessError):
             record_user.read(['tags'])
 
@@ -3147,10 +3139,12 @@ class TestFields(TransactionCaseWithUserDemo, TransactionExpressionCase):
         line = move.line_ids
         self.assertEqual(move.quantity, 42)
 
-        # create an ir.rule for lines that uses move.quantity
-        self.env['ir.rule'].create({
+        # create an ir.access for lines that uses move.quantity
+        self.env['ir.access'].create({
+            'name': 'global rule',
             'model_id': self.env['ir.model']._get(line._name).id,
-            'domain_force': "[('move_id.quantity', '>=', 0)]",
+            'operation': 'crud',
+            'domain': "[('move_id.quantity', '>=', 0)]",
         })
 
         # unlink the line, and check the recomputation of move.quantity
@@ -3705,7 +3699,7 @@ class TestX2many(TransactionExpressionCase):
 
 class SudoCommands(TransactionCaseWithUserDemo):
 
-    @mute_logger('odoo.addons.base.models.ir_model')
+    @mute_logger('odoo.addons.base.models.ir_access')
     @users('demo')
     def test_sudo_commands(self):
         """Test manipulating a x2many field using Commands with `sudo` or with another user (`with_user`)
@@ -4231,10 +4225,11 @@ class TestParentStore(TransactionCaseWithUserDemo):
             self.assertEqual(cat.depth, 2)
 
     def test_with_ir_rule_behavior(self):
-        self.env['ir.rule'].create({
+        self.env['ir.access'].create({
             'name': 'category rule',
             'model_id': self.env['ir.model']._get('test_orm.category').id,
-            'domain_force': str([('id', 'in', self.cats(3).ids)]),
+            'operation': 'crud',
+            'domain': str([('id', 'in', self.cats(3).ids)]),
         })
 
         # Ensure that we don't have access to inaccessible records
@@ -4402,6 +4397,69 @@ class TestSelectionUpdates(TransactionCase):
             record.related_selection = 'bar'
 
 
+@tagged('selection_manual_related_update')
+class TestSelectionManualRelatedUpdate(TransactionCase):
+    """
+    Regression test: adding a value to a manual selection field must update
+    the registry for models that have a manual related field pointing to it.
+    """
+
+    MODEL_BASE = 'test_orm.model_selection_base'
+    MODEL_RELATED = 'test_orm.model_selection_related'
+
+    def test_manual_related_selection_reflects_new_value(self):
+        self.env.flush_all()
+        base_model_id = self.env['ir.model']._get_id(self.MODEL_BASE)
+        related_model_id = self.env['ir.model']._get_id(self.MODEL_RELATED)
+
+        # Create a manual selection field with two initial options
+        x_sel = self.env['ir.model.fields'].create({
+            'name': 'x_sel',
+            'field_description': 'Manual Selection',
+            'model_id': base_model_id,
+            'ttype': 'selection',
+            'selection_ids': [
+                Command.create({'value': 'a', 'name': 'A', 'sequence': 0}),
+                Command.create({'value': 'b', 'name': 'B', 'sequence': 1}),
+            ],
+        })
+
+        # Create a manual related field on MODEL_RELATED pointing to the new field
+        self.env['ir.model.fields'].create({
+            'name': 'x_related_sel',
+            'field_description': 'Related Manual Selection',
+            'model_id': related_model_id,
+            'ttype': 'selection',
+            'related': 'selection_id.x_sel',
+        })
+
+        # Sanity check: the related field initially knows only 'a' and 'b'
+        related_field = self.env[self.MODEL_RELATED]._fields['x_related_sel']
+        initial_values = [v for v, _ in related_field._description_selection(self.env)]
+        self.assertIn('a', initial_values)
+        self.assertIn('b', initial_values)
+        self.assertNotIn('c', initial_values)
+
+        # Add a third option to the manual selection field
+        self.env['ir.model.fields.selection'].create({
+            'field_id': x_sel.id,
+            'value': 'c',
+            'name': 'C',
+            'sequence': 2,
+        })
+
+        # The manual related field must reflect the new option
+        related_field = self.env[self.MODEL_RELATED]._fields['x_related_sel']
+        updated_values = [v for v, _ in related_field._description_selection(self.env)]
+        self.assertIn('c', updated_values,
+            "Manual related selection field must reflect new values added to its target field")
+
+        # Also verify that reading a record with the new value via the related field works
+        base_record = self.env[self.MODEL_BASE].create({'x_sel': 'c'})
+        related_record = self.env[self.MODEL_RELATED].create({'selection_id': base_record.id})
+        self.assertEqual(related_record.x_related_sel, 'c')
+
+
 @tagged('selection_ondelete_base')
 @tagged('at_install', '-post_install')  # LEGACY at_install
 class TestSelectionOndelete(TransactionCase):
@@ -4549,7 +4607,7 @@ class TestSelectionOndelete(TransactionCase):
         self._unlink_option(self.MODEL_REQUIRED, 'foo')
         self.assertEqual(rec.my_selection, 'foo')
 
-    @mute_logger('odoo.addons.base.models.ir_model')
+    @mute_logger('odoo.addons.base.models.ir_access')
     def test_write_override_selection(self):
         # test that on override to write that raises an error does not prevent the ondelete
         # policy from executing and cleaning up what needs to be cleaned up
@@ -5166,6 +5224,33 @@ class TestPrecompute(TransactionCase):
         self.assertEqual(record.baz, 'baz')
         self.assertEqual(record.baz2, 'baz')
 
+    def test_precompute_editable_multi(self):
+        model = self.env['test_orm.precompute.editable']
+
+        # no value for boo1, no value for boo2
+        record = model.create({'foo': 'foo'})
+        self.assertEqual(record.boo1, 'COMPUTED')
+        self.assertEqual(record.boo2, 'COMPUTED')
+        self.assertEqual(record.choo, 'COMPUTED')
+
+        # value for boo1, no value for boo2: boo1 prevents boo2 from being computed
+        record = model.create({'foo': 'foo', 'boo1': 'boo1'})
+        self.assertEqual(record.boo1, 'boo1')
+        self.assertEqual(record.boo2, False)
+        self.assertEqual(record.choo, False)
+
+        # no value for boo1, value for boo2: boo2 prevents boo1 from being computed
+        record = model.create({'foo': 'foo', 'boo2': 'boo2'})
+        self.assertEqual(record.boo1, False)
+        self.assertEqual(record.boo2, 'boo2')
+        self.assertEqual(record.choo, 'boo2')
+
+        # value for boo1, value for boo2
+        record = model.create({'foo': 'foo', 'boo1': 'boo1', 'boo2': 'boo2'})
+        self.assertEqual(record.boo1, 'boo1')
+        self.assertEqual(record.boo2, 'boo2')
+        self.assertEqual(record.choo, 'boo2')
+
     def test_precompute_readonly(self):
         """
         Ensures
@@ -5402,6 +5487,7 @@ class TestWriteOverrideTranslatedFields(TransactionCase):
         'web_studio': ['ir.ui.menu.name'],
         'website_sale': ['product.template.description_ecommerce'],
         'point_of_sale': ['product.template.public_description', 'product.tag.pos_description'],
+        'project': ['project.project.name'],
         'account': ['account.journal.name'],
         'documents': ['documents.document.name'],
         'im_livechat': ['chatbot.script.title'],
@@ -5417,7 +5503,7 @@ class TestWriteOverrideTranslatedFields(TransactionCase):
             ('state', '=', 'installed'),
         ]).mapped('name'))
         checked_field_names = {
-            module_name: field_names
+            module_name: field_names.copy()
             for module_name, field_names in self.CHECKED_FIELD_NAMES.items()
             if module_name in modules_to_check
         }

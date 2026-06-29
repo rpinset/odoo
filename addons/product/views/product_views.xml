@@ -78,7 +78,7 @@
                         <field
                             name="image_1920"
                             widget="image_with_media_dialog"
-                            options="{'convert_to_webp': True, 'preview_image': 'image_128', 'size': [90, 90], 'zoom': True}"
+                            options="{'convert_to_webp': True, 'preview_image': 'image_128', 'size': [90, 90], 'zoom': True, 'img_class': 'border rounded h-100 object-fit-contain'}"
                         />
                     </div>
                     <notebook>
@@ -138,15 +138,20 @@
                                             options="{'no_quick_create': True}"
                                         />
                                     </div>
-                                    <div colspan="2" class="d-flex align-items-baseline gap-2" name="standard_price_uom" invisible="type == 'combo'
+
+                                    <label for="standard_price" class="o_form_label" invisible="type == 'combo'
+                                        or (not is_product_variant and (
+                                            product_variant_count &gt; 1
+                                            or (product_variant_count == 0 and is_dynamically_created)
+                                        ))"/>
+                                    <div class="d-flex align-items-baseline gap-2" name="standard_price_uom" invisible="type == 'combo'
                                         or (not is_product_variant and (
                                             product_variant_count &gt; 1
                                             or (product_variant_count == 0 and is_dynamically_created)
                                         ))"
                                     >
-                                        <label for="standard_price" class="o_form_label"/>
+                                        
                                         <field
-                                            class="oe_inline"
                                             name="standard_price"
                                             widget="monetary"
                                             options="{
@@ -188,7 +193,29 @@
                                         options="{'no_quick_create': True, 'on_tag_click': 'open_form'}"
                                         groups="uom.group_uom"
                                         force_save="1"
-                                        context="{'product_id': product_variant_id if product_variant_count == 1 else False, 'product_ids': product_variant_ids, 'show_variant_name': product_variant_count > 1}"/>
+                                        context="{
+                                            'product_id': product_variant_id if product_variant_count == 1 else False,
+                                            'default_product_id': product_variant_id,
+                                            'product_ids': product_variant_ids,
+                                            'has_variants': product_variant_count > 1,
+                                        }"
+                                    />
+                                    <label
+                                        for="action_open_packaging_barcodes"
+                                        string="Packaging Barcodes"
+                                        groups="uom.group_uom"
+                                        class="d-flex d-sm-none o_form_label"
+                                        invisible="type != 'consu' or not product_variant_count"
+                                    />
+                                    <button
+                                        string="Barcodes"
+                                        name="action_open_packaging_barcodes"
+                                        type="object"
+                                        groups="uom.group_uom"
+                                        icon="oi-arrow-right"
+                                        class="oe_link p-0"
+                                        invisible="type != 'consu' or not product_variant_count"
+                                    />
                                 </group>
                                 <group string="Short Description" name="description">
                                     <field colspan="2" name="description_sale" nolabel="1" placeholder="This note is added to sales orders and invoices."/>
@@ -473,7 +500,7 @@
                         readonly="1"
                         sum="Total Forecasted"
                     />
-                    <field name="uom_id" groups="uom.group_uom" optional="show" readonly="1"/>
+                    <field name="uom_id" groups="uom.group_uom" optional="show" readonly="1" options="{'no_open': True}"/>
                     <field
                         name="extra_uom_ids"
                         widget="many2many_uom_tags"
@@ -572,15 +599,19 @@
                         invisible="product_variant_count == 1"
                     />
                 </field>
-                <field name="uom_ids" position="replace">
-                <field
-                    name="extra_uom_ids"
-                    widget="many2many_uom_tags"
-                    options="{'no_quick_create': True, 'on_tag_click': 'open_form'}"
-                    groups="uom.group_uom"
-                    invisible="product_variant_count == 1"
-                    context="{'product_id': id}"
-                />
+                <field name="uom_ids" position="attributes">
+                    <attribute name="readonly">product_variant_count != 1</attribute>
+                    <attribute name="context">{'product_id': id}</attribute>
+                </field>
+                <field name="uom_ids" position="after">
+                    <field
+                        name="extra_uom_ids"
+                        widget="many2many_uom_tags"
+                        options="{'no_quick_create': True, 'on_tag_click': 'open_form'}"
+                        groups="uom.group_uom"
+                        invisible="product_variant_count == 1"
+                        context="{'product_id': id}"
+                    />
                 </field>
             </field>
         </record>

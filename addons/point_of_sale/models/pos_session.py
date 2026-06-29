@@ -362,6 +362,19 @@ class PosSession(models.Model):
             not (o.preset_time and o.preset_time.date() > today)
         )
 
+    def get_order_count_by_preset(self):
+        orders = self.order_ids.filtered(lambda o: o.state != 'cancel' and o.preset_id and o.preset_time and o.preset_time > fields.Datetime.now())
+        orders_by_preset = {}
+        for order in orders:
+            if order.preset_id.id not in orders_by_preset:
+                orders_by_preset[order.preset_id.id] = {
+                    'id': order.preset_id.id,
+                    'name': order.preset_id.name,
+                    'count': 0,
+                }
+            orders_by_preset[order.preset_id.id]['count'] += 1
+        return list(orders_by_preset.values())
+
     def action_pos_session_closing_control(self, balancing_account=False, amount_to_balance=0, bank_payment_method_diffs=None):
         bank_payment_method_diffs = bank_payment_method_diffs or {}
         for session in self:
@@ -406,7 +419,9 @@ class PosSession(models.Model):
                 raise UserError(_('This session is already closed.'))
             self._check_if_no_draft_orders()
             self._check_invoices_are_posted()
-            self._process_session_validation(balancing_account, amount_to_balance, bank_payment_method_diffs)
+            action = self._process_session_validation(balancing_account, amount_to_balance, bank_payment_method_diffs)
+            if action:
+                return action
         else:
             self.sudo()._post_statement_difference(self.cash_register_difference)
 
@@ -555,7 +570,10 @@ class PosSession(models.Model):
         return {'successful': True}
 
     def post_close_register_message(self):
-        self.message_post(body=_('Closed Register'))
+        self.message_post(body=_('Closed Register'), author_id=self._get_message_author().id)
+
+    def _get_message_author(self):
+        return self.env.user.partner_id
 
     def update_closing_control_state_session(self, notes):
         # Prevent closing the session again if it was already closed
@@ -1301,7 +1319,7 @@ class PosSession(models.Model):
             'name': tax.name,
             'account_id': account_id,
             'move_id': self.move_id.id,
-            'tax_base_amount': abs(base_amount_converted),
+            'tax_base_amount': base_amount_converted,
             'tax_repartition_line_id': repartition_line_id,
             'tax_tag_ids': [(6, 0, tag_ids)],
             'display_type': 'tax',

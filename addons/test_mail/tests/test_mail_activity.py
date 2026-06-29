@@ -192,10 +192,11 @@ class TestActivityRights(TestActivityCommon):
 
         # ---------------------------------------
         # Let only the creator access an activity
-        self.env['ir.rule'].create({
+        self.env['ir.access'].create({
             'name': 'Hop hop hop Ernest',
-            'domain_force': '[("user_id", "=", user.id)]',
             'model_id': self.env['ir.model']._get('mail.activity').id,
+            'operation': 'crud',
+            'domain': '[("user_id", "=", user.id)]',
         })
 
         # cannot _search activities if no access to the document
@@ -797,6 +798,7 @@ class TestActivityViewHelpers(TestActivityCommon):
                 'ids': set(record_activities.ids),
                 'reporting_date': record_activities[0].date_deadline,
                 'user_assigned_ids': record_activities.user_id.ids,
+                'role_assigned_ids': [],
                 'summaries': [act.summary for act in record_activities],
             })
 
@@ -808,6 +810,7 @@ class TestActivityViewHelpers(TestActivityCommon):
                 'ids': set(record_2_activities.ids),
                 'reporting_date': record_2_activities[2].date_deadline,
                 'user_assigned_ids': record_2_activities[2:].user_id.ids,
+                'role_assigned_ids': [],
                 'attachments_info': {
                     'count': 2, 'most_recent_id': self.attachment_2.id, 'most_recent_name': 'Uploaded doc_2'},
                 'summaries': [act.summary for act in record_2_activities],
@@ -825,6 +828,7 @@ class TestActivityViewHelpers(TestActivityCommon):
                 'ids': set(record_activities.ids),
                 'reporting_date': record_activities[2].date_done,
                 'user_assigned_ids': [],
+                'role_assigned_ids': [],
                 'attachments_info': {
                     'count': 1,  # 1 instead of 3 because all attachments are the same one
                     'most_recent_id': self.attachment_1.id,
@@ -866,6 +870,7 @@ class TestActivityViewHelpers(TestActivityCommon):
                 'ids': set(record_activities.ids),
                 'reporting_date': record_activities[0].date_deadline,
                 'user_assigned_ids': record_activities.user_id.ids,
+                'role_assigned_ids': [],
                 'summaries': [act.summary for act in record_activities],
             })
 

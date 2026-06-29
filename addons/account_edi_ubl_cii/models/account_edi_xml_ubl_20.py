@@ -4,6 +4,8 @@ from odoo import _, models, Command
 from odoo.tools import html2plaintext
 from odoo.tools.float_utils import float_is_zero, float_round
 from odoo.addons.account.tools import dict_to_xml
+from odoo.tools.partner_identifiers import get_tin_metadata_of_country
+
 from odoo.addons.account_edi_ubl_cii.models.account_edi_common import FloatFmt
 from odoo.addons.account_edi_ubl_cii.tools import Invoice, CreditNote, DebitNote
 from odoo.addons.account_edi_ubl_cii.tools.ubl_20_optional_fields import PEPPOL_INVOICE_OPTIONAL_FIELDS, PEPPOL_INVOICE_OPTIONAL_LINE_FIELDS, PEPPOL_CREDIT_NOTE_OPTIONAL_FIELDS, PEPPOL_CREDIT_NOTE_OPTIONAL_LINE_FIELDS
@@ -47,11 +49,10 @@ class AccountEdiXmlUBL20(models.AbstractModel):
 
         # 3. Run constraints
         vals['document_node'] = document_node
+        nsmap = document_node['_nsmap'] = self._get_document_nsmap(vals)
         constraints = self._flatten_multilevel_constraints(self._export_invoice_constraints(invoice, vals))
         errors = [constraint for constraint in constraints.values() if constraint]
-
         template = self._get_document_template(vals)
-        nsmap = self._get_document_nsmap(vals)
 
         # 4. Render the XML
         xml_content = dict_to_xml(document_node, nsmap=nsmap, template=template)
@@ -983,7 +984,7 @@ class AccountEdiXmlUBL20(models.AbstractModel):
         line_node.update({
             quantity_tag: {
                 '_text': base_line['quantity'],
-                'unitCode': self._get_uom_unece_code(base_line['product_uom_id']),
+                'unitCode': base_line['product_uom_id']._get_unece_code(),
             },
             'cbc:LineExtensionAmount': {
                 '_text': self.format_float(vals[f'total_excluded{currency_suffix}'], vals['currency_dp']),
@@ -1114,8 +1115,13 @@ class AccountEdiXmlUBL20(models.AbstractModel):
 
     def _import_retrieve_partner_vals(self, tree, role):
         """ Returns a dict of values that will be used to retrieve the partner """
+        vat = self._find_value(f'.//cac:{role}Party//cbc:CompanyID[string-length(text()) > 5]', tree)
+        country_code = self._find_value(f'.//cac:{role}Party//cac:PostalAddress/cac:Country/cbc:IdentificationCode', tree)
+        if not vat and country_code and (vat_scheme := get_tin_metadata_of_country(country_code).get('scheme')):
+            vat = self._find_value(f".//cac:{role}Party//cac:PartyIdentification/cbc:ID[@schemeID='{vat_scheme}']", tree)
+
         return {
-            'vat': self._find_value(f'.//cac:{role}Party//cbc:CompanyID[string-length(text()) > 5]', tree),
+            'vat': vat,
             'phone': self._find_value(f'.//cac:{role}Party//cac:Contact/cbc:Telephone', tree),
             'email': self._find_value(f'.//cac:{role}Party//cac:Contact/cbc:ElectronicMail', tree),
             'name': self._find_value(f'.//cac:{role}Party//cac:PartyTaxScheme/cbc:RegistrationName', tree) or

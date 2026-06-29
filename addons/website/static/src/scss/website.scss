@@ -2514,6 +2514,12 @@ $ribbon-padding: 100px;
 #website_cookies_bar {
     min-height: 0px;
     height: 0px;
+
+    .modal-sm {
+        .row {
+            @include row-cols(1);
+        }
+    }
 }
 
 .modal[id^='o_search_modal'] {
@@ -3608,4 +3614,18 @@ img.o_image_popup {
     .carousel-item {
         transition: none;
     }
+}
+
+/*
+The modal title has the fs-3 class, which results
+in a huge font size since it isn’t redefined for the frontend.
+*/
+.modal .modal-content .modal-header .modal-title.fs-3 {
+    font-size: 1.35rem !important;
+}
+
+*:has(> .stretched-link:focus-visible) {
+    outline: auto;
+    outline-color: black;
+    outline-offset: 2px;
 }

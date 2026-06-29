@@ -1,5 +1,4 @@
-import { useState } from "@web/owl2/utils";
-import { Component, onWillStart } from "@odoo/owl";
+import { Component, onWillStart, props, proxy, t } from "@odoo/owl";
 import { useService } from "@web/core/utils/hooks";
 import { ConfirmationDialog, deleteConfirmationMessage } from "@web/core/confirmation_dialog/confirmation_dialog";
 import { Dropdown } from "@web/core/dropdown/dropdown";
@@ -13,28 +12,19 @@ export class SaleTemplateDropdown extends Component {
         DropdownItem,
     };
 
-    static props = {
-        hotkey: {
-            type: String,
-            optional: true,
-        },
-        newButtonClasses: String,
-        record: {
-            type: Object,
-            optional: true,
-        },
-    };
-    static defaultProps = {
-        hotkey: "c",
-        isDisabled: false,
-    };
+    props = props({
+        hotkey: t.string().optional("c"),
+        newButtonClasses: t.string(),
+        // `isDisabled` was only declared in `defaultProps`, but it is used in the template
+        isDisabled: t.boolean().optional(false),
+        record: t.object().optional(),
+    });
 
     setup() {
         this.action = useService("action");
         this.dialogService = useService("dialog");
         this.orm = useService("orm");
-        this.state = useState({
-            hasQuotationTemplateFeature: false,
+        this.state = proxy({
             canManageTemplates: false,
             quotationTemplates: [],
         });
@@ -42,13 +32,7 @@ export class SaleTemplateDropdown extends Component {
     }
 
     async onWillStart() {
-        this.state.hasQuotationTemplateFeature = await user.hasGroup(
-            "sale_management.group_sale_order_template"
-        );
         this.state.canManageTemplates = await user.hasGroup("sales_team.group_sale_manager");
-        if (!this.state.hasQuotationTemplateFeature) {
-            return;
-        }
         this.state.quotationTemplates = await this.orm.searchRead(
             "sale.order.template",
             [["template_type", "=", "quotation"]],

@@ -6,14 +6,16 @@ from collections import defaultdict
 from urllib.parse import urlencode, urlparse
 
 from odoo import api, fields, models
+from odoo.exceptions import UserError, ValidationError
 from odoo.fields import Domain
 from odoo.http import request
+from odoo.modules.db import FunctionStatus
 from odoo.tools import float_round, is_html_empty, lazy
 from odoo.tools.sql import SQL, column_exists, create_column
 from odoo.tools.translate import adapt_translated_field_value, html_translate
 
-from odoo.addons.website.models import ir_http
 from odoo.addons.website.tools import text_from_html
+from odoo.addons.website_sale.const import SHOP_PATH
 
 # A delimiter that users aren't likely to search for in product codes.
 RARE_DELIMITER = "\u241e"
@@ -24,7 +26,7 @@ _logger = logging.getLogger(__name__)
 def get_translated_field_gist_index(registry, column_name):
     if not registry.has_trigram:
         return ""
-    if registry.has_unaccent:
+    if registry.has_unaccent == FunctionStatus.INDEXABLE:
         return f"USING GIST(unaccent((JSONB_PATH_QUERY_ARRAY({column_name}, '$.*'::jsonpath))::text) gist_trgm_ops)"  # noqa: E501
     return (
         f"USING GIST((JSONB_PATH_QUERY_ARRAY({column_name}, '$.*'::jsonpath)::text) gist_trgm_ops)"
@@ -39,6 +41,7 @@ class ProductTemplate(models.Model):
         "website.seo.metadata",
         "website.published.multi.mixin",
         "website.searchable.mixin",
+        "website.structured_data.mixin",
     ]
     _mail_post_access = "read"
     _check_company_auto = True
@@ -189,7 +192,7 @@ class ProductTemplate(models.Model):
     _default_code_gist_idx = models.Index(
         lambda registry: (
             "USING GIST(unaccent(default_code) gist_trgm_ops)"
-            if registry.has_trigram and registry.has_unaccent
+            if registry.has_trigram and registry.has_unaccent == FunctionStatus.INDEXABLE
             else ("USING GIST(default_code gist_trgm_ops)" if registry.has_trigram else "")
         )
     )
@@ -260,7 +263,7 @@ class ProductTemplate(models.Model):
         super()._compute_website_url()
         for product in self:
             if product.id:
-                product.website_url = "/shop/product/%s" % self.env["ir.http"]._slug(product)
+                product.website_url = "/shop/%s" % self.env["ir.http"]._slug(product)
 
     @api.depends("product_variant_ids.default_code")
     def _compute_variants_default_code(self):
@@ -284,6 +287,8 @@ class ProductTemplate(models.Model):
         return records
 
     def write(self, vals):
+        if "active" in vals and not vals["active"] and any(pt._is_donation() for pt in self):
+            raise ValidationError(self.env._("Donation products cannot be archived."))
         # Clear empty ecommerce description content to avoid side-effects on product pages
         # when there is no content to display anyway.
         if vals.get("description_ecommerce"):
@@ -297,6 +302,18 @@ class ProductTemplate(models.Model):
                 ),
             )
         return super().write(vals)
+
+    @api.ondelete(at_uninstall=False)
+    def _unlink_if_not_donation_product(self):
+        if self.filtered(lambda p: p._is_donation()):
+            raise UserError(self.env._("Donation products cannot be deleted."))
+
+    def _is_donation(self):
+        """Return whether this product is the donation product used by the donation snippet."""
+        self.ensure_one()
+        return self.id == self.env["ir.model.data"]._xmlid_to_res_id(
+            "website_sale.product_donation"
+        )
 
     # === BUSINESS METHODS ===#
 
@@ -665,8 +682,10 @@ class ProductTemplate(models.Model):
                 )
 
             if uom_price_enabled:
-                template_price_vals["base_unit_price"] = template.product_variant_id._get_base_unit_price(
-                    template_price_vals["price_reduce"]
+                template_price_vals["base_unit_price"] = (
+                    template.product_variant_id._get_base_unit_price(
+                        template_price_vals["price_reduce"]
+                    )
                 )
 
             res[template.id] = template_price_vals
@@ -693,7 +712,14 @@ class ProductTemplate(models.Model):
         return next(self._get_possible_combinations(), False) is not False
 
     def _get_combination_info(
-        self, combination=False, product_id=False, add_qty=1.0, uom_id=False, only_template=False
+        self,
+        combination=False,
+        product_id=False,
+        add_qty=1.0,
+        uom_id=False,
+        only_template=False,
+        pricelist=None,
+        fiscal_position=None,
     ):
         """Return info about a given combination.
 
@@ -741,7 +767,7 @@ class ProductTemplate(models.Model):
         self.ensure_one()
 
         combination = combination or self.env["product.template.attribute.value"]
-        website = request.website.with_context(self.env.context)
+        website = self.env["website"].get_current_website()
         uom = self.env["uom.uom"].browse(uom_id) or self._get_main_uom()
 
         if not product_id and not combination and not only_template:
@@ -781,6 +807,10 @@ class ProductTemplate(models.Model):
                 quantity=add_qty or 1.0,
                 uom=uom,
                 website=website,
+                pricelist=pricelist if pricelist is not None else request.pricelist,
+                fiscal_position=(
+                    fiscal_position if fiscal_position is not None else request.fiscal_position
+                ),
             ),
         }
 
@@ -801,7 +831,9 @@ class ProductTemplate(models.Model):
 
         return combination_info
 
-    def _get_additional_combination_info(self, product_or_template, quantity, uom, website):
+    def _get_additional_combination_info(
+        self, product_or_template, quantity, uom, website, pricelist, fiscal_position
+    ):
         """Compute additional combination info, based on given parameters.
 
         :param product_or_template: `product.product` or `product.template` record
@@ -813,7 +845,7 @@ class ProductTemplate(models.Model):
         :returns: additional product/template information
         :rtype: dict
         """
-        pricelist = request.pricelist.with_context(self.env.context)
+        pricelist = pricelist.with_context(self.env.context)
         currency = website.currency_id.with_context(self.env.context)
 
         # Pricelist price doesn't have to be converted
@@ -855,7 +887,7 @@ class ProductTemplate(models.Model):
         product_taxes = product_or_template.sudo().taxes_id._filter_taxes_by_company()
         taxes = self.env["account.tax"]
         if product_taxes:
-            taxes = request.fiscal_position.map_tax(product_taxes)
+            taxes = fiscal_position.map_tax(product_taxes)
             # We do not apply taxes on the compare_list_price value because it's meant to be
             # a strict value displayed as is.
             for price_key in ("price", "list_price"):
@@ -972,7 +1004,7 @@ class ProductTemplate(models.Model):
 
         :param int | typing.Iterable[int | str] combination_ids: The IDs of the currently selected
             `product.template.attribute.value` records.
-        :param int website_id: The ID of the current website (request.website.id). Used
+        :param int website_id: The ID of the current website. Used
             to generate correct image URLs for the specific domain context.
 
         :return: A dictionary mapping attribute value IDs to their corresponding image
@@ -1029,7 +1061,7 @@ class ProductTemplate(models.Model):
 
         if not tax_display:
             show_tax = (
-                website or self.env["website"].get_current_website()
+                website or self.env.website
             ).show_line_subtotals_tax_selection
             tax_display = "total_excluded" if show_tax == "tax_excluded" else "total_included"
 
@@ -1216,7 +1248,7 @@ class ProductTemplate(models.Model):
         ]
 
     @api.model
-    def _search_get_detail(self, website, order, options):
+    def _search_get_detail(self, website, order, options):  # noqa: ARG002
         domains = [website.sale_product_domain()]
         category = options.get("category")
         tags = options.get("tags")
@@ -1295,8 +1327,15 @@ class ProductTemplate(models.Model):
             "sequence": 20,
         }
 
+    def _search_fetch(self, search_detail, search, offset, limit, order):
+        results, count = super()._search_fetch(search_detail, search, offset, limit, order)
+        return results.with_context(search_term=search), count
+
     def _search_render_results(self, fetch_fields, mapping, icon, limit):
         results_data = super()._search_render_results(fetch_fields, mapping, icon, limit)
+        search_term = self.env.context.get("search_term", "")
+        search_words = search_term.lower().split() if search_term else []
+
         for product, data in zip(self, results_data):
             combination_info = product._get_combination_info(only_template=True)
             values = product.mapped("attribute_line_ids.value_ids")
@@ -1306,6 +1345,17 @@ class ProductTemplate(models.Model):
             if price:
                 data["price"] = price
             data["image_url"] = "/web/image/product.template/%s/image_128" % data["id"]
+
+            if search_words and values:
+                matched_values = values.filtered(
+                    lambda attribute_value: any(
+                        word in (attribute_value.name or "").lower() for word in search_words
+                    )
+                )
+                if matched_values:
+                    data["website_url"] = product._get_product_url(
+                        grouped_attributes_values=matched_values.grouped("attribute_id")
+                    )
         return results_data
 
     def _search_render_results_prices(self, mapping, combination_info):
@@ -1355,10 +1405,9 @@ class ProductTemplate(models.Model):
             return False
         if not self._get_available_uoms():
             return False
-        website = self.env["website"].get_current_website()
         return not (
-            website.prevent_sale
-            and website._prevent_product_sale(self, not self._get_contextual_price())
+            self.env.website.prevent_sale
+            and self.env.website._prevent_product_sale(self, not self._get_contextual_price())
         )
 
     @api.model
@@ -1381,12 +1430,12 @@ class ProductTemplate(models.Model):
             product_or_template, quantity, date, currency, pricelist, **kwargs
         )
 
-        if website := ir_http.get_request_website():
+        if website := self.env.website:
             price = product_or_template._apply_taxes_to_price(price, currency, website=website)
 
         return price, pricelist_rule_id
 
-    def _to_markup_data(self, website):
+    def _prepare_jsonld_vals(self):
         """Generate JSON-LD markup data for the current product template.
 
         If the template has multiple variants, the https://schema.org/ProductGroup schema is used.
@@ -1398,10 +1447,12 @@ class ProductTemplate(models.Model):
         :rtype: dict
         """
         self.ensure_one()
+        website = self.env["website"].get_current_website()
 
         if self.product_variant_count == 1:
-            markup_data = self.product_variant_id._to_markup_data(website)
+            vals = self.product_variant_id._prepare_jsonld_vals()
         else:
+            base_url = website.get_base_url()
             # perf: temporal solution to avoid slowness when product have many variants and
             # pricelist rules
             limit = (
@@ -1411,31 +1462,73 @@ class ProductTemplate(models.Model):
                 .get_int("website_sale.markup_data_limit_variants")
                 or None
             )
-            if limit:
-                product_variant_ids = self.product_variant_ids[:limit]
-            else:
-                product_variant_ids = self.product_variant_ids
-
-            base_url = website.get_base_url()
-            markup_data = {
-                "@context": "https://schema.org",
+            variants = self.product_variant_ids[:limit] if limit else self.product_variant_ids
+            vals = {
                 "@type": "ProductGroup",
+                "@id": f"{base_url}{self.website_url}/#productgroup",
                 "name": self.name,
                 "image": f"{base_url}{website.image_url(self, 'image_1920')}",
                 "url": f"{base_url}{self.website_url}",
-                "hasVariant": [product._to_markup_data(website) for product in product_variant_ids],
+                "hasVariant": [variant._prepare_jsonld_vals() for variant in variants],
             }
             if self.description_ecommerce:
-                markup_data["description"] = text_from_html(self.description_ecommerce)
+                vals["description"] = text_from_html(self.description_ecommerce)
 
         if website.is_view_active("website_sale.product_comment") and self.rating_count:
-            markup_data["aggregateRating"] = {
+            vals["aggregateRating"] = {
                 "@type": "AggregateRating",
                 # sudo: product.product - visitor can access product average rating
                 "ratingValue": self.sudo().rating_avg,
                 "reviewCount": self.rating_count,
             }
-        return markup_data
+        return vals
+
+    def _get_jsonld_dict(self, is_detail_page=False):
+        """Return JSON-LD dicts for a product page.
+
+        On a detail page the template's own schema is appended; on a listing
+        page a CollectionPage with an ItemList of product URLs is appended.
+        """
+        schemas = super()._get_jsonld_dict(is_detail_page)
+        if is_detail_page:
+            schemas.append(self._prepare_jsonld_vals())
+        elif self:
+            category = self.env["product.public.category"].browse(
+                self.env.context.get("shop_category_id"),
+            )
+            if category:
+                list_path = category.website_url
+                list_name = category.name
+            else:
+                list_path = SHOP_PATH
+                list_name = self.env._("Shop")
+            schemas.append(self._build_collectionpage_jsonld_vals(list_name, list_path, self))
+        return schemas
+
+    def _get_breadcrumb_items(self, is_detail_page=False):
+        """Return breadcrumb items for shop and product pages.
+
+        Trail: Home -> Shop -> [category parents] -> Product name (detail only).
+
+        On detail pages the category comes from :attr:`public_categ_ids`.
+        On listing pages it is read from the ``shop_category_id`` context key.
+
+        :rtype: list[tuple[str, str]]
+        """
+        items = super()._get_breadcrumb_items(is_detail_page)
+        items.append((self.env._("Shop"), SHOP_PATH))
+        if is_detail_page:
+            category = self.public_categ_ids[:1]
+        else:
+            category = self.env["product.public.category"].browse(
+                self.env.context.get("shop_category_id"),
+            )
+        if category:
+            for cat in category.parents_and_self:
+                items.append((cat.name, cat.website_url))
+        if is_detail_page:
+            items.append((self.name, self.website_url))
+        return items
 
     def _get_ribbon(self, price_vals=None, auto_assign_ribbons=None, variant=None):
         """Return the ribbon to display for the current template.
@@ -1539,7 +1632,7 @@ class ProductTemplate(models.Model):
         if self.env["res.groups"]._is_feature_enabled("uom.group_uom") and self.env.context.get(
             "website_id"
         ):
-            return all_uoms - self.env["website"].get_current_website().restricted_uom_ids
+            return all_uoms - self.env.website.restricted_uom_ids
         return all_uoms
 
     def _get_main_uom(self):
@@ -1590,7 +1683,9 @@ class ProductTemplate(models.Model):
             product_or_template, date, currency, pricelist, **kwargs
         )
 
-        if (website := ir_http.get_request_website()) and product_or_template.is_product_variant:
+        if (
+            website := self.env.website
+        ) and product_or_template.is_product_variant:
             max_quantity = product_or_template._get_max_quantity(website, request.cart, **kwargs)
             if max_quantity is not None:
                 if uom:

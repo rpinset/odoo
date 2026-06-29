@@ -107,6 +107,41 @@ class TestAnalyticAccount(TestMrpAnalyticAccount):
         self.assertEqual(mo.state, 'done')
         self.assertEqual(mo.move_raw_ids.analytic_account_line_ids.amount, -100.0)
 
+    def test_mo_analytic_disabled(self):
+        """Test no analytic line is created when analytic costs are disabled.
+        """
+        # create a mo
+        mo_form = Form(self.env['mrp.production'])
+        mo_form.product_id = self.product
+        mo_form.bom_id = self.bom
+        mo_form.product_qty = 10.0
+        mo_form.project_id = self.project
+        mo = mo_form.save()
+        mo.picking_type_id.analytic_costs = False
+        mo.action_confirm()
+        self.assertEqual(mo.state, 'confirmed')
+        self.assertFalse(mo.move_raw_ids.analytic_account_line_ids)
+
+        # increase qty_producing to 5.0
+        mo_form = Form(mo)
+        mo_form.qty_producing = 5.0
+        mo_form.save()
+        self.assertEqual(mo.state, 'progress')
+        self.assertFalse(mo.move_raw_ids.analytic_account_line_ids)
+
+        # increase qty_producing to 10.0
+        mo_form = Form(mo)
+        mo_form.qty_producing = 10.0
+        mo_form.save()
+        mo.workorder_ids.button_finish()
+        self.assertEqual(mo.state, 'to_close')
+        self.assertFalse(mo.move_raw_ids.analytic_account_line_ids)
+
+        # mark as done
+        mo.button_mark_done()
+        self.assertEqual(mo.state, 'done')
+        self.assertFalse(mo.move_raw_ids.analytic_account_line_ids)
+
     def test_mo_analytic_backorder(self):
         """Test the analytic lines are correctly posted when backorder.
         """
@@ -171,15 +206,14 @@ class TestAnalyticAccount(TestMrpAnalyticAccount):
         self.assertEqual(mo.workorder_ids.wc_analytic_account_line_ids.amount, -20.0)
         self.assertEqual(mo.workorder_ids.wc_analytic_account_line_ids[analytic_plan._column_name()], wc_analytic_account)
 
-        # mark as done
-
+        # mark as done, duration based on time_ids : 60
         mo.qty_producing = 10.0
         mo.set_qty_producing()
         mo.button_mark_done()
         self.assertEqual(mo.state, 'done')
-        self.assertEqual(mo.workorder_ids.mo_analytic_account_line_ids.amount, -20.0)
+        self.assertEqual(mo.workorder_ids.mo_analytic_account_line_ids.amount, -10.0)
         self.assertEqual(mo.workorder_ids.mo_analytic_account_line_ids[self.analytic_plan._column_name()], self.analytic_account)
-        self.assertEqual(mo.workorder_ids.wc_analytic_account_line_ids.amount, -20.0)
+        self.assertEqual(mo.workorder_ids.wc_analytic_account_line_ids.amount, -10.0)
         self.assertEqual(mo.workorder_ids.wc_analytic_account_line_ids[analytic_plan._column_name()], wc_analytic_account)
 
     def test_changing_mo_analytic_account(self):
@@ -454,9 +488,9 @@ class TestAnalyticAccount(TestMrpAnalyticAccount):
 
     def test_mandatory_analytic_plan_production(self):
         """
-        Tests that the MO can only generate AALs if it is supposed to.
-        ie. The MO is producing the product and there is a project linked to the MO that has at least one analytic plan set,
-        and all its mandatory plans set (the ones that are constrained by the 'Manufacturing Order' domain).
+        Tests that the MO cannot be confirmed if the linked project does not
+        have an analytic account set on all plans mandatory for the
+        'Manufacturing Order' business domain.
         """
         self.env.user.group_ids += self.env.ref('mrp.group_mrp_routings')
         self.applicability.business_domain = 'manufacturing_order'
@@ -476,11 +510,9 @@ class TestAnalyticAccount(TestMrpAnalyticAccount):
         mo_form.product_qty = 1
         mo_form.project_id = self.project
         mo = mo_form.save()
-        mo.action_confirm()
-        self.assertTrue(mo)
 
-        with self.assertRaises(ValidationError):
-            mo.button_mark_done()
+        with self.assertRaisesRegex(ValidationError, "The Project linked to the Manufacturing Order is missing a mandatory distribution"):
+            mo.action_confirm()
 
     def test_bom_aal_generation(self):
         """ This test ensure that when a project is set on a BOM, the aal are correctly generated when the workorder of

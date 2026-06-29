@@ -4,9 +4,9 @@
 <t t-name="website.CountdownOption">
     <BuilderRow label.translate="Title Position">
         <BuilderButtonGroup action="'setCountdownTitlePosition'">
-            <BuilderButton actionParam="'s_countdown_title_top'" iconImg="'/website/static/src/img/snippets_options/pos_top.svg'"/>
+            <BuilderButton actionParam="''" iconImg="'/website/static/src/img/snippets_options/pos_top.svg'"/>
             <BuilderButton actionParam="'s_countdown_title_left'" iconImg="'/website/static/src/img/snippets_options/pos_left.svg'"/>
-            <BuilderButton actionParam="''" icon="'fa-eye-slash'"/>
+            <BuilderButton actionParam="'s_countdown_title_hidden'" icon="'fa-eye-slash'"/>
         </BuilderButtonGroup>
     </BuilderRow>
     <BuilderRow label.translate="Due Date">
@@ -27,7 +27,7 @@
     </BuilderRow>
     <BuilderRow t-if="this.isActiveItem('redirect_end_action_opt')"
                 label.translate="URL">
-            <BuilderUrlPicker placeholder.translate="e.g. /my-awesome-page" dataAttributeAction="'redirectUrl'"/>
+            <BuilderUrlPicker placeholder.translate="e.g. /page or URL" dataAttributeAction="'redirectUrl'"/>
     </BuilderRow>
     <BuilderRow t-if="!this.isActiveItem('text_layout_opt')" label.translate="Size">
         <BuilderSelect dataAttributeAction="'size'">

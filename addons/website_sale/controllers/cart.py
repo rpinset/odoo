@@ -28,7 +28,7 @@ class Cart(PaymentPortal):
         :return: The rendered cart page.
         :rtype: str
         """
-        if not request.website.has_ecommerce_access():
+        if not self.env.website.has_ecommerce_access():
             return request.redirect("/web/login")
 
         order_sudo = request.cart
@@ -40,13 +40,14 @@ class Cart(PaymentPortal):
                 abandoned_order.access_token, access_token
             ):  # wrong token (or SO has been deleted)
                 raise NotFound
-            if abandoned_order.state != "draft":  # abandoned cart already finished
+            if abandoned_order.state not in ("draft", "sent"):  # abandoned cart already finished
                 values.update({"abandoned_proceed": True})
             elif revive_method == "squash" or (
                 revive_method == "merge" and not request.session.get("sale_order_id")
             ):  # restore old cart or merge with unexistant
                 request.session["sale_order_id"] = abandoned_order.id
-                return request.redirect("/shop/cart")
+                request.cart = abandoned_order
+                order_sudo = abandoned_order
             elif revive_method == "merge":
                 abandoned_order.order_line.write({"order_id": request.session["sale_order_id"]})
                 abandoned_order.action_cancel()
@@ -70,7 +71,7 @@ class Cart(PaymentPortal):
             values["suggested_products"] = order_sudo._cart_accessories()
             values.update(self._get_express_shop_payment_values(order_sudo))
 
-        values.update(request.website._get_checkout_step_values("/shop/cart"))
+        values.update(self.env.website._get_checkout_step_values("/shop/cart"))
         values.update(self._cart_values(**post))
         values.update(self._prepare_order_history())
         return request.render("website_sale.cart", values)
@@ -119,7 +120,7 @@ class Cart(PaymentPortal):
         :return: The values
         :rtype: dict
         """
-        order_sudo = request.cart or request.website._create_cart()
+        order_sudo = request.cart or self.env.website._create_cart()
         # Do not allow float values in ecommerce by default
         quantity = (quantity and int(quantity)) or 1
 
@@ -248,23 +249,22 @@ class Cart(PaymentPortal):
     def quick_add(self, product_template_id, product_id, quantity=1.0, **kwargs):
         values = self.add_to_cart(product_template_id, product_id, quantity=quantity, **kwargs)
 
-        IrUiView = self.env["ir.ui.view"]
         order_sudo = request.cart
         values.update(self._get_updated_cart_page_values(order_sudo))
         # If the cart was empty, no cart summary was rendered on the page. However, we just
         # added a product, so render it now.
-        values["website_sale.shorter_cart_summary"] = IrUiView._render_template(
+        values["website_sale.shorter_cart_summary"] = self.env.website._render_template(
             "website_sale.shorter_cart_summary",
             {
                 "website_sale_order": order_sudo,
                 "show_shorter_cart_summary": True,
                 **self._get_express_shop_payment_values(order_sudo),
-                **request.website._get_checkout_step_values("/shop/cart"),
+                **self.env.website._get_checkout_step_values("/shop/cart"),
             },
         )
         # Products already in the cart should not appear in quick reorder suggestions.
         # We just added one, so refresh the quick reorder view.
-        values["website_sale.quick_reorder_history"] = IrUiView._render_template(
+        values["website_sale.quick_reorder_history"] = self.env.website._render_template(
             "website_sale.quick_reorder_history",
             {"website_sale_order": order_sudo, **self._prepare_order_history()},
         )
@@ -272,7 +272,7 @@ class Cart(PaymentPortal):
 
     def _get_express_shop_payment_values(self, order, **_kwargs):
         payment_form_values = CustomerPortal._get_payment_values(
-            self, order, website_id=request.website.id, is_express_checkout=True
+            self, order, website_id=self.env.website.id, is_express_checkout=True
         )
         payment_form_values.update({
             "payment_access_token": payment_form_values.pop("access_token"),  # Rename the key.
@@ -280,20 +280,20 @@ class Cart(PaymentPortal):
             "minor_amount": payment_utils.to_minor_currency_units(
                 order._get_amount_total_excluding_delivery(), order.currency_id
             ),
-            "merchant_name": request.website.name,
+            "merchant_name": self.env.website.name,
             "transaction_route": f"/shop/payment/transaction/{order.id}",
             "express_checkout_route": WebsiteSale._express_checkout_route,
             "landing_route": "/shop/payment/validate",
-            "payment_method_unknown_id": self.env.ref("payment.payment_method_unknown").id,
             "shipping_info_required": order._has_deliverable_products(),
-            # Todo: remove in master
-            "delivery_amount": payment_utils.to_minor_currency_units(
-                order.amount_total - order._compute_amount_total_without_delivery(),
-                order.currency_id,
-            ),
             "shipping_address_update_route": WebsiteSale._express_checkout_delivery_route,
         })
-        if request.website.is_public_user():
+        provider_sudo = payment_form_values["providers_sudo"][:1]
+        if provider_sudo:
+            payment_form_values["express_checkout_provider_sudo"] = provider_sudo
+            payment_form_values["payment_method_unknown_id"] = provider_sudo._get_pm_from_code(
+                "unknown"
+            ).id
+        if self.env.website.is_public_user():
             payment_form_values["partner_id"] = -1
         return payment_form_values
 
@@ -331,7 +331,7 @@ class Cart(PaymentPortal):
         values.update(self._get_updated_cart_page_values(order_sudo))
         # Products already in the cart should not appear in quick reorder suggestions.
         # Since we might have cleared the line (quantity == 0), we need to refresh the view.
-        values["website_sale.quick_reorder_history"] = request.env["ir.ui.view"]._render_template(
+        values["website_sale.quick_reorder_history"] = self.env.website._render_template(
             "website_sale.quick_reorder_history",
             {"website_sale_order": order_sudo, **self._prepare_order_history()},
         )
@@ -401,7 +401,7 @@ class Cart(PaymentPortal):
                 [
                     ("partner_id", "=", self.env.user.partner_id.id),
                     ("state", "=", "sale"),
-                    ("website_id", "=", request.website.id),
+                    ("website_id", "=", self.env.website.id),
                 ],
                 order="date_order desc",
                 limit=10,
@@ -421,8 +421,8 @@ class Cart(PaymentPortal):
                 line_sudo.linked_line_id.product_type == "combo"
                 or not line_sudo._is_sellable()
                 or (
-                    request.website.prevent_sale
-                    and request.website._prevent_product_sale(
+                    self.env.website.prevent_sale
+                    and self.env.website._prevent_product_sale(
                         line_sudo.product_id,
                         line_sudo.product_id._get_combination_info_variant()["price"] == 0,
                     )

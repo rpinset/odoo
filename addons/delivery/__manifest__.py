@@ -16,10 +16,9 @@ The system is able to add and compute the shipping line.
         "data/delivery_data.xml",
         "data/ir_sequence_data.xml",
         "data/mail_template_data.xml",
-        "data/payment_method_data.xml",
-        "data/payment_provider_data.xml",  # Depends on `payment_method_cash_on_delivery`.
-        "security/ir.model.access.csv",
-        "security/ir_rules.xml",
+        "data/payment_provider_data.xml",
+        "data/payment_method_data.xml",  # Depends on `payment_provider_cod`
+        "security/ir.access.csv",
         "views/delivery_carrier_views.xml",
         "views/delivery_price_rule_views.xml",
         "views/delivery_zip_prefix_views.xml",

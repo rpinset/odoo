@@ -17,6 +17,7 @@ import { isIosApp } from "@web/core/browser/feature_detection";
 import { DocumentationLink } from "@web/views/widgets/documentation_link/documentation_link";
 import { NewEmployeeDialog } from "@hr_attendance/components/new_employee_dialog/new_employee_dialog";
 import { session } from "@web/session";
+import { services } from "@web/core/services";
 
 class kioskAttendanceApp extends Component {
     static template = "hr_attendance.public_kiosk_app";
@@ -54,16 +55,17 @@ class kioskAttendanceApp extends Component {
             active_display: "settings",
             displayDemoMessage:
                 browser.localStorage.getItem("hr_attendance.ShowDemoMessage") !== "false",
-            isStreamAvailable: false,
+            streamAvailable: false,
+            kioskMode: this.props.kioskMode,
         });
         this.lockScanner = false;
         this.cameraCapture = null;
-        if (this.props.kioskMode === "settings" || this.props.fromTrialMode) {
+        if (this.state.kioskMode === "settings" || this.props.fromTrialMode) {
             this.manualKioskMode = false;
             useBus(this.barcode.bus, "barcode_scanned", (ev) =>
                 this.onBarcodeScanned(ev.detail.barcode)
             );
-        } else if (this.props.kioskMode !== "manual") {
+        } else if (this.state.kioskMode !== "manual") {
             useBus(this.barcode.bus, "barcode_scanned", (ev) =>
                 this.onBarcodeScanned(ev.detail.barcode)
             );
@@ -93,15 +95,13 @@ class kioskAttendanceApp extends Component {
             token: this.props.token,
             mode: mode,
         });
-        this.props.kioskMode = mode;
+        this.state.kioskMode = mode;
         if (mode !== "manual") {
             this.manualKioskMode = false;
             this.state.active_display = "main";
-            this.props.kioskMode = mode;
         } else {
             this.manualKioskMode = true;
             this.state.active_display = "manual";
-            this.props.kioskMode = "manual";
         }
     }
 
@@ -133,16 +133,16 @@ class kioskAttendanceApp extends Component {
             history.back();
         } else if (["confirmation", "pin", "greet"].includes(this.state.active_display)) {
             this.switchDisplay(
-                ["barcode_manual", "barcode"].includes(this.props.kioskMode) ? "main" : "manual"
+                ["barcode_manual", "barcode"].includes(this.state.kioskMode) ? "main" : "manual"
             );
         } else if (
-            (["manual", "barcode"].includes(this.props.kioskMode) ||
-                (this.props.kioskMode === "barcode_manual" &&
+            (["manual", "barcode"].includes(this.state.kioskMode) ||
+                (this.state.kioskMode === "barcode_manual" &&
                     this.state.active_display === "main")) &&
             this.props.fromTrialMode
         ) {
             this.switchDisplay("settings");
-        } else if (this.props.kioskMode === "manual") {
+        } else if (this.state.kioskMode === "manual") {
             this.switchDisplay("manual");
         } else {
             this.switchDisplay("main");
@@ -259,14 +259,15 @@ class kioskAttendanceApp extends Component {
 export async function createPublicKioskAttendance(document, kiosk_backend_info) {
     await whenReady();
     const env = makeEnv();
-    await startServices(env);
     session.server_version_info = kiosk_backend_info.server_version_info;
     const app = new App({
         getTemplate,
         dev: env.debug,
         translateFn: appTranslateFn,
         translatableAttributes: ["data-tooltip"],
+        plugins: services,
     });
+    await startServices(env, app);
     const root = app.createRoot(kioskAttendanceApp, {
         env: env,
         props: {

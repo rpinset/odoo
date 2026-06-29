@@ -126,6 +126,8 @@ class TestLeaveRequests(TestHrHolidaysCommon):
         cls.irregular_calendar = cls.env['resource.calendar'].create({
             'name': 'Irregular Calendar With Gaps',
             'company_id': False,
+            'hours_per_day': 6.6,
+            'hours_per_week': 33,
             'attendance_ids': [(5, 0, 0),
                 ## Hours Per Week: 33, Avg hours_per_day = 6.6, 75% = 4.95
                 (0, 0, {'dayofweek': '0', 'hour_from': 8, 'hour_to': 12}),
@@ -1564,6 +1566,7 @@ class TestLeaveRequests(TestHrHolidaysCommon):
         search_result = self.env['hr.work.entry.type'].with_context(employee_id=False).name_search(domain=search_domain)
         self.assertFalse(self.holidays_type_2.id in [alloc_id for (alloc_id, _) in search_result])
 
+    @freeze_time('2026-06-09')  # Tuesday
     def test_holiday_type_allocation_requirement_edit(self):
         # Does not raise an error since no leave of this type exists yet
         self.holidays_type_2.requires_allocation = False
@@ -2458,25 +2461,28 @@ class TestLeaveRequests(TestHrHolidaysCommon):
         Customers defined custom ACLs and record rules to support the possibility to assign a portal user to employees
         and still be able to manage their holidays.
         """
-        # Add the required ACLs and record rules to allow portal users to create `calendar.event`.
+        # Add the required accesses to allow portal users to create `calendar.event`.
         # This reflects the customization done by customers for the reason explained above.
-        self.env['ir.model.access'].create([
+        self.env['ir.access'].create([
             # Read access on `mail.activity.type` for portal required for
             # https://github.com/odoo/odoo/blob/cc0060e889603eb2e47fa44a8a22a70d7d784185/addons/calendar/models/calendar_event.py#L734
             {
                 'name': 'Portal can read mail.activity.type',
                 'model_id': self.env.ref('mail.model_mail_activity_type').id,
                 'group_id': self.env.ref('base.group_portal').id,
-                'perm_read': True, 'perm_create': False, 'perm_write': False, 'perm_unlink': False,
+                'operation': 'r',
             },
             # Read access on `mail.activity` for portal required for
             # https://github.com/odoo/odoo/blob/cc0060e889603eb2e47fa44a8a22a70d7d784185/addons/calendar/models/calendar_event.py#L786
             # https://github.com/odoo/odoo/blob/cc0060e889603eb2e47fa44a8a22a70d7d784185/addons/calendar/models/calendar_event.py#L882
+            # Restrict portals to their own activities
+            # so they cannot read the activities of other users
             {
-                'name': 'Portal can read mail.activity',
+                'name': 'Portal own mail activity',
                 'model_id': self.env.ref('mail.model_mail_activity').id,
                 'group_id': self.env.ref('base.group_portal').id,
-                'perm_read': True, 'perm_create': False, 'perm_write': False, 'perm_unlink': False,
+                'operation': 'r',
+                'domain': "['|', ('user_id', '=', user.id), ('create_uid', '=', user.id)]",
             },
             # Read and create acess on `calendar.event` for portal required for
             # https://github.com/odoo/odoo/blob/cc0060e889603eb2e47fa44a8a22a70d7d784185/addons/hr_holidays/models/hr_leave.py#L894-L898
@@ -2484,10 +2490,11 @@ class TestLeaveRequests(TestHrHolidaysCommon):
             # if you give create to portal for their own events,
             # you give write and unlink so they can manage their own events
             {
-                'name': 'Portal all CRUD on calendar.event',
+                'name': 'Portal own calendar events',
                 'model_id': self.env.ref('calendar.model_calendar_event').id,
                 'group_id': self.env.ref('base.group_portal').id,
-                'perm_read': True, 'perm_create': True, 'perm_write': True, 'perm_unlink': True,
+                'operation': 'crud',
+                'domain': "[('partner_ids', 'in', user.partner_id.id)]",
             },
             # Read and create acess on `calendar.event` for portal required for
             # https://github.com/odoo/odoo/blob/cc0060e889603eb2e47fa44a8a22a70d7d784185/addons/calendar/models/calendar_event.py#L760-L768
@@ -2495,37 +2502,12 @@ class TestLeaveRequests(TestHrHolidaysCommon):
             # if you give create to portal for their own events attendees,
             # you give write and unlink so they can manage their own attendees
             {
-                'name': 'Portal all CRUD on calendar.attendee',
-                'model_id': self.env.ref('calendar.model_calendar_attendee').id,
-                'group_id': self.env.ref('base.group_portal').id,
-                'perm_read': True, 'perm_create': True, 'perm_write': True, 'perm_unlink': True,
-            }])
-        self.env['ir.rule'].create([
-            # Restrict portals to their own activities
-            # so they cannot read the activities of other users
-            {
-                'name': 'Portal own mail activity',
-                'model_id': self.env.ref('mail.model_mail_activity').id,
-                'groups': [(4, self.env.ref('base.group_portal').id)],
-                'domain_force': "['|', ('user_id', '=', user.id), ('create_uid', '=', user.id)]",
-            },
-            # Restrict portals to their own events
-            # so they cannot read the events of other users
-            {
-                'name': 'Portal own calendar events',
-                'model_id': self.env.ref('calendar.model_calendar_event').id,
-                'groups': [(4, self.env.ref('base.group_portal').id)],
-                'domain_force': "[('partner_ids', 'in', user.partner_id.id)]",
-            },
-            # Restrict portals to their own attendees
-            # so they cannot read the attendees of other users
-            {
                 'name': 'Portal own calendar attendees',
                 'model_id': self.env.ref('calendar.model_calendar_attendee').id,
-                'groups': [(4, self.env.ref('base.group_portal').id)],
-                'domain_force': "[('partner_id', '=', user.partner_id.id)]",
-            }
-        ])
+                'group_id': self.env.ref('base.group_portal').id,
+                'operation': 'crud',
+                'domain': "[('partner_id', '=', user.partner_id.id)]",
+            }])
 
         # Create a portal user and assign it to the employee
         user_portal = self.env['res.users'].create({
@@ -2737,3 +2719,34 @@ class TestLeaveRequests(TestHrHolidaysCommon):
 
         hourly_leave.invalidate_recordset()
         self.assertEqual(hourly_leave.state, 'validate')
+
+    def test_leave_request_both_notified_users(self):
+        """ Test the Fallback to Responsible Users are notified when a leave request is made
+        with ("both","By Employee's Approver and Time Off Officer") set for leave_validation_type,
+          even if the employee has no manager or time off officer. """
+        user_admin = self.env.ref('base.user_admin')
+        employee_admin = self.env['hr.employee'].search([('user_id', '=', user_admin.id)])
+        self.employee_emp.write({"parent_id": employee_admin.id, "leave_manager_id": False})
+        leave_type = self.env['hr.work.entry.type'].with_user(self.user_hrmanager_id).with_context(tracking_disable=True)
+        holidays_type_5 = leave_type.create({
+            'name': 'Limited with 2 approvals and Responsible IDS',
+            'request_unit': 'hour',
+            'requires_allocation': False,
+            'employee_requests': 'yes',
+            'leave_validation_type': 'both',
+            'code': 'PARADISE10'
+        })
+
+        request = self.env['hr.leave'].with_user(self.employee_emp.user_id).create({
+            'name': '2 Approvers with no manager or time off Leave Request',
+            'employee_id': self.employee_emp.id,
+            'work_entry_type_id': holidays_type_5.id,
+            'request_date_from': '2026-02-24',
+            'request_date_to': '2026-02-24',
+            'request_hour_from': 8,
+            'request_hour_to': 12,
+        })
+        message_partner_ids = request.message_partner_ids
+        self.assertEqual(len(request.message_partner_ids), 2)
+        self.assertIn(self.employee_emp.user_id.partner_id, message_partner_ids)
+        self.assertIn(user_admin.partner_id, message_partner_ids)

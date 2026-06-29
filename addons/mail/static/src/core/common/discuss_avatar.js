@@ -1,44 +1,35 @@
 import { ImStatus } from "@mail/core/common/im_status";
 import { ThreadIcon } from "@mail/core/common/thread_icon";
 
-import { Component } from "@odoo/owl";
+import { Component, props, t } from "@odoo/owl";
+
 import { isBrowserSafari } from "@web/core/browser/feature_detection";
+import { useService } from "@web/core/utils/hooks";
 
 let nextId = 0;
 
-/** @typedef {import("models").ChannelMember} ChannelMember */
-/** @typedef {import("models").MailGuest} MailGuest */
-/** @typedef {import("models").DiscussChannel} DiscussChannel */
-/** @typedef {import("models").ResPartner} ResPartner */
-/** @typedef {import("models").ResUsers} ResUsers */
-/** @typedef {import("models").Thread} Thread */
-/** @typedef {ChannelMember|DiscussChannel|MailGuest|ResPartner|ResUsers|Thread} DiscussAvatarRecord */
-
-/**
- * @typedef {Object} Props
- * @property {string} [className=""]
- * @property {string} [iconExtraTransform]
- * @property {string} [imgRoundedClass]
- * @property {DiscussAvatarRecord} record
- * @property {number} [size=32]
- * @property {boolean} [typing=true]
- * @extends {Component<Props, Env>}
- */
 export class DiscussAvatar extends Component {
     static template = "mail.DiscussAvatar";
-    static props = [
-        "className?",
-        "iconExtraTransform?",
-        "imgRoundedClass?",
-        "record",
-        "size?",
-        "typing?",
-    ];
-    static defaultProps = { className: "", size: 32, typing: true };
     static components = { ImStatus, ThreadIcon };
 
     setup() {
         super.setup();
+        this.store = useService("mail.store");
+        this.props = props({
+            className: t.string().optional(""),
+            iconExtraTransform: t.string().optional(),
+            imgRoundedClass: t.string().optional(),
+            record: t.or([
+                t.instanceOf(this.store["discuss.channel.member"].Class),
+                t.instanceOf(this.store["discuss.channel"].Class),
+                t.instanceOf(this.store["mail.guest"].Class),
+                t.instanceOf(this.store["res.partner"].Class),
+                t.instanceOf(this.store["res.users"].Class),
+                t.instanceOf(this.store["mail.thread"].Class),
+            ]),
+            size: t.number().optional(32),
+            typing: t.boolean().optional(true),
+        });
         this.isBrowserSafari = isBrowserSafari;
         this.uniqueId = `mail.DiscussAvatar.${nextId++}`;
     }

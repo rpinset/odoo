@@ -34,6 +34,7 @@ var owl = (() => {
     Suspense: () => Suspense,
     TemplateSet: () => TemplateSet,
     __info__: () => __info__,
+    applyDefaults: () => applyDefaults,
     assertType: () => assertType,
     asyncComputed: () => asyncComputed,
     batched: () => batched,
@@ -41,6 +42,7 @@ var owl = (() => {
     computed: () => computed,
     config: () => config,
     effect: () => effect,
+    getDefault: () => getDefault,
     getScope: () => getScope,
     globalTemplates: () => globalTemplates,
     htmlEscape: () => htmlEscape,
@@ -57,12 +59,12 @@ var owl = (() => {
     onWillUnmount: () => onWillUnmount,
     onWillUpdateProps: () => onWillUpdateProps,
     plugin: () => plugin,
-    prop: () => prop,
     props: () => props,
     providePlugins: () => providePlugins,
     proxy: () => proxy,
     signal: () => signal,
     status: () => status,
+    t: () => types2,
     toRaw: () => toRaw,
     types: () => types2,
     untrack: () => untrack,
@@ -657,6 +659,9 @@ var owl = (() => {
     }
     onWriteAtom(signal2[atomSymbol]);
   }
+  function signalRef() {
+    return buildSignal(null, (atom) => atom.value);
+  }
   function signalArray(initialValue) {
     return buildSignal(initialValue, (atom) => proxifyTarget(atom.value, atom));
   }
@@ -673,6 +678,7 @@ var owl = (() => {
     return buildSignal(value, (atom) => atom.value);
   }
   signal.trigger = triggerSignal;
+  signal.ref = signalRef;
   signal.Array = signalArray;
   signal.Map = signalMap;
   signal.Object = signalObject;
@@ -773,6 +779,18 @@ var owl = (() => {
     const scope = getScope();
     let runId = 0;
     let runController = null;
+    let inFlight = false;
+    let pending = null;
+    function beginRun() {
+      loading.set(true);
+      inFlight = true;
+    }
+    function endRun() {
+      loading.set(false);
+      inFlight = false;
+      pending?.resolve();
+      pending = null;
+    }
     const stopEffect = effect(() => {
       refreshTick();
       const myRunId = ++runId;
@@ -785,7 +803,7 @@ var owl = (() => {
       if (scope?.abortSignal) {
         abortSignals.push(scope.abortSignal);
       }
-      loading.set(true);
+      beginRun();
       error.set(null);
       let promise;
       try {
@@ -793,27 +811,27 @@ var owl = (() => {
       } catch (e) {
         if (myRunId !== runId) return;
         if (isAbortError(e)) {
-          loading.set(false);
+          endRun();
           return;
         }
         error.set(e);
-        loading.set(false);
+        endRun();
         return;
       }
       promise.then(
         (result) => {
           if (myRunId !== runId) return;
           value.set(result);
-          loading.set(false);
+          endRun();
         },
         (e) => {
           if (myRunId !== runId) return;
           if (isAbortError(e)) {
-            loading.set(false);
+            endRun();
             return;
           }
           error.set(e);
-          loading.set(false);
+          endRun();
         }
       );
     });
@@ -821,6 +839,9 @@ var owl = (() => {
       stopEffect();
       runController?.abort();
       runController = null;
+      inFlight = false;
+      pending?.resolve();
+      pending = null;
     }
     scope?.onDestroy(dispose);
     const read = (() => value());
@@ -828,6 +849,16 @@ var owl = (() => {
     read.error = () => error();
     read.refresh = () => refreshTick.set(refreshTick() + 1);
     read.dispose = dispose;
+    read.currentPromise = () => {
+      if (!inFlight) {
+        return Promise.resolve();
+      }
+      if (!pending) {
+        let resolve;
+        pending = { promise: new Promise((res) => resolve = res), resolve };
+      }
+      return pending.promise;
+    };
     return read;
   }
   function safeReplacer(knownObjects, _key, value) {
@@ -855,7 +886,7 @@ var owl = (() => {
 ${issueStrings}`);
     }
   }
-  function createContext(issues, value, path, parent) {
+  function createContext(issues, value, path, parent, depthOffset = 1) {
     return {
       issueDepth: 0,
       path,
@@ -876,11 +907,11 @@ ${issueStrings}`);
       validate(type) {
         type(this);
         if (!this.isValid && parent) {
-          parent.issueDepth = this.issueDepth + 1;
+          parent.issueDepth = this.issueDepth + depthOffset;
         }
       },
       withIssues(issues2) {
-        return createContext(issues2, this.value, this.path, this);
+        return createContext(issues2, this.value, this.path, this, 0);
       },
       withKey(key) {
         return createContext(issues, this.value[key], this.path.concat(key), this);
@@ -892,33 +923,120 @@ ${issueStrings}`);
     validation(createContext(issues, value, []));
     return issues;
   }
-  function anyType() {
-    return function validateAny() {
+  var defaultSymbol = /* @__PURE__ */ Symbol("default");
+  var innerTypeSymbol = /* @__PURE__ */ Symbol("innerType");
+  var shapeSymbol = /* @__PURE__ */ Symbol("shape");
+  var elementTypeSymbol = /* @__PURE__ */ Symbol("elementType");
+  var optionalSymbol = /* @__PURE__ */ Symbol("optional");
+  var intersectionSymbol = /* @__PURE__ */ Symbol("intersection");
+  function getDefault(type) {
+    return typeof type === "function" ? type[defaultSymbol] : void 0;
+  }
+  function makeOptional(type, value) {
+    const validate = function validateOptional(context) {
+      if (context.value === void 0) {
+        return;
+      }
+      context.validate(type);
     };
+    validate[optionalSymbol] = true;
+    validate[innerTypeSymbol] = type;
+    if (value !== void 0) {
+      validate[defaultSymbol] = typeof value === "function" ? value : () => value;
+    }
+    return validate;
+  }
+  function isOptionalType(type) {
+    return typeof type === "function" && optionalSymbol in type;
+  }
+  function makeType(validate) {
+    validate.optional = (value) => makeOptional(validate, value);
+    return validate;
+  }
+  function applyDefaults(value, type) {
+    return applyDefaultsRec(value, type);
+  }
+  function applyDefaultsRec(value, type) {
+    if (typeof type !== "function") {
+      return value;
+    }
+    if (value === void 0) {
+      const factory = type[defaultSymbol];
+      if (!factory) {
+        return value;
+      }
+      value = factory();
+    }
+    const inner = type[innerTypeSymbol] || type;
+    if (typeof inner !== "function" || !value || typeof value !== "object") {
+      return value;
+    }
+    const members = inner[intersectionSymbol];
+    if (members) {
+      let result2 = value;
+      for (const member of members) {
+        result2 = applyDefaultsRec(result2, member);
+      }
+      return result2;
+    }
+    const elementType = inner[elementTypeSymbol];
+    if (elementType && Array.isArray(value)) {
+      let result2 = value;
+      for (let index = 0; index < value.length; index++) {
+        const newValue = applyDefaultsRec(value[index], elementType);
+        if (newValue !== value[index]) {
+          if (result2 === value) {
+            result2 = [...value];
+          }
+          result2[index] = newValue;
+        }
+      }
+      return result2;
+    }
+    const shape = inner[shapeSymbol];
+    if (!shape) {
+      return value;
+    }
+    let result = value;
+    for (const key in shape) {
+      const subValue = result[key];
+      const newValue = applyDefaultsRec(subValue, shape[key]);
+      if (newValue !== subValue) {
+        if (result === value) {
+          result = Array.isArray(value) ? [...value] : { ...value };
+        }
+        result[key] = newValue;
+      }
+    }
+    return result;
+  }
+  function anyType() {
+    return makeType(function validateAny() {
+    });
   }
   function booleanType() {
-    return function validateBoolean(context) {
+    return makeType(function validateBoolean(context) {
       if (typeof context.value !== "boolean") {
         context.addIssue({ message: "value is not a boolean" });
       }
-    };
+    });
   }
   function numberType() {
-    return function validateNumber(context) {
+    return makeType(function validateNumber(context) {
       if (typeof context.value !== "number") {
         context.addIssue({ message: "value is not a number" });
       }
-    };
+    });
   }
   function stringType() {
-    return function validateString(context) {
+    return makeType(function validateString(context) {
       if (typeof context.value !== "string" && !(context.value instanceof String)) {
         context.addIssue({ message: "value is not a string" });
       }
-    };
+    });
   }
   function arrayType(elementType) {
-    return function validateArray(context) {
+    const validate = makeType(function validateArray(context) {
       if (!Array.isArray(context.value)) {
         context.addIssue({ message: "value is not an array" });
         return;
@@ -929,17 +1047,21 @@ ${issueStrings}`);
       for (let index = 0; index < context.value.length; index++) {
         context.withKey(index).validate(elementType);
       }
-    };
+    });
+    if (elementType) {
+      validate[elementTypeSymbol] = elementType;
+    }
+    return validate;
   }
   function constructorType(constructor) {
-    return function validateConstructor(context) {
+    return makeType(function validateConstructor(context) {
       if (!(typeof context.value === "function") || !(context.value === constructor || context.value.prototype instanceof constructor)) {
         context.addIssue({ message: `value is not '${constructor.name}' or an extension` });
       }
-    };
+    });
   }
   function customValidator(type, validator, errorMessage = "value does not match custom validation") {
-    return function validateCustom(context) {
+    return makeType(function validateCustom(context) {
       context.validate(type);
       if (!context.isValid) {
         return;
@@ -947,37 +1069,39 @@ ${issueStrings}`);
       if (!validator(context.value)) {
         context.addIssue({ message: errorMessage });
       }
-    };
+    });
   }
   function functionType(parameters = [], result = void 0) {
-    return function validateFunction(context) {
+    return makeType(function validateFunction(context) {
       if (typeof context.value !== "function") {
         context.addIssue({ message: "value is not a function" });
       }
-    };
+    });
   }
   function instanceType(constructor) {
-    return function validateInstanceType(context) {
+    return makeType(function validateInstanceType(context) {
       if (!(context.value instanceof constructor)) {
         context.addIssue({ message: `value is not an instance of '${constructor.name}'` });
       }
-    };
+    });
   }
   function intersection(types22) {
-    return function validateIntersection(context) {
+    const validate = makeType(function validateIntersection(context) {
       for (const type of types22) {
         context.validate(type);
       }
-    };
+    });
+    validate[intersectionSymbol] = types22;
+    return validate;
   }
   function literalType(literal) {
-    return function validateLiteral(context) {
+    return makeType(function validateLiteral(context) {
       if (context.value !== literal) {
         context.addIssue({
           message: `value is not equal to ${typeof literal === "string" ? `'${literal}'` : literal}`
         });
       }
-    };
+    });
   }
   function literalSelection(literals) {
     return union(literals.map(literalType));
@@ -1005,59 +1129,64 @@ ${issueStrings}`);
     }
     const missingKeys = [];
     for (const key of keys) {
-      const property = key.endsWith("?") ? key.slice(0, -1) : key;
-      if (context.value[property] === void 0) {
-        if (!key.endsWith("?")) {
-          missingKeys.push(property);
+      if (context.value[key] === void 0) {
+        if (!isOptionalType(shape[key])) {
+          missingKeys.push(key);
         }
         continue;
       }
       if (isShape) {
-        context.withKey(property).validate(shape[key]);
+        context.withKey(key).validate(shape[key]);
       }
     }
     if (missingKeys.length) {
       context.addIssue({
         message: "object value has missing keys",
-        missingKeys,
-        expectedKeys: keys
+        missingKeys
       });
     }
     if (isStrict) {
       const unknownKeys = [];
       for (const key in context.value) {
-        if (!keys.includes(key) && !(`${key}?` in shape)) {
+        if (!keys.includes(key)) {
           unknownKeys.push(key);
         }
       }
       if (unknownKeys.length) {
         context.addIssue({
           message: "object value has unknown keys",
-          unknownKeys,
-          expectedKeys: keys
+          unknownKeys
         });
       }
     }
   }
   function objectType(schema = {}) {
-    return function validateLooseObject(context) {
+    const validate = makeType(function validateLooseObject(context) {
       validateObject(context, schema, false);
-    };
+    });
+    if (!Array.isArray(schema)) {
+      validate[shapeSymbol] = schema;
+    }
+    return validate;
   }
   function strictObjectType(schema) {
-    return function validateStrictObject(context) {
+    const validate = makeType(function validateStrictObject(context) {
       validateObject(context, schema, true);
-    };
+    });
+    if (!Array.isArray(schema)) {
+      validate[shapeSymbol] = schema;
+    }
+    return validate;
   }
   function promiseType(type) {
-    return function validatePromise(context) {
+    return makeType(function validatePromise(context) {
       if (!(context.value instanceof Promise)) {
         context.addIssue({ message: "value is not a promise" });
       }
-    };
+    });
   }
   function recordType(valueType) {
-    return function validateRecord(context) {
+    return makeType(function validateRecord(context) {
       if (typeof context.value !== "object" || Array.isArray(context.value) || context.value === null) {
         context.addIssue({ message: "value is not an object" });
         return;
@@ -1068,10 +1197,10 @@ ${issueStrings}`);
       for (const key in context.value) {
         context.withKey(key).validate(valueType);
       }
-    };
+    });
   }
   function tuple(types22) {
-    return function validateTuple(context) {
+    const validate = makeType(function validateTuple(context) {
       if (!Array.isArray(context.value)) {
         context.addIssue({ message: "value is not an array" });
         return;
@@ -1083,10 +1212,12 @@ ${issueStrings}`);
       for (let index = 0; index < types22.length; index++) {
         context.withKey(index).validate(types22[index]);
       }
-    };
+    });
+    validate[shapeSymbol] = types22;
+    return validate;
   }
   function union(types22) {
-    return function validateUnion(context) {
+    return makeType(function validateUnion(context) {
       let firstIssueIndex = 0;
       const subIssues = [];
       for (const type of types22) {
@@ -1102,17 +1233,20 @@ ${issueStrings}`);
         message: "value does not match union type",
         subIssues
       });
-    };
+    });
   }
   function reactiveValueType(type) {
-    return function validateReactiveValue(context) {
+    return makeType(function validateReactiveValue(context) {
       if (typeof context.value !== "function" || !context.value[atomSymbol]) {
         context.addIssue({ message: "value is not a reactive value" });
       }
-    };
+    });
   }
   function ref(type) {
-    return union([literalType(null), instanceType(type)]);
+    if (typeof HTMLElement === "undefined") {
+      throw new Error("Cannot use ref in a non-DOM environment");
+    }
+    return union([literalType(null), instanceType(type || HTMLElement)]);
   }
   var types = {
     and: intersection,
@@ -1240,6 +1374,13 @@ ${issueStrings}`);
     static set id(shadowId) {
       this._shadowId = shadowId;
     }
+    // Plugins passed to `startPlugins` are started in batches of equal sequence,
+    // ascending (lower first), like Resource/Registry. Each batch's onWillStart
+    // callbacks fully settle before the next batch is instantiated, so
+    // foundational plugins (low sequence) are ready before later plugins even
+    // run their setup. Explicit `plugin(X)` dependencies bypass batching and
+    // start immediately.
+    static sequence = 50;
     __owl__;
     constructor(manager) {
       this.__owl__ = manager;
@@ -1250,11 +1391,13 @@ ${issueStrings}`);
   var PluginManager = class extends Scope {
     config;
     plugins;
-    // Resolves once all pending plugin willStart callbacks have settled. The
-    // scope transitions to MOUNTED as the last step of this chain. Consumers
-    // (the root's mount(), providePlugins) await this before treating the
-    // manager as ready. `willStart` itself is inherited from Scope.
+    // Resolves once all batches of plugins have started and their willStart
+    // callbacks have settled. The scope transitions to MOUNTED as the last step
+    // of this chain. Consumers (the root's mount(), providePlugins) await this
+    // before treating the manager as ready. `willStart` itself is inherited
+    // from Scope.
     ready = Promise.resolve();
+    hasPendingReady = false;
     constructor(app, options = {}) {
       super(app);
       this.config = options.config ?? {};
@@ -1295,24 +1438,61 @@ ${issueStrings}`);
       return plugin2;
     }
     startPlugins(pluginConstructors) {
-      scopeStack.push(this);
-      try {
-        for (const pluginConstructor of pluginConstructors) {
-          this.startPlugin(pluginConstructor);
+      const fresh = pluginConstructors.filter((ctor) => {
+        if (!ctor.id || this.plugins.hasOwnProperty(ctor.id)) {
+          this.startPlugin(ctor);
+          return false;
         }
-      } finally {
-        scopeStack.pop();
+        return true;
+      });
+      if (!fresh.length) {
+        return;
       }
-      const pending = this.willStart.splice(0);
-      if (pending.length) {
-        this.ready = Promise.all(pending.map((fn) => fn())).then(() => {
-          if (this.status < STATUS.MOUNTED) {
-            this.status = STATUS.MOUNTED;
+      fresh.sort((p1, p2) => p1.sequence - p2.sequence);
+      const batches = [];
+      for (const ctor of fresh) {
+        const batch = batches[batches.length - 1];
+        if (batch && batch[0].sequence === ctor.sequence) {
+          batch.push(ctor);
+        } else {
+          batches.push([ctor]);
+        }
+      }
+      const startBatch = (batch) => {
+        scopeStack.push(this);
+        try {
+          for (const ctor of batch) {
+            this.startPlugin(ctor);
           }
-        });
-      } else if (this.status < STATUS.MOUNTED) {
-        this.status = STATUS.MOUNTED;
+        } finally {
+          scopeStack.pop();
+        }
+        const pending = this.willStart.splice(0);
+        return pending.length ? Promise.all(pending.map((fn) => fn())) : null;
+      };
+      let chain = this.hasPendingReady ? this.ready : null;
+      for (const batch of batches) {
+        if (chain) {
+          chain = chain.then(() => startBatch(batch));
+        } else {
+          chain = startBatch(batch);
+        }
       }
+      if (!chain) {
+        if (this.status < STATUS.MOUNTED) {
+          this.status = STATUS.MOUNTED;
+        }
+        return;
+      }
+      this.hasPendingReady = true;
+      const ready = this.ready = chain.then(() => {
+        if (this.status < STATUS.MOUNTED) {
+          this.status = STATUS.MOUNTED;
+        }
+        if (this.ready === ready) {
+          this.hasPendingReady = false;
+        }
+      });
     }
   };
   function startPlugins(manager, plugins) {
@@ -1368,7 +1548,7 @@ ${issueStrings}`);
     }
     return plugin2;
   }
-  function config(key, type, defaultValue) {
+  function config(key, type) {
     const scope = useScope();
     if (!(scope instanceof PluginManager)) {
       throw new OwlError("Expected to be in a plugin scope");
@@ -1376,8 +1556,8 @@ ${issueStrings}`);
     if (scope.app.dev && type) {
       assertType(scope.config, types.object({ [key]: type }), "Config does not match the type");
     }
-    const configValue = scope.config[key.endsWith("?") ? key.slice(0, -1) : key];
-    return configValue === void 0 ? defaultValue : configValue;
+    const configValue = scope.config[key];
+    return configValue === void 0 ? getDefault(type)?.() : configValue;
   }
   var EventBus = class extends EventTarget {
     trigger(name, payload) {
@@ -1423,7 +1603,7 @@ ${issueStrings}`);
   }
 
   // ../owl-runtime/dist/owl-runtime.es.js
-  var version = "3.0.0-alpha.33";
+  var version = "3.0.0-alpha.40";
   var fibersInError = /* @__PURE__ */ new WeakMap();
   var nodeErrorHandlers = /* @__PURE__ */ new WeakMap();
   function invokeErrorHandlers(node, error, finalize, markFibers) {
@@ -1513,7 +1693,7 @@ ${issueStrings}`);
       return false;
     }
   };
-  var txt = document.createTextNode("");
+  var txt = globalThis.document?.createTextNode("");
   var VToggler = class {
     key;
     child;
@@ -1703,20 +1883,20 @@ ${issueStrings}`);
     }
   }
   var CSS_PROP_CACHE = {};
-  function toKebabCase(prop2) {
-    if (prop2 in CSS_PROP_CACHE) {
-      return CSS_PROP_CACHE[prop2];
+  function toKebabCase(prop) {
+    if (prop in CSS_PROP_CACHE) {
+      return CSS_PROP_CACHE[prop];
     }
-    const result = prop2.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
-    CSS_PROP_CACHE[prop2] = result;
+    const result = prop.replace(/[A-Z]/g, (m) => "-" + m.toLowerCase());
+    CSS_PROP_CACHE[prop] = result;
     return result;
   }
   var IMPORTANT_RE = /\s*!\s*important\s*$/i;
-  function setStyleProp(style, prop2, value) {
+  function setStyleProp(style, prop, value) {
     if (IMPORTANT_RE.test(value)) {
-      style.setProperty(prop2, value.replace(IMPORTANT_RE, ""), "important");
+      style.setProperty(prop, value.replace(IMPORTANT_RE, ""), "important");
     } else {
-      style.setProperty(prop2, value);
+      style.setProperty(prop, value);
     }
   }
   function toStyleObj(expr) {
@@ -1760,19 +1940,19 @@ ${issueStrings}`);
           if (colonIdx === -1) {
             continue;
           }
-          const prop2 = trim.call(part.slice(0, colonIdx));
+          const prop = trim.call(part.slice(0, colonIdx));
           const value = trim.call(part.slice(colonIdx + 1));
-          if (prop2 && value && value !== "undefined") {
-            result[prop2] = value;
+          if (prop && value && value !== "undefined") {
+            result[prop] = value;
           }
         }
         return result;
       }
       case "object":
-        for (let prop2 in expr) {
-          const value = expr[prop2];
+        for (let prop in expr) {
+          const value = expr[prop];
           if (value || value === 0) {
-            result[toKebabCase(prop2)] = String(value);
+            result[toKebabCase(prop)] = String(value);
           }
         }
         return result;
@@ -1803,22 +1983,22 @@ ${issueStrings}`);
   function setStyle(val) {
     val = val === "" ? {} : toStyleObj(val);
     const style = this.style;
-    for (let prop2 in val) {
-      setStyleProp(style, prop2, val[prop2]);
+    for (let prop in val) {
+      setStyleProp(style, prop, val[prop]);
     }
   }
   function updateStyle(val, oldVal) {
     oldVal = oldVal === "" ? {} : toStyleObj(oldVal);
     val = val === "" ? {} : toStyleObj(val);
     const style = this.style;
-    for (let prop2 in oldVal) {
-      if (!(prop2 in val)) {
-        style.removeProperty(prop2);
+    for (let prop in oldVal) {
+      if (!(prop in val)) {
+        style.removeProperty(prop);
       }
     }
-    for (let prop2 in val) {
-      if (val[prop2] !== oldVal[prop2]) {
-        setStyleProp(style, prop2, val[prop2]);
+    for (let prop in val) {
+      if (val[prop] !== oldVal[prop]) {
+        setStyleProp(style, prop, val[prop]);
       }
     }
     if (!style.cssText) {
@@ -3310,11 +3490,20 @@ ${issueStrings}`);
     parent;
     children = /* @__PURE__ */ Object.create(null);
     willUpdateProps = [];
+    // Fired right after `props` is applied to `node.props` on a parent re-render,
+    // so reactive prop notifications happen once the new values are observable
+    // (after user `onWillUpdateProps` hooks, including async ones, have run).
+    propsUpdated = [];
     willUnmount = [];
     mounted = [];
     willPatch = [];
     patched = [];
     signalComputation;
+    // t-ref signals bound to an element hosted by this component, mapped to their
+    // atom (so the element can be read without subscribing). Swept by isConnected
+    // after each patch and after this subtree is removed, to unset a ref pointing
+    // at a bulk-removed element (slot host, enclosing t-if) — see sweepRefs.
+    trackedRefs = null;
     constructor(C, props2, app, parent, parentKey) {
       super(app);
       this.parent = parent;
@@ -3423,9 +3612,15 @@ ${issueStrings}`);
     }
     destroy() {
       let shouldRemove = this.status === STATUS.MOUNTED;
-      this._destroy();
+      removalDepth++;
+      try {
+        this._destroy();
+      } finally {
+        removalDepth--;
+      }
       if (shouldRemove) {
         this.bdom.remove();
+        sweepRemovedRefs();
       }
     }
     _destroy() {
@@ -3435,11 +3630,41 @@ ${issueStrings}`);
           cb.call(component);
         }
       }
+      if (removalDepth && this.trackedRefs) {
+        (removed ||= []).push(this);
+      }
       for (let childKey in this.children) {
         this.children[childKey]._destroy();
       }
       this.finalize((e) => handleError({ error: e, node: this }));
       disposeComputation(this.signalComputation);
+    }
+    /**
+     * Unset any tracked t-ref whose element is no longer in the document, and stop
+     * tracking it (createRef re-registers it on the next render if the element
+     * comes back). `isConnected` is the discriminator: a ref the block's own
+     * remove() failed to clear (bulk removal) points at a detached element and is
+     * cleared, while a ref a surviving sibling just took over (t-if/t-else with a
+     * shared signal) points at a still-connected element and is left alone.
+     *
+     * Called after this component's dom settles: at the tail of `_patch` (before
+     * user `onPatched`), so an element removed in place is caught, and — for the
+     * nodes collected during `_destroy` — after a removed subtree is detached.
+     */
+    sweepRefs() {
+      const refs = this.trackedRefs;
+      if (!refs) {
+        return;
+      }
+      for (const [ref2, atom] of refs) {
+        const el = atom.value;
+        if (!el) {
+          refs.delete(ref2);
+        } else if (!el.isConnected) {
+          ref2.set(null);
+          refs.delete(ref2);
+        }
+      }
     }
     /**
      * Finds a child that has dom that is not yet updated, and update it. This
@@ -3456,7 +3681,14 @@ ${issueStrings}`);
           child.updateDom();
         }
       } else {
-        this.bdom.patch(this.fiber.bdom, false);
+        removalDepth++;
+        try {
+          this.bdom.patch(this.fiber.bdom, false);
+        } finally {
+          removalDepth--;
+        }
+        this.sweepRefs();
+        sweepRemovedRefs();
         this.fiber.appliedToDom = true;
         this.fiber = null;
       }
@@ -3483,6 +3715,14 @@ ${issueStrings}`);
     moveBeforeVNode(other, afterNode) {
       this.bdom.moveBeforeVNode(other ? other.bdom : null, afterNode);
     }
+    /**
+     * Register a t-ref signal bound to an element this component hosts, so its
+     * lifecycle can clear it (see sweepRefs / _destroy). Idempotent — re-tracking
+     * the same signal on each render just refreshes its atom.
+     */
+    trackRef(ref2, atom) {
+      (this.trackedRefs ||= /* @__PURE__ */ new Map()).set(ref2, atom);
+    }
     patch() {
       if (this.fiber && this.fiber.parent) {
         this._patch();
@@ -3496,7 +3736,14 @@ ${issueStrings}`);
       }
       const fiber = this.fiber;
       this.children = fiber.childrenMap;
-      this.bdom.patch(fiber.bdom, hasChildren);
+      removalDepth++;
+      try {
+        this.bdom.patch(fiber.bdom, hasChildren);
+      } finally {
+        removalDepth--;
+      }
+      this.sweepRefs();
+      sweepRemovedRefs();
       fiber.appliedToDom = true;
       this.fiber = null;
     }
@@ -3507,6 +3754,17 @@ ${issueStrings}`);
       this.bdom.remove();
     }
   };
+  var removalDepth = 0;
+  var removed = null;
+  function sweepRemovedRefs() {
+    if (removalDepth === 0 && removed) {
+      const nodes = removed;
+      removed = null;
+      for (let i = 0; i < nodes.length; i++) {
+        nodes[i].sweepRefs();
+      }
+    }
+  }
   function getComponentScope() {
     const scope = useScope();
     if (!(scope instanceof ComponentNode)) {
@@ -3564,10 +3822,7 @@ ${issueStrings}`);
       }
       this.processing = true;
       this.frame = 0;
-      for (let node of this.cancelledNodes) {
-        node._destroy();
-      }
-      this.cancelledNodes.clear();
+      this.processCancelledNodes();
       for (let fiber of this.tasks) {
         if (fiber.root !== fiber) {
           this.tasks.delete(fiber);
@@ -3597,6 +3852,17 @@ ${issueStrings}`);
         }
       }
       this.processing = false;
+    }
+    processCancelledNodes() {
+      for (let node of this.cancelledNodes) {
+        node._destroy();
+      }
+      this.cancelledNodes.clear();
+      for (let task of this.tasks) {
+        if (task.node.status === STATUS.DESTROYED) {
+          this.tasks.delete(task);
+        }
+      }
     }
   };
   var Component = class {
@@ -3708,7 +3974,7 @@ ${issueStrings}`);
     }
     return toggler(safeKey, block);
   }
-  function createRef(ref2) {
+  function createRef(ref2, node) {
     if (!ref2) {
       throw new OwlError(`Ref is undefined or null`);
     }
@@ -3723,6 +3989,9 @@ ${issueStrings}`);
       remove2 = atom ? (prevEl) => {
         if (atom.value === prevEl) ref2.set(null);
       } : () => ref2.set(null);
+      if (atom) {
+        node.trackRef(ref2, atom);
+      }
     } else {
       throw new OwlError(
         `Ref should implement either a 'set' function or 'add' and 'delete' functions`
@@ -3843,6 +4112,7 @@ ${issueStrings}`);
               () => {
                 if (fiber !== node.fiber) return;
                 node.props = props2;
+                for (const f of node.propsUpdated) f();
                 fiber.render();
               },
               (error) => {
@@ -3851,6 +4121,7 @@ ${issueStrings}`);
             );
           } else {
             node.props = props2;
+            for (const f of node.propsUpdated) f();
             fiber.render();
           }
         }
@@ -4129,7 +4400,7 @@ ${issueStrings}`);
         destroy: () => {
           this.roots.delete(root);
           node?.destroy();
-          this.scheduler.processTasks();
+          this.scheduler.processCancelledNodes();
         }
       };
       this.roots.add(root);
@@ -4140,7 +4411,9 @@ ${issueStrings}`);
         root.destroy();
       }
       this.pluginManager.destroy();
-      this.scheduler.processTasks();
+      this.scheduler.processCancelledNodes();
+      this.scheduler.tasks.clear();
+      this.scheduler.delayedRenders = [];
       apps.delete(this);
       this.destroyed = true;
     }
@@ -4223,56 +4496,89 @@ ${issueStrings}`);
     }
     handlers.push(callback.bind(scope.component));
   }
+  function staticProp(key, type) {
+    const node = getComponentScope();
+    const defaultFactory = getDefault(type);
+    const propValue = node.props[key];
+    if (node.app.dev) {
+      if (type !== void 0 && (!defaultFactory || propValue !== void 0)) {
+        assertType(propValue, type, `Invalid prop '${key}' in '${node.componentName}'`);
+      }
+      node.willUpdateProps.push((nextProps) => {
+        if (nextProps[key] !== node.props[key]) {
+          throw new OwlError(
+            `Prop '${key}' changed in component '${node.componentName}'. Props declared with \`props.static()\` are static and should not change. If the prop is a signal, pass the same signal reference (its inner value may change).`
+          );
+        }
+      });
+    }
+    return propValue === void 0 && defaultFactory ? defaultFactory() : propValue;
+  }
   function componentType() {
     return constructorType(Component);
   }
-  var types2 = { ...types, component: componentType };
-  function validateDefaults(schema) {
-    const validation = {};
-    if (Array.isArray(schema)) {
-      for (const key of schema) {
-        if (key.endsWith("?")) {
-          validation[key] = types2.any();
-        }
-      }
-    } else {
-      for (const key in schema) {
-        if (key.endsWith("?")) {
-          validation[key] = schema[key];
+  var types2 = {
+    ...types,
+    component: componentType
+  };
+  function makeProps(type) {
+    const node = getComponentScope();
+    const { app, componentName } = node;
+    let defaults = null;
+    if (type && !Array.isArray(type)) {
+      for (const key in type) {
+        const factory = getDefault(type[key]);
+        if (factory) {
+          (defaults ||= {})[key] = factory();
         }
       }
     }
-    return types2.strictObject(validation);
-  }
-  function props(type, defaults) {
-    const node = getComponentScope();
-    const { app, componentName } = node;
     if (defaults) {
       node.defaultProps = Object.assign(node.defaultProps || {}, defaults);
     }
-    function getProp(key) {
-      if (node.props[key] === void 0 && defaults) {
+    function resolveValue(props2, key) {
+      if (props2[key] === void 0 && defaults && key in defaults) {
         return defaults[key];
       }
-      return node.props[key];
+      return props2[key];
     }
+    const signals = /* @__PURE__ */ Object.create(null);
     const result = /* @__PURE__ */ Object.create(null);
-    function applyPropGetters(keys) {
+    function defineProp(key) {
+      signals[key] = signal(resolveValue(node.props, key));
+      Reflect.defineProperty(result, key, {
+        enumerable: true,
+        configurable: true,
+        get: signals[key]
+      });
+    }
+    function defineProps(keys) {
       for (const key of keys) {
-        Reflect.defineProperty(result, key, {
-          enumerable: true,
-          get: getProp.bind(null, key)
-        });
+        defineProp(key);
+      }
+    }
+    function updateSignals(keys) {
+      for (const key of keys) {
+        signals[key].set(resolveValue(node.props, key));
       }
     }
     if (type) {
-      const keys = (Array.isArray(type) ? type : Object.keys(type)).map(
-        (key) => key.endsWith("?") ? key.slice(0, -1) : key
-      );
-      applyPropGetters(keys);
+      const keys = Array.isArray(type) ? type : Object.keys(type);
+      defineProps(keys);
+      node.propsUpdated.push(() => updateSignals(keys));
       if (app.dev) {
         if (defaults) {
-          assertType(defaults, validateDefaults(type), `Invalid component default props (${componentName})`);
+          const defaultedShape = {};
+          for (const key in type) {
+            if (key in defaults) {
+              defaultedShape[key] = type[key];
+            }
+          }
+          assertType(
+            defaults,
+            types2.object(defaultedShape),
+            `Invalid component default props (${componentName})`
+          );
         }
         const validation = types2.object(type);
         assertType(node.props, validation, `Invalid component props (${componentName})`);
@@ -4288,27 +4594,31 @@ ${issueStrings}`);
             keys2.push(k);
           }
         }
-        if (defaults) {
-          for (const k in defaults) {
-            if (!(k in props2)) {
-              keys2.push(k);
-            }
-          }
-        }
         return keys2;
       };
       let keys = getKeys(node.props);
-      applyPropGetters(keys);
-      node.willUpdateProps.push((np) => {
+      defineProps(keys);
+      node.propsUpdated.push(() => {
+        const nextKeys = getKeys(node.props);
+        const nextKeySet = new Set(nextKeys);
         for (const key of keys) {
-          Reflect.deleteProperty(result, key);
+          if (!nextKeySet.has(key)) {
+            Reflect.deleteProperty(result, key);
+            delete signals[key];
+          }
         }
-        keys = getKeys(np);
-        applyPropGetters(keys);
+        for (const key of nextKeys) {
+          if (!(key in signals)) {
+            defineProp(key);
+          }
+        }
+        updateSignals(nextKeys);
+        keys = nextKeys;
       });
     }
     return result;
   }
+  var props = Object.assign(makeProps, { static: staticProp });
   var ErrorBoundary = class extends Component {
     static template = xml`
     <t t-if="this.props.error()">
@@ -4318,7 +4628,7 @@ ${issueStrings}`);
       <t t-call-slot="default"/>
     </t>
   `;
-    props = props({ "error?": types2.signal() }, { error: signal(null) });
+    props = props({ error: types2.signal().optional(() => signal(null)) });
     setup() {
       onError((e) => this.props.error.set(e));
     }
@@ -4379,7 +4689,7 @@ ${issueStrings}`);
       <t t-call-slot="fallback"/>
     </t>
   `;
-    props = props({ slots: types2.object(["default", "fallback?"]) });
+    props = props({ slots: types2.object({ default: types2.any(), fallback: types2.any().optional() }) });
     prepared = signal(false);
     mounted = signal(false);
     subRootMounted = false;
@@ -4407,24 +4717,6 @@ ${issueStrings}`);
       onWillDestroy(() => root.destroy());
     }
   };
-  function prop(key, type, ...args) {
-    const node = getComponentScope();
-    const hasDefault = args.length > 0;
-    const propValue = node.props[key];
-    if (node.app.dev) {
-      if (type !== void 0 && (!hasDefault || propValue !== void 0)) {
-        assertType(propValue, type, `Invalid prop '${key}' in '${node.componentName}'`);
-      }
-      node.willUpdateProps.push((nextProps) => {
-        if (nextProps[key] !== node.props[key]) {
-          throw new OwlError(
-            `Prop '${key}' changed in component '${node.componentName}'. Props declared with \`prop()\` are static and should not change. If the prop is a signal, pass the same signal reference (its inner value may change).`
-          );
-        }
-      });
-    }
-    return propValue === void 0 && hasDefault ? args[0] : propValue;
-  }
   function providePlugins(pluginConstructors, config3) {
     const node = getComponentScope();
     const manager = new PluginManager(node.app, { parent: node.pluginManager, config: config3 });
@@ -4453,8 +4745,8 @@ ${issueStrings}`);
   };
   var __info__ = {
     version: App.version,
-    date: "2026-05-29T08:13:56.334Z",
-    hash: "867bd5c8",
+    date: "2026-06-26T12:30:41.410Z",
+    hash: "e74870c2",
     url: "https://github.com/odoo/owl"
   };
 
@@ -5985,7 +6277,7 @@ ${code}`;
       if (ast.ref) {
         const refExpr = compileExpr(ast.ref);
         this.helpers.add("createRef");
-        const setRefStr = `createRef(${refExpr})`;
+        const setRefStr = `createRef(${refExpr}, node)`;
         const idx = block.insertData(setRefStr, "ref");
         attrs["block-ref"] = String(idx);
       }

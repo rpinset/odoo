@@ -15,8 +15,8 @@ class TestWebsiteSaleProductTemplate(WebsiteSaleCommon):
         tax = self.env["account.tax"].create({"name": "Test tax", "amount": 10})
         product = self._create_product(list_price=100, taxes_id=[Command.link(tax.id)])
 
-        with self.mock_request():
-            configurator_price = self.env["product.template"]._get_configurator_display_price(
+        with self.mock_request() as request:
+            configurator_price = request.env["product.template"]._get_configurator_display_price(
                 product_or_template=product,
                 quantity=3,
                 date=datetime(2000, 1, 1),
@@ -45,25 +45,25 @@ class TestWebsiteSaleProductTemplate(WebsiteSaleCommon):
             ],
         })
         with self.mock_request():
-            markup_data = product_template._to_markup_data(self.website)
+            markup_data = product_template._prepare_jsonld_vals()
         self.assertEqual(markup_data["@type"], "ProductGroup")
         self.assertEqual(len(markup_data["hasVariant"]), 2)
 
     def test_markup_data_uses_product_schema_when_single_variant(self):
         product_template = self.env["product.template"].create({"name": "Test product"})
         with self.mock_request():
-            markup_data = product_template._to_markup_data(self.website)
+            markup_data = product_template._prepare_jsonld_vals()
         self.assertEqual(markup_data["@type"], "Product")
 
     def test_markup_data_uses_taxes_excluded_price_when_configured_on_website(self):
         self.env["res.config.settings"].create({
             "show_line_subtotals_tax_selection": "tax_excluded"
         }).execute()
-        with self.mock_request():
-            markup_data = self.product._to_markup_data(self.website)
+        with self.mock_request() as request:
+            markup_data = self.product.with_context(request.env.context)._prepare_jsonld_vals()
             self.assertEqual(
                 markup_data["offers"]["price"],
-                self.website.currency_id.round(self.product.base_unit_price),
+                request.env.website.currency_id.round(self.product.base_unit_price),
             )
 
     def test_markup_data_uses_taxes_included_price_when_configured_on_website(self):
@@ -73,7 +73,7 @@ class TestWebsiteSaleProductTemplate(WebsiteSaleCommon):
         self.product.price_extra = 10
         with self.mock_request():
             product_tmpl = self.product.product_tmpl_id
-            markup_data = self.product._to_markup_data(self.website)
+            markup_data = self.product._prepare_jsonld_vals()
             self.assertEqual(
                 markup_data["offers"]["price"],
                 self.website.currency_id.round(
@@ -91,7 +91,7 @@ class TestWebsiteSaleProductTemplate(WebsiteSaleCommon):
             .search([("name", "!=", company_currency.name)], limit=1)
         )
         with self.mock_request():
-            markup = self.product._to_markup_data(self.website)
+            markup = self.product.with_context(website_id=self.website.id)._prepare_jsonld_vals()
         # Expected converted price
         expected_price = company_currency._convert(
             self.product.list_price,
@@ -125,9 +125,14 @@ class TestWebsiteSaleProductTemplate(WebsiteSaleCommon):
             .with_context(active_test=False)
             .search([("name", "!=", company_currency.name)], limit=1)
         )
-        with self.mock_request():
+        with self.mock_request() as request:
             result = self.env["product.template"]._get_additional_combination_info(
-                self.product, 1.0, self.product.uom_id, self.website
+                self.product,
+                1.0,
+                self.product.uom_id,
+                self.website,
+                request.pricelist,
+                request.fiscal_position,
             )
         # Expected converted price
         expected_price = company_currency._convert(

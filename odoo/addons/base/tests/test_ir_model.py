@@ -184,7 +184,7 @@ class TestXMLID(TransactionCase):
             self.assertEqual((value._name, value.id), self.env.cr.fetchone(), message)
 
         xmlid = 'base.test_xmlid'
-        records = self.env['ir.model.data'].search([], limit=6)
+        records = self.env['ir.model.data'].search([], limit=7)
         with self.assertQueryCount(1):
             self.env['ir.model.data']._update_xmlids([
                 {'xml_id': xmlid, 'record': records[0]},
@@ -202,6 +202,15 @@ class TestXMLID(TransactionCase):
                 {'xml_id': xmlid, 'record': records[2]},
             ])
         assert_xmlid(xmlid, records[2], f'The xmlid {xmlid} should have been updated with record {records[1]}')
+
+        # _update_xmlids should invalidate ir.model.data
+        xmlid_split = xmlid.split('.')
+        xmlid_record = records.search([('module', '=', xmlid_split[0]), ('name', '=', xmlid_split[1])]).ensure_one()
+        self.assertEqual(xmlid_record.res_id, records[2].id)
+        self.env['ir.model.data']._update_xmlids([
+            {'xml_id': xmlid, 'record': records[6]},
+        ])
+        self.assertEqual(xmlid_record.res_id, records[6].id)
 
         # noupdate case
         # note: this part is mainly there to avoid breaking the current behaviour, not asserting that it makes sence
@@ -353,12 +362,6 @@ class TestEvalContext(TransactionCase):
 @tagged('-at_install', 'post_install')
 class TestIrModelFieldsTranslation(HttpCase):
     def test_ir_model_fields_translation(self):
-        # If not enabled (like in demo data), landing on res.config will try
-        # to disable module_sale_quotation_builder and raise an warning
-        group_order_template = self.env.ref('sale_management.group_sale_order_template', raise_if_not_found=False)
-        if group_order_template:
-            self.env.ref('base.group_user').write({"implied_ids": [(4, group_order_template.id)]})
-
         # modify en_US translation
         field = self.env['ir.model.fields'].search([('model_id.model', '=', 'res.users'), ('name', '=', 'login')])
         self.assertEqual(field.with_context(lang='en_US').field_description, 'Login')
@@ -409,8 +412,6 @@ class TestCommonCustomFields(TransactionCase):
         @self.addCleanup
         def check_registry():
             assert set(self.registry[self.MODEL]._fields) == fnames
-
-        self.addCleanup(self.drop_ormcaches)
 
         super().setUp()
         self.env.transaction.will_change_registry()
@@ -627,7 +628,7 @@ class TestCustomFields(TestCommonCustomFields):
         model_id = self.env['ir.model']._get_id('res.partner')
         query_count = 52
         with self.assertQueryCount(query_count):
-            self.env.registry.clear_cache()
+            self.env.transaction.invalidate_ormcache()
             self.env['ir.model.fields'].create({
                 'model_id': model_id,
                 'name': 'x_oh_box',
@@ -636,9 +637,9 @@ class TestCustomFields(TestCommonCustomFields):
                 'store': True,
             })
 
-        # same with a related field, it only takes 8 extra queries
-        with self.assertQueryCount(query_count + 8):
-            self.env.registry.clear_cache()
+        # same with a related field, it only takes 10 extra queries
+        with self.assertQueryCount(query_count + 10):
+            self.env.transaction.invalidate_ormcache()
             self.env['ir.model.fields'].create({
                 'model_id': model_id,
                 'name': 'x_oh_boy',
@@ -773,7 +774,7 @@ class TestCustomFieldsPostInstall(TestCommonCustomFields):
 
         # 1. Intermediate non-stored → should FAIL
         with self.assertRaises(UserError):
-            self.env.registry.clear_cache()
+            self.env.transaction.invalidate_ormcache()
             self.env['ir.model.fields'].create({
                 'model_id': model_id,
                 'name': 'x_fail_intermediate_non_stored',
@@ -784,7 +785,7 @@ class TestCustomFieldsPostInstall(TestCommonCustomFields):
             })
 
         # 2. Last non-stored → should PASS
-        self.env.registry.clear_cache()
+        self.env.transaction.invalidate_ormcache()
         field = self.env['ir.model.fields'].create({
             'model_id': model_id,
             'name': 'x_pass_last_non_stored',
@@ -796,7 +797,7 @@ class TestCustomFieldsPostInstall(TestCommonCustomFields):
         self.assertTrue(field)
 
         # 3. All stored → should PASS
-        self.env.registry.clear_cache()
+        self.env.transaction.invalidate_ormcache()
         field = self.env['ir.model.fields'].create({
             'model_id': model_id,
             'name': 'x_pass_all_stored',
@@ -808,7 +809,7 @@ class TestCustomFieldsPostInstall(TestCommonCustomFields):
         self.assertTrue(field)
 
         # 4. One non-stored → should PASS
-        self.env.registry.clear_cache()
+        self.env.transaction.invalidate_ormcache()
         field = self.env['ir.model.fields'].create({
             'model_id': model_id,
             'name': 'x_pass_single_non_stored',

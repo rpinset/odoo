@@ -98,6 +98,7 @@
                 <field name="active" invisible="1"/>
                 <header>
                     <button name="action_regenerate_overtimes"
+                        confirm="This will reset all manual edit on overtime period linked to those rules. Do you confirm ?"
                         class="btn"
                         string="Regenerate overtimes"
                         icon="fa-clock-o"
@@ -132,7 +133,8 @@
                             <field name="rate_combination_mode"/>
                         </group>
                         <group>
-                            <field name="country_id" options="{'no_create': True, 'no_open': True}" groups="base.group_multi_company"/>
+                            <field name="country_id" options="{'no_create': True, 'no_open': True}" readonly="company_id" force_save="1"/>
+                            <field name="company_id" options="{'no_create': True, 'no_open': True}" domain="[('id', 'in', allowed_company_ids)]"/>
                         </group>
                     </group>
                     <group colspan="4">
@@ -164,6 +166,7 @@
         <field name="arch" type="xml">
             <list>
                 <field name="name"/>
+                <field name="company_id" groups="base.group_multi_company" optional="hide"/>
                 <field name="country_id" groups="base.group_multi_company" optional="hide"/>
                 <field name="rate_combination_mode" string="Rate Mode"/>
                 <field name="rules_count"/>

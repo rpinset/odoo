@@ -5,7 +5,6 @@
     "depends": ["pos_restaurant", "http_routing", "link_tracker", "google_address_autocomplete", "base_geolocalize"],
     "auto_install": ["pos_restaurant"],
     "data": [
-        "security/ir.model.access.csv",
         "data/mail_template_data.xml",
         "data/preset_data.xml",
         "views/pos_self_order.index.xml",
@@ -21,6 +20,7 @@
         "views/point_of_sale_dashboard.xml",
         'receipt/pos_order_receipt.xml',
         'receipt/pos_order_change_receipt.xml',
+        'security/ir.access.csv',
     ],
     "demo": [
         "data/kiosk_demo_data.xml",
@@ -101,6 +101,7 @@
             "point_of_sale/static/src/app/components/order_display/*",
             "point_of_sale/static/src/app/components/orderline/*",
             "point_of_sale/static/src/app/components/centered_icon/*",
+            "point_of_sale/static/src/app/components/validation_animation/*",
             "point_of_sale/static/src/app/components/epos_templates.xml",
             "point_of_sale/static/src/css/pos_receipts.css",
             "pos_self_order/static/src/overrides/utils/printer/generate_printer_data.js",

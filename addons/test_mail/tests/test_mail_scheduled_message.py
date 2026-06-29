@@ -121,8 +121,11 @@ class TestScheduledMessageBusiness(TestScheduledMessage, CronMixinCase):
             self.schedule_message(self.test_record, scheduled_date='2022-12-24 10:00:00')
         # cannot schedule a message on a model without thread
         # with admin as employee does not have write access on res.users)
+        country = self.env['res.country'].search([], limit=1)
+        is_mail_thread = 'message_partner_ids' in country
+        self.assertFalse(is_mail_thread)
         with self.with_user("admin"), self.assertRaises(ValidationError):
-            self.schedule_message(self.user_employee)
+            self.schedule_message(country)
         scheduled_message = self.schedule_message(self.test_record)
         # cannot reschedule a message in the past
         with self.assertRaises(ValidationError):
@@ -166,7 +169,7 @@ class TestScheduledMessageBusiness(TestScheduledMessage, CronMixinCase):
                 body="fail",
             ).id
 
-            def _message_post_after_hook(self, message, values):
+            def _message_post_after_hook(self, message):
                 raise Exception("Boum!")
 
             with self.mock_datetime_and_now('2022-12-24 14:00:00'),\

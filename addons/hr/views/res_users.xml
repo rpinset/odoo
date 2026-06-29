@@ -102,7 +102,7 @@
                                     <field name="private_country_id" placeholder="Country" class="o_address_country" options='{"no_open": True, "no_create": True}'/>
                                 </div>
                                 <field name="private_email" string="Private Email"/>
-                                <field name="private_phone" string="Private Phone" class="o_force_ltr"/>
+                                <field name="private_phone" widget="phone" class="o_force_ltr" string="Private Phone"/>
                             </group>
                             <group string="Emergency Contact">
                                 <field name="emergency_contact" string="Contact Name" placeholder="e.g. John Doe"/>
@@ -273,6 +273,18 @@
                 </xpath>
                 <xpath expr="//page[@name='calendar']" position="attributes">
                     <attribute name="groups">hr.group_hr_user</attribute>
+                </xpath>
+            </field>
+        </record>
+
+        <record id="res_users_view_list" model="ir.ui.view">
+            <field name="name">res.users.view.list.inherit.hr</field>
+            <field name="model">res.users</field>
+            <field name="inherit_id" ref="base.view_users_tree"/>
+            <field name="arch" type="xml">
+                <xpath expr="//field[@name='role']" position="after">
+                    <field name="job_title" optional="hide"/>
+                    <field name="department_id" optional="hide"/>
                 </xpath>
             </field>
         </record>

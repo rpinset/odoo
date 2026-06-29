@@ -620,7 +620,7 @@ class TestPointOfSaleHttpCommon(AccountTestInvoicingHttpCommon):
             {'name': 'Partner Test 2'},
             {'name': 'Partner Test 3'},
             {
-                'name': 'Partner Full',
+                'name': 'APartner Full',
                 'email': 'partner.full@example.com',
                 'street': '77 Santa Barbara Rd',
                 'city': 'Pleasant Hill',
@@ -1747,6 +1747,7 @@ class TestUi(TestPointOfSaleHttpCommon):
     def test_order_refund_flow(self):
         self.main_pos_config.with_user(self.pos_user).open_ui()
         self.start_pos_tour('test_order_refund_flow')
+        self.assertEqual(self.env['mail.mail'].search_count([('email_to', '=', 'test@narendradamodardasmodi.com')]), 1)
 
     def test_refund_few_quantities(self):
         """ Test to check that refund works with quantities of less than 0.5 """
@@ -3075,7 +3076,6 @@ class TestUi(TestPointOfSaleHttpCommon):
             'use_fast_payment': True,
             'fast_payment_method_ids': [(6, 0, self.bank_payment_method.ids)],
             'iface_print_auto': True,
-            'iface_print_skip_screen': True,
             'other_devices': True,
             'receipt_printer_ids': [Command.set(pos_printer.ids)],
         })
@@ -3197,8 +3197,8 @@ class TestUi(TestPointOfSaleHttpCommon):
     def test_automatic_receipt_printing(self):
         self.main_pos_config.write({
             'iface_print_auto': True,
-            'iface_print_skip_screen': True,
             'receipt_printer_ids': [self.printer.id],
+            'other_devices': True,
         })
 
         self.main_pos_config.with_user(self.pos_user).open_ui()

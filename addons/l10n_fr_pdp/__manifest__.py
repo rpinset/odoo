@@ -8,14 +8,12 @@
 """,
     'depends': [
         'l10n_fr_account',
-        'account_peppol_response',
-        'auth_totp_mail',
+        'account_peppol',
         'iap',
     ],
-    'auto_install': ['l10n_fr_account', 'auth_totp_mail'],
+    'auto_install': ['l10n_fr_account'],
     'data': [
         'data/ir_cron.xml',
-        'security/ir.model.access.csv',
         'views/account_journal_dashboard_views.xml',
         'views/account_move_views.xml',
         'views/account_peppol_response_views.xml',
@@ -27,11 +25,14 @@
         'wizard/pdp_config_wizard.xml',
         'wizard/pdp_registration_views.xml',
         'wizard/pdp_response_wizard_views.xml',
-    ],
-    'demo': [
-        'demo/demo.xml',
+        'security/ir.access.csv',
     ],
     'author': 'Odoo S.A.',
+    'assets': {
+        'web.assets_backend': [
+            'l10n_fr_pdp/static/src/js/**',
+        ],
+    },
     'license': 'LGPL-3',
     'pre_init_hook': '_pre_init_pdp',
     'post_init_hook': '_post_init_pdp',

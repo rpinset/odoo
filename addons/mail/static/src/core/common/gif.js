@@ -1,32 +1,10 @@
-import { Component, signal } from "@odoo/owl";
+import { Component, props, signal, t } from "@odoo/owl";
 
 import { KeepLast } from "@web/core/utils/concurrency";
 import { memoize } from "@web/core/utils/functions";
 
-/**
- * @typedef {Object} Props
- * @property {string} src
- * @property {string} [alt]
- * @property {string} [class]
- * @property {string} [loading]
- * @property {((event: Event) => void)} [onLoad]
- * @property {((event: Event) => void)} [onClick]
- * @property {boolean} [paused]
- * @property {string} [style]
- * @extends {Component<Props, Env>}
- */
 export class Gif extends Component {
     static template = "mail.Gif";
-    static props = {
-        src: String,
-        alt: { type: String, optional: true },
-        class: { type: String, optional: true },
-        loading: { type: String, optional: true },
-        onLoad: { type: Function, optional: true },
-        onClick: { type: Function, optional: true },
-        paused: { type: Boolean, optional: true },
-        style: { type: String, optional: true },
-    };
     static components = {};
 
     generateGifSnapshot = memoize((src) => {
@@ -49,6 +27,16 @@ export class Gif extends Component {
 
     setup() {
         this.snapshot = signal(null);
+        this.props = props({
+            alt: t.string().optional(),
+            class: t.string().optional(),
+            loading: t.selection(["eager", "lazy"]).optional(),
+            onClick: t.function([]).optional(),
+            onLoad: t.function([t.instanceOf(Event)]).optional(),
+            paused: t.boolean().optional(),
+            src: t.string(),
+            style: t.string().optional(),
+        });
         this.keepLast = new KeepLast();
     }
 

@@ -29,20 +29,22 @@ def MockRequest(  # noqa: N802
     **kwargs,
 ):
     with websiteMockRequest(*args, **kwargs) as request:
+        website = request.env.website
+
         if sale_order_id is not None:
             request.session[CART_SESSION_CACHE_KEY] = sale_order_id
-        request.cart = lazy(request.website._get_and_cache_current_cart)
+        request.cart = lazy(website._get_and_cache_current_cart)
 
         if website_sale_current_pl is not None:
             request.session[PRICELIST_SESSION_CACHE_KEY] = website_sale_current_pl
-        request.pricelist = lazy(request.website._get_and_cache_current_pricelist)
+        request.pricelist = lazy(website._get_and_cache_current_pricelist)
 
         if website_sale_selected_pl_id is not None:
             request.session[PRICELIST_SELECTED_SESSION_CACHE_KEY] = website_sale_selected_pl_id
 
         if fiscal_position_id is not None:
             request.session[FISCAL_POSITION_SESSION_CACHE_KEY] = fiscal_position_id
-        request.fiscal_position = lazy(request.website._get_and_cache_current_fiscal_position)
+        request.fiscal_position = lazy(website._get_and_cache_current_fiscal_position)
 
         yield request
 
@@ -51,6 +53,11 @@ class WebsiteSaleCommon(DeliveryCommon):
     @classmethod
     def setUpClass(cls):
         super().setUpClass()
+
+        if "payment_stripe" in cls.env["ir.module.module"]._installed():
+            cls.env["payment.provider"].search([
+                ("code", "=", "stripe")
+            ]).allow_express_checkout = False
 
         cls.website = cls.env.company.website_id
         if not cls.website:
@@ -145,7 +152,7 @@ class WebsiteSaleCommon(DeliveryCommon):
         website = website or self.website
         user = user or website.user_id
 
-        request_env = self.env(user=user)
+        request_env = self.env(user=user, context=dict(self.env, website_id=website.id))
         website = website.with_env(request_env)
 
         def make_json_response(data, *_args, **_kwargs):

@@ -20,11 +20,13 @@ from zlib import adler32
 from odoo.api import Environment
 from odoo.tools import config, consteq, get_lang
 
+from . import request
+from .geoip import GeoIP
+
 if typing.TYPE_CHECKING:
     from collections.abc import Iterable
 
     from .requestlib import Request
-
 
 _logger = logging.getLogger('odoo.http')
 
@@ -184,7 +186,11 @@ class Session(MutableMapping):
 def get_default_session() -> dict:
     """ The dictionary to initialise a new session with. """
     return {
-        'context': {},  # 'lang': request.default_lang()  # must be set at runtime
+        'context': {
+            # the following keys must be set at runtime:
+            # 'lang': request.default_lang(),
+            # 'host_id': env['ir.http']._get_host_id_from_domain(request.httprequest.host),
+        },
         'create_time': time.time(),
         'db': None,
         'debug': '',
@@ -653,8 +659,3 @@ def save_session(request: Request, env: Environment | None = None) -> None:
             max_age=get_session_max_inactivity(env),
             httponly=True,
         )
-
-
-# ruff: noqa: E402
-from .geoip import GeoIP
-from .requestlib import request
