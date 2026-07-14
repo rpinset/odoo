@@ -6,7 +6,7 @@ from markupsafe import Markup
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools import frozendict, html2plaintext
+from odoo.tools import formatLang, frozendict
 
 from odoo.addons.l10n_fr_pdp.models.account_edi_proxy_user import STATUS_TO_PROCESS_CONDITION_CODE_PDP
 from odoo.addons.l10n_fr_pdp.models.account_edi_xml_ubl_21_fr import PDP_CUSTOMIZATION_ID
@@ -249,16 +249,132 @@ class AccountMove(models.Model):
 
     def _l10n_fr_pdp_get_default_notes(self):
         self.ensure_one()
-        # Mandatory / default notes for French e-invoicing [BR-FR-05]
-        # Only add them when using PDP
-        if self.company_id._get_peppol_proxy_type() != 'pdp':
+        # Mandatory / default notes for French e-invoicing [BR-FR-05 / BR-FR-07]
+        # Applicable to any French company, whether or not it sends through PDP
+        # (the mentions are legally required on the invoice itself, not only on PDP flows).
+        if not self.l10n_fr_is_company_french:
             return {}
-        payment_term = self.invoice_payment_term_id
-        return {
+        notes = {
             'PMT': self.env._("In the event of late payment, a flat-rate fee of €40 for collection costs will be charged (Articles L.441-10 and D.441-5 of the Code de commerce)."),
             'PMD': self.env._("Late payment penalties at an annual rate of 10% are applied if the payment is made after the due date."),
-            'AAB': html2plaintext(payment_term.note) if payment_term.early_discount else self.env._("No discount for early payment."),
+            'AAB': self._l10n_fr_pdp_get_early_discount_note(),
         }
+        if legal_form_note := self._l10n_fr_pdp_get_legal_form_note():
+            notes['REG'] = legal_form_note
+        if rcs_note := self._l10n_fr_pdp_get_rcs_note():
+            notes['ABL'] = rcs_note
+        notes['AAI'] = self._l10n_fr_pdp_get_seller_contact_note()
+        return notes
+
+    def _l10n_fr_pdp_get_profile_id(self):
+        """[BT-23] French billing framework code (B1, S1, M1, B2, …) for UBL and CII."""
+        self.ensure_one()
+        paid_states = frozenset({'in_payment', 'paid'})
+        tax_scopes = set(self.invoice_line_ids.tax_ids.mapped('tax_scope'))
+        profile_scope = 'B'
+        if {'service', 'consu'}.issubset(tax_scopes):
+            profile_scope = 'M'
+        elif 'service' in tax_scopes:
+            profile_scope = 'S'
+
+        profile_number = '1'
+        if self.payment_state in paid_states:
+            profile_number = '2'
+        elif not self._is_downpayment() and self.invoice_line_ids._get_downpayment_lines():
+            profile_number = '4'
+        return f'{profile_scope}{profile_number}'
+
+    def _l10n_fr_pdp_has_vat_on_debits(self):
+        """Whether the invoice is subject to the French VAT-on-debits option (Art. 269-2-c CGI)."""
+        self.ensure_one()
+        return (
+            self.move_type.startswith('out_')
+            and 'on_invoice' in self.invoice_line_ids.tax_ids.mapped('tax_exigibility')
+        )
+
+    def _l10n_fr_pdp_get_vat_on_debits_note(self):
+        """PDF mention for the VAT-on-debits option (Art. 269-2-c CGI).
+
+        XML export uses BT-8 instead of a coded note: UBL `cbc:DescriptionCode` = 3 and
+        CII `ram:DueDateTypeCode` = 5 per XP Z12-012 (TVD is not a UNCL4451 subject code).
+        """
+        self.ensure_one()
+        if self._l10n_fr_pdp_has_vat_on_debits():
+            return self.env._("Option to pay tax on debits")
+        return None
+
+    def _l10n_fr_pdp_get_early_discount_note(self):
+        """[BR-FR-05] #AAB# — early payment discount conditions (Art. L441-3 / D441-5 Code de commerce).
+
+        Built from the structured `discount_percentage` / `discount_days` fields so it is
+        generated for every `early_pay_discount_computation` mode (excluded/included/mixed),
+        not only when a free-text note has been filled on the payment term.
+        """
+        self.ensure_one()
+        payment_term = self.invoice_payment_term_id
+        if not payment_term.early_discount or not payment_term.discount_percentage:
+            return self.env._("No discount for early payment.")
+        return self.env._(
+            "Early payment discount of %(percentage)s%% granted if payment is made within %(days)s days.",
+            percentage=payment_term.discount_percentage,
+            days=payment_term.discount_days,
+        )
+
+    def _l10n_fr_pdp_get_company_legal_form_text(self):
+        """[BT-33] Legal form + share capital, without the company name (already carried
+        separately by cbc:RegistrationName / #REG# note)."""
+        self.ensure_one()
+        company = self.company_id
+        if not company.l10n_fr_legal_form:
+            return None
+        selection = dict(company._fields['l10n_fr_legal_form']._description_selection(self.env))
+        legal_form_label = selection.get(company.l10n_fr_legal_form, company.l10n_fr_legal_form)
+        if not company.l10n_fr_share_capital:
+            return legal_form_label
+        return self.env._(
+            "%(legal_form)s with a share capital of %(capital)s %(currency)s",
+            legal_form=legal_form_label,
+            capital=formatLang(self.env, company.l10n_fr_share_capital, currency_obj=company.currency_id),
+            currency=company.currency_id.name,
+        )
+
+    def _l10n_fr_pdp_get_legal_form_note(self):
+        """[BR-FR-05] #REG# — company name, legal form and share capital (Art. R.123-237 Code de commerce)."""
+        self.ensure_one()
+        legal_form_text = self._l10n_fr_pdp_get_company_legal_form_text()
+        if not legal_form_text:
+            return None
+        return self.env._("%(name)s, %(legal_form)s", name=self.company_id.name, legal_form=legal_form_text)
+
+    def _l10n_fr_pdp_get_rcs_note(self):
+        """[BR-FR-05] #ABL# — registration at the Trade and Companies Register (RCS)."""
+        self.ensure_one()
+        company = self.company_id
+        siren = company.partner_id._l10n_fr_pdp_get_siren()
+        city = company.city or company.state_id.name
+        if not siren or not city:
+            return None
+        return self.env._(
+            "Registered under No. %(siren)s at the Trade and Companies Register (RCS) of %(city)s",
+            siren=siren,
+            city=city,
+        )
+
+    def _l10n_fr_pdp_get_seller_contact_note(self):
+        """[BR-FR-05] #AAI# — seller contact details (address, phone/email/website, VAT number)."""
+        self.ensure_one()
+        company = self.company_id
+        address = ', '.join(filter(None, [
+            company.street,
+            company.street2,
+            ' '.join(filter(None, [company.zip, company.city])),
+            company.country_id.name,
+        ]))
+        contact = ' - '.join(filter(None, [company.phone, company.email, company.website]))
+        parts = [part for part in (address, contact) if part]
+        if company.vat:
+            parts.append(self.env._("VAT No: %(vat)s", vat=company.vat))
+        return ' – '.join(parts)
 
     @api.model
     def _get_ubl_cii_builder_from_xml_tree(self, tree):

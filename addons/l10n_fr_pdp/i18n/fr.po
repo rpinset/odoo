@@ -946,6 +946,9 @@ msgid ""
 "In the event of late payment, a flat-rate fee of €40 for collection costs "
 "will be charged (Articles L.441-10 and D.441-5 of the Code de commerce)."
 msgstr ""
+"En cas de retard de paiement, une indemnité forfaitaire de 40 € pour frais "
+"de recouvrement sera exigée (Articles L.441-10 et D.441-5 du Code de "
+"commerce)."
 
 #. module: l10n_fr_pdp
 #: model_terms:ir.ui.view,arch_db:l10n_fr_pdp.res_config_settings_view_form
@@ -1102,6 +1105,8 @@ msgid ""
 "Late payment penalties at an annual rate of 10% are applied if the payment "
 "is made after the due date."
 msgstr ""
+"Des pénalités de retard au taux annuel de 10% sont appliquées si le "
+"paiement est effectué après la date d'échéance."
 
 #. module: l10n_fr_pdp
 #: model:ir.model.fields.selection,name:l10n_fr_pdp.selection__pdp_response_wizard__reason_code__non_conforme
@@ -1241,7 +1246,43 @@ msgstr ""
 #. odoo-python
 #: code:addons/l10n_fr_pdp/models/account_move.py:0
 msgid "No discount for early payment."
-msgstr ""
+msgstr "Aucun escompte accordé en cas de paiement anticipé."
+
+#. module: l10n_fr_pdp
+#. odoo-python
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid "Early payment discount of %(percentage)s%% granted if payment is made within %(days)s days."
+msgstr "Escompte de %(percentage)s%% accordé en cas de paiement sous %(days)s jours."
+
+#. module: l10n_fr_pdp
+#. odoo-python
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid "%(legal_form)s with a share capital of %(capital)s %(currency)s"
+msgstr "%(legal_form)s au capital de %(capital)s %(currency)s"
+
+#. module: l10n_fr_pdp
+#. odoo-python
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid "%(name)s, %(legal_form)s"
+msgstr "%(name)s, %(legal_form)s"
+
+#. module: l10n_fr_pdp
+#. odoo-python
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid "Registered under No. %(siren)s at the Trade and Companies Register (RCS) of %(city)s"
+msgstr "Immatriculée sous le n° %(siren)s au Registre du Commerce et des Sociétés (RCS) de %(city)s"
+
+#. module: l10n_fr_pdp
+#. odoo-python
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid "VAT No: %(vat)s"
+msgstr "N° TVA : %(vat)s"
+
+#. module: l10n_fr_pdp
+#. odoo-python
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid "Option to pay tax on debits"
+msgstr "Option pour le paiement de la taxe d'après les débits"
 
 #. module: l10n_fr_pdp
 #. odoo-python

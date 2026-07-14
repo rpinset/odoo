@@ -9,7 +9,12 @@
   <cbc:Note>#PMT#In the event of late payment, a flat-rate fee of €40 for collection costs will be charged (Articles L.441-10 and D.441-5 of the Code de commerce).</cbc:Note>
   <cbc:Note>#PMD#Late payment penalties at an annual rate of 10% are applied if the payment is made after the due date.</cbc:Note>
   <cbc:Note>#AAB#No discount for early payment.</cbc:Note>
+  <cbc:Note>#ABL#Registered under No. 968515759 at the Trade and Companies Register (RCS) of Rennes</cbc:Note>
+  <cbc:Note>#AAI#Rue Abbé Huet, 35043 Rennes, France – +33612345678 – VAT No: FR91746948785</cbc:Note>
   <cbc:DocumentCurrencyCode>EUR</cbc:DocumentCurrencyCode>
+  <cac:InvoicePeriod>
+    <cbc:DescriptionCode>3</cbc:DescriptionCode>
+  </cac:InvoicePeriod>
   <cac:OrderReference>
     <cbc:ID>Reversal of: INV/2017/00001</cbc:ID>
   </cac:OrderReference>

@@ -866,13 +866,13 @@ msgid ""
 "VATEX-FR-CNWVAT - France domestic Credit Notes without VAT, due to supplier "
 "forfeit of VAT for discount"
 msgstr ""
-"VATEX-FR-CNWVAT - France domestic Credit Notes without VAT, due to supplier "
-"forfeit of VAT for discount"
+"VATEX-FR-CNWVAT - Avoir domestique français sans TVA, en raison de "
+"l'abandon de la TVA sur remise par le fournisseur"
 
 #. module: account_edi_ubl_cii_tax_extension
 #: model:ir.model.fields.selection,name:account_edi_ubl_cii_tax_extension.selection__account_tax__ubl_cii_tax_exemption_reason_code__vatex_fr-franchise
 msgid "VATEX-FR-FRANCHISE - France domestic VAT franchise in base"
-msgstr "VATEX-FR-FRANCHISE - France domestic VAT franchise in base"
+msgstr "VATEX-FR-FRANCHISE - Franchise en base de TVA (art. 293 B du CGI)"
 
 #. module: account_edi_ubl_cii_tax_extension
 #: model:ir.model.fields.selection,name:account_edi_ubl_cii_tax_extension.selection__account_tax__ubl_cii_tax_category_code__z

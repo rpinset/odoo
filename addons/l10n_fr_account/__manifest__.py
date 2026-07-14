@@ -33,6 +33,7 @@ configuration of their taxes and fiscal positions manually.
         'base_vat',
         'account',
         'l10n_fr',
+        'account_edi_ubl_cii_tax_extension',
     ],
     'auto_install': ['account'],
     'data': [
@@ -41,6 +42,7 @@ configuration of their taxes and fiscal positions manually.
         'data/tax_report_data.xml',
         'views/report_invoice.xml',
         'views/res_partner_views.xml',
+        'views/res_company_views.xml',
         'wizard/account_fr_fec_export_wizard_view.xml',
         'security/ir.model.access.csv',
         'data/res.bank.csv',

@@ -19,7 +19,9 @@ class AccountMove(models.Model):
     @api.depends('company_id.country_code')
     def _compute_l10n_fr_is_company_french(self):
         for record in self:
-            record.l10n_fr_is_company_french = record.country_code in record.company_id._get_france_country_codes()
+            record.l10n_fr_is_company_french = (
+                record.company_id.country_code in record.company_id._get_france_country_codes()
+            )
 
     @api.depends("country_code", "move_type")
     def _compute_show_delivery_date(self):
