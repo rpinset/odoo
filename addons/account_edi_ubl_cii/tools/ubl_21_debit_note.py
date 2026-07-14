@@ -49,6 +49,7 @@ DebitNote = {
     'cac:Signature': cac.Signature,
     'cac:AccountingSupplierParty': cac.SupplierParty,
     'cac:AccountingCustomerParty': cac.CustomerParty,
+    'cac:TaxRepresentativeParty': cac.Party,
     'cac:SellerSupplierParty': cac.SupplierParty,
     'cac:PrepaidPayment': cac.PrepaidPayment,
     'cac:AllowanceCharge': cac.AllowanceCharge,

@@ -131,6 +131,7 @@ Party = {
     'cac:PartyLegalEntity': {
         'cbc:RegistrationName': {},
         'cbc:CompanyID': {},
+        'cbc:CompanyLegalForm': {},
         'cac:RegistrationAddress': Address,
         'cac:CorporateRegistrationScheme': {
             'cbc:ID': {},

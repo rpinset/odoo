@@ -673,6 +673,150 @@ msgid "L10N Fr Rounding Difference Profit Account"
 msgstr "Compte de bénéfice de différence d'arrondi"
 
 #. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_legal_form
+msgid "Legal Form (FR)"
+msgstr "Forme juridique (FR)"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_legal_form
+msgid ""
+"Legal form of the company. Used to build the mandatory legal mention on "
+"invoices (Art. R.123-237 of the Code de commerce)."
+msgstr ""
+"Forme juridique de la société. Utilisée pour construire la mention légale "
+"obligatoire sur les factures (Art. R.123-237 du Code de commerce)."
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__ei
+msgid "EI"
+msgstr "EI"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__eurl
+msgid "EURL"
+msgstr "EURL"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sarl
+msgid "SARL"
+msgstr "SARL"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sas
+msgid "SAS"
+msgstr "SAS"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sasu
+msgid "SASU"
+msgstr "SASU"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sa
+msgid "SA"
+msgstr "SA"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__snc
+msgid "SNC"
+msgstr "SNC"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sci
+msgid "SCI"
+msgstr "SCI"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__scs
+msgid "SCS"
+msgstr "SCS"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sca
+msgid "SCA"
+msgstr "SCA"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__scop
+msgid "SCOP"
+msgstr "SCOP"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__association
+msgid "Association loi 1901"
+msgstr "Association loi 1901"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__other
+msgid "Other"
+msgstr "Autre"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_share_capital
+msgid "Share Capital"
+msgstr "Capital social"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_share_capital
+msgid ""
+"Share capital of the company. Used to build the mandatory legal mention on "
+"invoices when the legal form is a company with share capital (Art. R.123-"
+"237 of the Code de commerce)."
+msgstr ""
+"Capital social de la société. Utilisé pour construire la mention légale "
+"obligatoire sur les factures lorsque la forme juridique est une société à "
+"capital (Art. R.123-237 du Code de commerce)."
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_is_tva_group_member
+msgid "Member of a VAT Group (Assujetti Unique)"
+msgstr "Membre d'un groupe TVA (assujetti unique)"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_is_tva_group_member
+msgid ""
+"Check this box if this company is a member of a VAT group (\"assujetti "
+"unique\", Art. 256 C of the Code Général des Impôts). The VAT group's "
+"SIREN and VAT number must then be reported on this company's invoices "
+"(DGFiP use case #29)."
+msgstr ""
+"Cocher cette case si cette société est membre d'un groupe TVA (« assujetti "
+"unique », art. 256 C du Code Général des Impôts). Le SIREN et le numéro de "
+"TVA de l'assujetti unique doivent alors figurer sur les factures de cette "
+"société (cas d'usage DGFiP n°29)."
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_tva_group_id
+msgid "VAT Group (Assujetti Unique)"
+msgstr "Groupe TVA (assujetti unique)"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_tva_group_id
+msgid ""
+"The VAT group (\"assujetti unique\") this company is a member of. Its "
+"SIREN and VAT number are reported on the invoices issued by this company "
+"(DGFiP use case #29, Art. 256 C of the Code Général des Impôts)."
+msgstr ""
+"Le groupe TVA (« assujetti unique ») dont cette société est membre. Son "
+"SIREN et son numéro de TVA sont reportés sur les factures émises par "
+"cette société (cas d'usage DGFiP n°29, art. 256 C du Code Général des "
+"Impôts)."
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_tva_group_siren
+msgid "VAT Group SIREN"
+msgstr "SIREN du groupe TVA"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_tva_group_siren
+msgid ""
+"SIREN of the VAT group (\"assujetti unique\"), derived from its SIRET/"
+"company registry."
+msgstr ""
+"SIREN de l'assujetti unique, dérivé de son SIRET/identifiant "
+"d'entreprise."
+
+#. module: l10n_fr_account
 #: model:ir.model.fields,field_description:l10n_fr_account.field_l10n_fr_fec_export_wizard__write_uid
 msgid "Last Updated by"
 msgstr "Mis à jour par"
