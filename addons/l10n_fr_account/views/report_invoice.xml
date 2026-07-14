@@ -56,6 +56,18 @@
                     Option to pay tax on debits
                 </p>
             </div>
+            <!-- [Art. L.441-10 / R.123-237 Code de commerce] Mandatory legal mentions -->
+            <div class="mb-3" name="l10n_fr_legal_mentions" t-if="o.l10n_fr_is_company_french and o.move_type.startswith('out_')">
+                <p t-if="o._l10n_fr_get_legal_registration_mention()" class="mb-0">
+                    <span t-out="o._l10n_fr_get_legal_registration_mention()"/>
+                </p>
+                <p class="mb-0">
+                    <span t-out="o._l10n_fr_get_late_payment_mention()"/>
+                </p>
+                <p class="mb-0">
+                    <span t-out="o._l10n_fr_get_early_discount_mention()"/>
+                </p>
+            </div>
         </xpath>
     </template>
 </odoo>

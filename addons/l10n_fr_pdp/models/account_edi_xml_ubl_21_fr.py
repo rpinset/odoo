@@ -1,6 +1,10 @@
+import re
+
 from odoo import models
 
 from odoo.addons.account_edi_ubl_cii.models.account_edi_common import FloatFmt
+
+NOTE_CODE_RE = re.compile(r'^#([A-Z]{3})#')
 
 PDP_CUSTOMIZATION_ID = 'urn:cen.eu:en16931:2017'  # Not accepted by SuperPDP due to missing validator
 
@@ -63,22 +67,7 @@ class AccountEdiXmlUbl21Fr(models.AbstractModel):
         # B7 : Dépôt d'une facture de bien ayant fait l'objet d'un e-reporting (TVA déjà collectée)
         # S7 : Dépôt d'une facture de prestation de service ayant fait l'objet d'un e-reporting (TVA déjà collectée)
 
-        tax_scopes = set(invoice.invoice_line_ids.tax_ids.mapped('tax_scope'))
-        profile_scope = "B"
-        if {'service', 'consu'}.issubset(tax_scopes):
-            profile_scope = "M"
-        elif 'service' in tax_scopes:
-            profile_scope = "S"
-
-        profile_number = "1"
-        if invoice.payment_state in PAID_STATES:
-            # Already paid
-            profile_number = "2"
-        elif not invoice._is_downpayment() and invoice.invoice_line_ids._get_downpayment_lines():
-            # After downpayment
-            profile_number = "4"
-
-        profile_id = f"{profile_scope}{profile_number}"
+        profile_id = invoice._l10n_fr_pdp_get_profile_id()
         document_node.update({
             'cbc:CustomizationID': {'_text': PDP_CUSTOMIZATION_ID},
             'cbc:ProfileID': {'_text': profile_id},
@@ -89,8 +78,17 @@ class AccountEdiXmlUbl21Fr(models.AbstractModel):
         existing_note = document_node.get('cbc:Note')
         if not existing_note or not isinstance(document_node.get('cbc:Note'), list):
             document_node['cbc:Note'] = [existing_note] if existing_note else []
+        # [BR-FR-06] A coded note (#XXX#...) must not occur more than once: skip codes
+        # already present on the invoice (e.g. manually added by the user).
+        existing_codes = {
+            match.group(1)
+            for note in document_node['cbc:Note']
+            if isinstance(note, dict) and (match := NOTE_CODE_RE.match(note.get('_text') or ''))
+        }
         # Add default notes
         for code, default_content in invoice._l10n_fr_pdp_get_default_notes().items():
+            if code in existing_codes:
+                continue
             document_node['cbc:Note'].append({
                 '_text': f"#{code}#{default_content}",
             })
@@ -103,6 +101,28 @@ class AccountEdiXmlUbl21Fr(models.AbstractModel):
                     'cbc:IssueDate': {'_text': invoice.reversed_entry_id.invoice_date},
                 }
             }
+
+    def _ubl_add_buyer_reference_node(self, vals):
+        super()._ubl_add_buyer_reference_node(vals)
+        invoice = vals['invoice']
+        if invoice._l10n_fr_pdp_has_vat_on_debits():
+            vals['document_node']['cac:InvoicePeriod'] = {
+                'cbc:DescriptionCode': {'_text': '3'},
+            }
+
+    def _add_invoice_payment_terms_nodes(self, document_node, vals):
+        # EXTENDS account_edi_ubl_cii
+        super()._add_invoice_payment_terms_nodes(document_node, vals)
+        invoice = vals['invoice']
+        payment_term = invoice.invoice_payment_term_id
+        if not payment_term.early_discount or not payment_term.discount_percentage:
+            return
+        # [BT-20] Structured early payment discount note, generated for every
+        # `early_pay_discount_computation` mode instead of relying only on the free-text
+        # note field on the payment term (G5).
+        document_node.setdefault('cac:PaymentTerms', {})['cbc:Note'] = {
+            '_text': invoice._l10n_fr_pdp_get_early_discount_note(),
+        }
 
     def _ubl_add_party_identification_nodes(self, vals):
         super()._ubl_add_party_identification_nodes(vals)
@@ -132,6 +152,12 @@ class AccountEdiXmlUbl21Fr(models.AbstractModel):
                 'schemeID': '0002',
             },
         }
+        # [BT-33] CompanyLegalForm: only applies to the seller (BG-4), built from the
+        # legal form and share capital of the invoicing company.
+        if partner == vals.get('supplier'):
+            invoice = vals['invoice']
+            if legal_form_text := invoice._l10n_fr_pdp_get_company_legal_form_text():
+                vals['party_node']['cac:PartyLegalEntity']['cbc:CompanyLegalForm'] = {'_text': legal_form_text}
 
     def _ubl_add_line_price_node(self, vals, in_foreign_currency=True):
         # OVERRIDE

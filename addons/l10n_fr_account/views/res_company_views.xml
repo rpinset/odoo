@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <record id="res_company_form_l10n_fr" model="ir.ui.view">
+        <field name="name">res.company.form.l10n.fr</field>
+        <field name="model">res.company</field>
+        <field name="inherit_id" ref="base.view_company_form"/>
+        <field name="arch" type="xml">
+            <xpath expr="//field[@name='company_registry']" position="after">
+                <field name="l10n_fr_legal_form" invisible="country_code != 'FR'"/>
+                <field name="l10n_fr_share_capital" invisible="country_code != 'FR' or not l10n_fr_legal_form or l10n_fr_legal_form in ('ei', 'association')"/>
+            </xpath>
+        </field>
+    </record>
+</odoo>

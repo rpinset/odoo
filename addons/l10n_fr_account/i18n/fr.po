@@ -673,6 +673,101 @@ msgid "L10N Fr Rounding Difference Profit Account"
 msgstr "Compte de bénéfice de différence d'arrondi"
 
 #. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_legal_form
+msgid "Legal Form (FR)"
+msgstr "Forme juridique (FR)"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_legal_form
+msgid ""
+"Legal form of the company. Used to build the mandatory legal mention on "
+"invoices (Art. R.123-237 of the Code de commerce)."
+msgstr ""
+"Forme juridique de la société. Utilisée pour construire la mention légale "
+"obligatoire sur les factures (Art. R.123-237 du Code de commerce)."
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__ei
+msgid "EI"
+msgstr "EI"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__eurl
+msgid "EURL"
+msgstr "EURL"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sarl
+msgid "SARL"
+msgstr "SARL"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sas
+msgid "SAS"
+msgstr "SAS"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sasu
+msgid "SASU"
+msgstr "SASU"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sa
+msgid "SA"
+msgstr "SA"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__snc
+msgid "SNC"
+msgstr "SNC"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sci
+msgid "SCI"
+msgstr "SCI"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__scs
+msgid "SCS"
+msgstr "SCS"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__sca
+msgid "SCA"
+msgstr "SCA"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__scop
+msgid "SCOP"
+msgstr "SCOP"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__association
+msgid "Association loi 1901"
+msgstr "Association loi 1901"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__res_company__l10n_fr_legal_form__other
+msgid "Other"
+msgstr "Autre"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_res_company__l10n_fr_share_capital
+msgid "Share Capital"
+msgstr "Capital social"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,help:l10n_fr_account.field_res_company__l10n_fr_share_capital
+msgid ""
+"Share capital of the company. Used to build the mandatory legal mention on "
+"invoices when the legal form is a company with share capital (Art. R.123-"
+"237 of the Code de commerce)."
+msgstr ""
+"Capital social de la société. Utilisé pour construire la mention légale "
+"obligatoire sur les factures lorsque la forme juridique est une société à "
+"capital (Art. R.123-237 du Code de commerce)."
+
+#. module: l10n_fr_account
 #: model:ir.model.fields,field_description:l10n_fr_account.field_l10n_fr_fec_export_wizard__write_uid
 msgid "Last Updated by"
 msgstr "Mis à jour par"
@@ -721,6 +816,42 @@ msgstr "Opérations réalisées dans les DOM"
 #: model_terms:ir.ui.view,arch_db:l10n_fr_account.report_invoice_document
 msgid "Option to pay tax on debits"
 msgstr "Option pour le paiement de la taxe d'après les débits"
+
+#. module: l10n_fr_account
+#. odoo-python
+#: code:addons/l10n_fr_account/models/account_move.py:0
+msgid "RCS %(city)s %(siren)s"
+msgstr "RCS %(city)s %(siren)s"
+
+#. module: l10n_fr_account
+#. odoo-python
+#: code:addons/l10n_fr_account/models/account_move.py:0
+msgid "%(legal_form)s with a share capital of %(capital)s %(currency)s"
+msgstr "%(legal_form)s au capital de %(capital)s %(currency)s"
+
+#. module: l10n_fr_account
+#. odoo-python
+#: code:addons/l10n_fr_account/models/account_move.py:0
+msgid ""
+"In the event of late payment, penalties at an annual rate of 10% will be "
+"applied, together with a flat-rate indemnity of €40 for collection costs "
+"(Articles L.441-10 and D.441-5 of the Code de commerce)."
+msgstr ""
+"En cas de retard de paiement, des pénalités au taux annuel de 10% seront "
+"appliquées, ainsi qu'une indemnité forfaitaire de 40 € pour frais de "
+"recouvrement (Articles L.441-10 et D.441-5 du Code de commerce)."
+
+#. module: l10n_fr_account
+#. odoo-python
+#: code:addons/l10n_fr_account/models/account_move.py:0
+msgid "No discount for early payment."
+msgstr "Aucun escompte accordé en cas de paiement anticipé."
+
+#. module: l10n_fr_account
+#. odoo-python
+#: code:addons/l10n_fr_account/models/account_move.py:0
+msgid "Early payment discount of %(percentage)s%% granted if payment is made within %(days)s days."
+msgstr "Escompte de %(percentage)s%% accordé en cas de paiement sous %(days)s jours."
 
 #. module: l10n_fr_account
 #: model_terms:ir.ui.view,arch_db:l10n_fr_account.fec_export_wizard_view
