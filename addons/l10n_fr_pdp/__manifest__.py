@@ -19,6 +19,7 @@
         'security/ir.model.access.csv',
         'views/account_journal_dashboard_views.xml',
         'views/account_move_views.xml',
+        'views/cii_facturx_templates.xml',
         'views/account_peppol_response_views.xml',
         'views/l10n_fr_account_inherit.xml',
         'views/pdp_flow_views.xml',

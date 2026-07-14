@@ -6,7 +6,7 @@ from markupsafe import Markup
 
 from odoo import api, fields, models
 from odoo.exceptions import UserError, ValidationError
-from odoo.tools import frozendict, html2plaintext
+from odoo.tools import frozendict, formatLang, html2plaintext
 
 from odoo.addons.l10n_fr_pdp.models.account_edi_proxy_user import STATUS_TO_PROCESS_CONDITION_CODE_PDP
 from odoo.addons.l10n_fr_pdp.models.account_edi_xml_ubl_21_fr import PDP_CUSTOMIZATION_ID
@@ -254,11 +254,52 @@ class AccountMove(models.Model):
         if self.company_id._get_peppol_proxy_type() != 'pdp':
             return {}
         payment_term = self.invoice_payment_term_id
-        return {
+        notes = {
             'PMT': self.env._("In the event of late payment, a flat-rate fee of €40 for collection costs will be charged (Articles L.441-10 and D.441-5 of the Code de commerce)."),
             'PMD': self.env._("Late payment penalties at an annual rate of 10% are applied if the payment is made after the due date."),
             'AAB': html2plaintext(payment_term.note) if payment_term.early_discount else self.env._("No discount for early payment."),
         }
+        if deee_note := self._l10n_fr_pdp_get_deee_note():
+            notes['BLU'] = deee_note
+        return notes
+
+    def _l10n_fr_pdp_get_profile_id(self):
+        """[BT-23] French billing framework code (B1, S1, M1, B2, …) for UBL and CII."""
+        self.ensure_one()
+        paid_states = frozenset({'in_payment', 'paid'})
+        tax_scopes = set(self.invoice_line_ids.tax_ids.mapped('tax_scope'))
+        profile_scope = 'B'
+        if {'service', 'consu'}.issubset(tax_scopes):
+            profile_scope = 'M'
+        elif 'service' in tax_scopes:
+            profile_scope = 'S'
+
+        profile_number = '1'
+        if self.payment_state in paid_states:
+            profile_number = '2'
+        elif not self._is_downpayment() and self.invoice_line_ids._get_downpayment_lines():
+            profile_number = '4'
+        return f'{profile_scope}{profile_number}'
+
+    def _l10n_fr_pdp_get_deee_note(self):
+        """Return the [BR-FR-07] mandatory note listing the eco-participation (DEEE) amounts
+        included in the invoice, per Art. L.541-10-20 of the Code de l'environnement."""
+        self.ensure_one()
+        deee_lines = self.invoice_line_ids.filtered('l10n_fr_deee_amount')
+        if not deee_lines:
+            return False
+        detail = ", ".join(
+            f"{line.product_id.display_name}: {line.l10n_fr_deee_amount:.2f} {self.currency_id.symbol}"
+            for line in deee_lines
+        )
+        total = sum(deee_lines.mapped('l10n_fr_deee_amount'))
+        return self.env._(
+            "Eco-participation (WEEE) included: %(detail)s — Total: %(total)s %(currency)s "
+            "(Art. L.541-10-20 of the Code de l'environnement).",
+            detail=detail,
+            total=formatLang(self.env, total, digits=2),
+            currency=self.currency_id.symbol,
+        )
 
     @api.model
     def _get_ubl_cii_builder_from_xml_tree(self, tree):

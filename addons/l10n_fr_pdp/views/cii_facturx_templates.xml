@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<odoo>
+    <template id="account_invoice_facturx_export_22_fr_context" inherit_id="account_edi_ubl_cii.account_invoice_facturx_export_22">
+        <!-- [BT-23] Billing framework (B1, S1, M1, …) — CII BusinessProcessSpecifiedDocumentContextParameter. -->
+        <xpath expr="//*[local-name()='ExchangedDocumentContext']/*[local-name()='GuidelineSpecifiedDocumentContextParameter']" position="before">
+            <ram:BusinessProcessSpecifiedDocumentContextParameter
+                xmlns:ram="urn:un:unece:uncefact:data:standard:ReusableAggregateBusinessInformationEntity:100"
+                t-if="business_process_profile_id">
+                <ram:ID t-out="business_process_profile_id"/>
+            </ram:BusinessProcessSpecifiedDocumentContextParameter>
+        </xpath>
+    </template>
+</odoo>

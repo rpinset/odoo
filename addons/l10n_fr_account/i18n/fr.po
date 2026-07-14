@@ -438,6 +438,73 @@ msgstr ""
 "produits pétroliers)"
 
 #. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__gem
+msgid "Large household appliances"
+msgstr "Gros électroménager"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__pam
+msgid "Small household appliances"
+msgstr "Petit électroménager"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__ecran
+msgid "Screens and monitors"
+msgstr "Écrans et moniteurs"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__eclairage
+msgid "Lighting equipment"
+msgstr "Matériel d'éclairage"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__petit_it
+msgid "Small IT and telecom equipment"
+msgstr "Petit matériel informatique et de télécommunications"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__outillage
+msgid "Electric and electronic tools"
+msgstr "Outils électriques et électroniques"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields.selection,name:l10n_fr_account.selection__product_template__l10n_fr_deee_category__other
+msgid "Other electrical/electronic equipment"
+msgstr "Autre équipement électrique ou électronique"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_product_template__l10n_fr_deee_category
+msgid "DEEE Category (FR)"
+msgstr "Catégorie DEEE (FR)"
+
+#. module: l10n_fr_account
+#: model:ir.model.fields,field_description:l10n_fr_account.field_product_template__l10n_fr_deee_amount
+#: model:ir.model.fields,field_description:l10n_fr_account.field_account_move_line__l10n_fr_deee_amount
+#: model_terms:ir.ui.view,arch_db:l10n_fr_account.product_template_only_form_view_deee
+msgid "Eco-Participation (DEEE)"
+msgstr "Éco-participation (DEEE)"
+
+#. module: l10n_fr_account
+#: model_terms:ir.ui.view,arch_db:l10n_fr_account.report_invoice_document
+msgid "Including"
+msgstr "Dont"
+
+#. module: l10n_fr_account
+#: model_terms:ir.ui.view,arch_db:l10n_fr_account.report_invoice_document
+msgid "eco-participation (WEEE)"
+msgstr "d'éco-participation (DEEE)"
+
+#. module: l10n_fr_account
+#: model_terms:ir.ui.view,arch_db:l10n_fr_account.report_invoice_document
+msgid "Eco-participation (WEEE) included in the total price:"
+msgstr "Éco-participation (DEEE) incluse dans le prix total :"
+
+#. module: l10n_fr_account
+#: model_terms:ir.ui.view,arch_db:l10n_fr_account.report_invoice_document
+msgid "(Art. L.541-10-20 of the Code de l'environnement)."
+msgstr "(Art. L.541-10-20 du Code de l'environnement)."
+
+#. module: l10n_fr_account
 #: model_terms:ir.ui.view,arch_db:l10n_fr_account.fec_export_wizard_view
 msgid "EcritureDate"
 msgstr "EcritureDate"

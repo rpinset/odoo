@@ -617,6 +617,15 @@ msgid "E-reports %s sent"
 msgstr ""
 
 #. module: l10n_fr_pdp
+#: code:addons/l10n_fr_pdp/models/account_move.py:0
+msgid ""
+"Eco-participation (WEEE) included: %(detail)s — Total: %(total).2f "
+"%(currency)s (Art. L.541-10-20 of the Code de l'environnement)."
+msgstr ""
+"Éco-participation (DEEE) incluse : %(detail)s — Total : %(total).2f "
+"%(currency)s (Art. L.541-10-20 du Code de l'environnement)."
+
+#. module: l10n_fr_pdp
 #: model:ir.model.fields,field_description:l10n_fr_pdp.field_pdp_registration__edi_mode
 msgid "EDI mode"
 msgstr ""

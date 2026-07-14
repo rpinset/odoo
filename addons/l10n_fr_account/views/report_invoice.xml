@@ -57,5 +57,26 @@
                 </p>
             </div>
         </xpath>
+
+        <xpath expr="//td[@name='account_invoice_line_name']" position="inside">
+            <p t-if="o.l10n_fr_is_company_french and line.l10n_fr_deee_amount" class="text-muted fst-italic mb-0">
+                Including
+                <span t-field="line.l10n_fr_deee_amount" t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/>
+                eco-participation (WEEE)
+            </p>
+        </xpath>
+
+        <xpath expr="//div[@name='qr_code_placeholder']" position="before">
+            <div class="mb-3" t-if="o.l10n_fr_is_company_french and o.move_type.startswith('out_') and any(l.l10n_fr_deee_amount for l in o.invoice_line_ids)">
+                <p>
+                    Eco-participation (WEEE) included in the total price:
+                    <t t-foreach="o.invoice_line_ids.filtered('l10n_fr_deee_amount')" t-as="deee_line">
+                        <span t-field="deee_line.product_id.display_name"/>:
+                        <span t-field="deee_line.l10n_fr_deee_amount" t-options="{'widget': 'monetary', 'display_currency': o.currency_id}"/><t t-if="not deee_line_last">, </t>
+                    </t>
+                    (Art. L.541-10-20 of the Code de l'environnement).
+                </p>
+            </div>
+        </xpath>
     </template>
 </odoo>
