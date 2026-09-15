@@ -23,7 +23,7 @@
         <ram:SubjectCode>PMT</ram:SubjectCode>
     </ram:IncludedNote>
     <ram:IncludedNote>
-        <ram:Content>Late payment penalties at an annual rate of 10% are applied if the payment is made after the due date.</ram:Content>
+        <ram:Content>Penalties corresponding to the European Central Bank (ECB) base rate plus 10 percentage points will apply in the absence of payment or in case of late payment.</ram:Content>
         <ram:SubjectCode>PMD</ram:SubjectCode>
     </ram:IncludedNote>
     <ram:IncludedNote>
