@@ -19,6 +19,17 @@ class TestL10nFrPdpXml(TestL10nFrPdpCommon):
         self._send_patched(invoice)
         self._assert_invoice_ubl_file(invoice, "ubl_21_fr_out_invoice")
 
+    def test_export_invoice_pmd_custom_penalty_rate(self):
+        self.company.write({'l10n_fr_pdp_late_payment_penalty_rate': 12.5})
+        invoice = self._create_french_invoice()
+        invoice.action_post()
+        xml_bytes, errors = self.env['account.edi.xml.ubl_21_fr']._export_invoice(invoice)
+        self.assertFalse(errors, errors)
+        self.assertIn(
+            b'#PMD#Late payment penalties at an annual rate of 12.5% are applied if the payment is made after the due date.',
+            xml_bytes,
+        )
+
     def test_export_invoice_partner_fr_without_pdp(self):
         """
         A French Peppol proxy user must have the BR-FR-05 mandatory notes
