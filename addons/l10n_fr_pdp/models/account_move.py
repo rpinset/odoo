@@ -688,10 +688,23 @@ class AccountMove(models.Model):
         # All other cases: International
         return 'b2bi'
 
+    def _refunds_origin_required(self):
+        # French UBL export rejects a credit note that is not linked to its invoice.
+        # _set_reversed_entry only writes reversed_entry_id when this returns True.
+        if self.company_id.account_fiscal_country_id.code == 'FR':
+            return True
+        return super()._refunds_origin_required()
+
     def _need_ubl_cii_xml(self, invoice_edi_format):
         self.ensure_one()
         builder = self.partner_id.commercial_partner_id._get_edi_builder(invoice_edi_format)
-        if 'email' not in self.env.context.get('sending_method', []) or not invoice_edi_format or not builder:
+        # Abstract builders (ubl_21_fr) are empty recordsets: bool(builder) is False.
+        if (
+            'email' not in self.env.context.get('sending_method', [])
+            or not invoice_edi_format
+            or builder is None
+            or not getattr(builder, '_name', None)
+        ):
             return super()._need_ubl_cii_xml(invoice_edi_format)
 
         _xml_content, errors = builder._export_invoice(self)
