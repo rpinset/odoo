@@ -12,6 +12,10 @@ from odoo.addons.l10n_fr_pdp.utils import _get_matching_auth_record
 
 PDP_identifier_re = re.compile(r'^([0-9]{9})(_[0-9]{14})?(_.+)?$')
 
+# Optional Studio columns. No stored Python field on stable models.
+STUDIO_PMD_RATE_FIELD = 'x_studio_peppol_late_payment_penalty_rate'
+STUDIO_PMD_SNAPSHOT_FIELD = 'x_studio_peppol_late_payment_penalties_rate'
+
 _logger = logging.getLogger(__name__)
 
 ENDPOINT = 'https://pdp.odoo.com'
@@ -275,3 +279,97 @@ class ResCompany(models.Model):
             pdp_registration = _get_matching_auth_record(self.env['pdp.registration'], self.pdp_authentication_uuid)
             if user := pdp_registration.create_uid:
                 self.env['bus.bus']._sendone(user.partner_id, 'auth_done', {'pdp_registration_id': pdp_registration.id})
+
+    def _l10n_fr_pdp_get_pmd_rate(self):
+        """Contractual annual rate, or 0 when the Studio field is absent or empty."""
+        self.ensure_one()
+        field = self._fields.get(STUDIO_PMD_RATE_FIELD)
+        if not field or field.type not in ('float', 'monetary'):
+            return 0.0
+        return self[STUDIO_PMD_RATE_FIELD] or 0.0
+
+    def _l10n_fr_pdp_set_pmd_rate(self, rate):
+        self.ensure_one()
+        field = self._fields.get(STUDIO_PMD_RATE_FIELD)
+        if field and field.type in ('float', 'monetary'):
+            self[STUDIO_PMD_RATE_FIELD] = rate or 0.0
+
+    def _l10n_fr_pdp_format_pmd_note(self, rate, configured):
+        """#PMD# wording. Unconfigured databases keep the historical 10% sentence."""
+        self.ensure_one()
+        if not configured:
+            return _(
+                "Late payment penalties at an annual rate of 10% are applied if the payment is made after the due date."
+            )
+        if not rate:
+            return _(
+                "Penalties corresponding to the European Central Bank (ECB) base rate plus 10 percentage points "
+                "will apply in the absence of payment or in case of late payment."
+            )
+        if rate == int(rate):
+            rate_display = '%g' % rate
+        else:
+            rate_display = ('%.2f' % rate).rstrip('0').rstrip('.')
+        return _(
+            "Late payment penalties at an annual rate of %(rate)s%% are applied if the payment is made after the due date.",
+            rate=rate_display,
+        )
+
+    @api.model
+    def _register_peppol_pmd_studio_fields(self):
+        """Create the #PMD# Studio floats when missing. No module xmlid."""
+        IrField = self.env['ir.model.fields'].sudo()
+        specs = (
+            (
+                'res.company',
+                STUDIO_PMD_RATE_FIELD,
+                'Late Payment Penalty Rate',
+                True,
+                'Annual rate (%) for the #PMD# note. Empty uses the ECB base rate plus 10 points.',
+            ),
+            (
+                'account.move',
+                STUDIO_PMD_SNAPSHOT_FIELD,
+                'Late Payment Penalties Rate',
+                False,
+                'Rate snapshotted when the invoice is posted.',
+            ),
+        )
+        need_setup = []
+        for model_name, name, label, copied, help_txt in specs:
+            existing = IrField.search([('model', '=', model_name), ('name', '=', name)], limit=1)
+            if existing:
+                if existing.state != 'manual' or existing.readonly:
+                    self.env.cr.execute(
+                        """
+                        UPDATE ir_model_fields
+                           SET state = 'manual', readonly = false
+                         WHERE id = %s
+                        """,
+                        (existing.id,),
+                    )
+                    existing.invalidate_recordset(['state', 'readonly'])
+                    need_setup.append(model_name)
+                elif name not in self.env[model_name]._fields:
+                    need_setup.append(model_name)
+                continue
+            IrField.create({
+                'name': name,
+                'field_description': label,
+                'model': model_name,
+                'model_id': self.env['ir.model']._get(model_name).id,
+                'ttype': 'float',
+                'state': 'manual',
+                'copied': copied,
+                'readonly': False,
+                'help': help_txt,
+            })
+            need_setup.append(model_name)
+        if need_setup:
+            self.env.flush_all()
+            self.pool.setup_models(self.env.cr)
+            self.pool.init_models(
+                self.env.cr,
+                list(dict.fromkeys(need_setup)),
+                dict(self.env.context, update_custom_fields=True),
+            )

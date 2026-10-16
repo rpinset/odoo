@@ -9,6 +9,7 @@ from odoo.exceptions import UserError, ValidationError
 from odoo.tools import frozendict, html2plaintext
 
 from odoo.addons.l10n_fr_pdp.models.account_edi_proxy_user import STATUS_TO_PROCESS_CONDITION_CODE_PDP
+from odoo.addons.l10n_fr_pdp.models.res_company import STUDIO_PMD_RATE_FIELD, STUDIO_PMD_SNAPSHOT_FIELD
 from odoo.addons.l10n_fr_pdp.models.account_edi_xml_ubl_21_fr import PDP_CUSTOMIZATION_ID, CPRO_CUSTOMIZATION_ID
 from odoo.addons.l10n_fr_pdp.models.account_peppol_response import NEW_STATUSES
 from odoo.addons.l10n_fr_pdp.models.pdp_flow import FLOW_OPEN_STATES_SELECTION, FLOW_SENT_STATES, FLOW_SENT_STATES_SELECTION
@@ -273,7 +274,7 @@ class AccountMove(models.Model):
         payment_term = self.invoice_payment_term_id
         return {
             'PMT': _("In the event of late payment, a flat-rate fee of €40 for collection costs will be charged (Articles L.441-10 and D.441-5 of the Code de commerce)."),
-            'PMD': _("Late payment penalties at an annual rate of 10% are applied if the payment is made after the due date."),
+            'PMD': self._l10n_fr_pdp_get_pmd_note(),
             'AAB': html2plaintext(payment_term.note) if payment_term.early_discount else _("No discount for early payment."),
         }
 
@@ -297,8 +298,34 @@ class AccountMove(models.Model):
         wizard = self.env['pdp.response.wizard'].create({'move_ids': pdp_moves.ids, **wizard_kwargs})
         return wizard._get_records_action(name=_("Send Response Message"), target='new')
 
+    def _l10n_fr_pdp_get_pmd_note(self):
+        """#PMD# from the Studio rate. Absent fields keep the historical 10% sentence."""
+        self.ensure_one()
+        snapshot = self._fields.get(STUDIO_PMD_SNAPSHOT_FIELD)
+        if self.state == 'posted' and snapshot and snapshot.type in ('float', 'monetary'):
+            return self.company_id._l10n_fr_pdp_format_pmd_note(self[STUDIO_PMD_SNAPSHOT_FIELD] or 0.0, True)
+        company_field = self.company_id._fields.get(STUDIO_PMD_RATE_FIELD)
+        if company_field and company_field.type in ('float', 'monetary'):
+            return self.company_id._l10n_fr_pdp_format_pmd_note(self.company_id._l10n_fr_pdp_get_pmd_rate(), True)
+        return self.company_id._l10n_fr_pdp_format_pmd_note(0.0, False)
+
+    def _l10n_fr_pdp_snapshot_pmd_rate(self):
+        """Freeze the company rate on the invoice when the Studio snapshot column exists."""
+        for move in self:
+            field = move._fields.get(STUDIO_PMD_SNAPSHOT_FIELD)
+            if (
+                move.state != 'posted'
+                or not field
+                or field.type not in ('float', 'monetary')
+                or not move.is_sale_document(include_receipts=False)
+                or not move.company_id._peppol_is_french_company()
+            ):
+                continue
+            move[STUDIO_PMD_SNAPSHOT_FIELD] = move.company_id._l10n_fr_pdp_get_pmd_rate()
+
     def _post(self, soft=True):
         res = super(AccountMove, self.with_context(l10n_fr_pdp_skip_ereporting_tracking=True))._post(soft)
+        self._l10n_fr_pdp_snapshot_pmd_rate()
         pdp_moves = self.filtered(lambda move: move.state == 'posted')
         # The e-reporting chatter message must use the final values in the same transaction.
         # Recompute the chained fields in dependency order before logging it.

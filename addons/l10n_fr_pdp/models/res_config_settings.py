@@ -38,6 +38,12 @@ class ResConfigSettings(models.TransientModel):
         related='company_id.l10n_fr_pdp_registered',
         string="Approved Platform Registered",
     )
+    l10n_fr_pdp_late_payment_penalty_rate = fields.Float(
+        string="Late Payment Penalty Rate",
+        compute='_compute_l10n_fr_pdp_late_payment_penalty_rate',
+        inverse='_inverse_l10n_fr_pdp_late_payment_penalty_rate',
+        help="Annual rate (%) for the #PMD# note. Empty uses the ECB base rate plus 10 points.",
+    )
     l10n_fr_pdp_periodicity = fields.Selection(
         string="Flow 10 Report Periodicity",
         related='company_id.l10n_fr_pdp_periodicity', readonly=False,
@@ -76,6 +82,15 @@ class ResConfigSettings(models.TransientModel):
     def _compute_l10n_fr_pdp_pilot_phase(self):
         for record in self:
             record.l10n_fr_pdp_pilot_phase = record.company_id.l10n_fr_pdp_pilot_phase
+
+    @api.depends('company_id')
+    def _compute_l10n_fr_pdp_late_payment_penalty_rate(self):
+        for settings in self:
+            settings.l10n_fr_pdp_late_payment_penalty_rate = settings.company_id._l10n_fr_pdp_get_pmd_rate()
+
+    def _inverse_l10n_fr_pdp_late_payment_penalty_rate(self):
+        for settings in self:
+            settings.company_id._l10n_fr_pdp_set_pmd_rate(settings.l10n_fr_pdp_late_payment_penalty_rate)
 
     def _inverse_l10n_fr_pdp_pilot_phase(self):
         pass

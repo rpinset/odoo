@@ -14,6 +14,7 @@
     ],
     'auto_install': ['l10n_fr'],
     'data': [
+        'data/pmd_studio_fields.xml',
         'data/ir_cron.xml',
         'security/ir.model.access.csv',
         'views/account_journal_dashboard_views.xml',
